@@ -1,0 +1,8 @@
+# Configuration Netlify pour Next.js complet (formulaire fonctionnel).
+# Nécessite un déploiement connecté à un dépôt Git (GitHub/GitLab) —
+# le glisser-déposer ne fonctionne plus une fois qu'une route API est utilisée.
+[build]
+  command = "npm run build"
+
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
