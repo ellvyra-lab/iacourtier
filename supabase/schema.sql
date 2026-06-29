@@ -86,7 +86,91 @@ create index if not exists generations_user_id_created_at_idx
   on public.generations (user_id, created_at desc);
 
 -- ------------------------------------------------------------
--- 3. Limites par forfait (référence pour l'API — pas une table,
+-- 3. MANDATS — dossiers de propriété réutilisables par les
+--    générateurs IA du tableau de bord.
+-- ------------------------------------------------------------
+create table if not exists public.mandats (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  address text,
+  city text,
+  property_type text,
+  asking_price text,
+  mls_number text,
+  bedrooms text,
+  bathrooms text,
+  garage text,
+  parking text,
+  pool text,
+  basement text,
+  fireplace text,
+  air_conditioning text,
+  living_area text,
+  land_area text,
+  year_built text,
+  highlights text,
+  marketing_style text,
+  created_at timestamptz default now()
+);
+
+alter table public.mandats enable row level security;
+
+create policy "Les utilisateurs voient leurs propres mandats"
+  on public.mandats for select
+  using (auth.uid() = user_id);
+
+create policy "Les utilisateurs créent leurs propres mandats"
+  on public.mandats for insert
+  with check (auth.uid() = user_id);
+
+create policy "Les utilisateurs modifient leurs propres mandats"
+  on public.mandats for update
+  using (auth.uid() = user_id);
+
+create policy "Les utilisateurs suppriment leurs propres mandats"
+  on public.mandats for delete
+  using (auth.uid() = user_id);
+
+create index if not exists mandats_user_id_created_at_idx
+  on public.mandats (user_id, created_at desc);
+
+-- ------------------------------------------------------------
+-- 4. GENERATED_DESCRIPTIONS — descriptions de propriété liées
+--    optionnellement à un mandat.
+-- ------------------------------------------------------------
+create table if not exists public.generated_descriptions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  mandat_id text,
+  property_type text,
+  city text,
+  price text,
+  generated_text text not null,
+  created_at timestamptz default now()
+);
+
+alter table public.generated_descriptions enable row level security;
+
+create policy "Les utilisateurs voient leurs descriptions"
+  on public.generated_descriptions for select
+  using (auth.uid() = user_id);
+
+create policy "Les utilisateurs créent leurs descriptions"
+  on public.generated_descriptions for insert
+  with check (auth.uid() = user_id);
+
+create policy "Les utilisateurs suppriment leurs descriptions"
+  on public.generated_descriptions for delete
+  using (auth.uid() = user_id);
+
+create index if not exists generated_descriptions_user_id_created_at_idx
+  on public.generated_descriptions (user_id, created_at desc);
+
+create index if not exists generated_descriptions_mandat_id_idx
+  on public.generated_descriptions (mandat_id);
+
+-- ------------------------------------------------------------
+-- 5. Limites par forfait (référence pour l'API — pas une table,
 --    juste la règle appliquée dans /api/generate) :
 --      gratuit   → 10 générations / mois
 --      essentiel → 200 générations / mois
