@@ -472,7 +472,7 @@ function ResultPanel({
             ) : null}
           </div>
 
-          <div className="mt-5 whitespace-pre-wrap text-sm leading-7 text-slate-700 dark:text-slate-200">{generatedText}</div>
+          <StructuredAnalysisView text={generatedText} />
 
           <div className="mt-6 grid gap-2 sm:grid-cols-2">
             <ActionButton icon={copied ? Check : Clipboard} label={copied ? "Copié" : "Copier"} onClick={onCopy} />
@@ -491,6 +491,171 @@ function ResultPanel({
       )}
     </aside>
   );
+}
+
+function StructuredAnalysisView({ text }: { text: string }) {
+  const sections = splitAnalysisSections(text);
+
+  return (
+    <div className="mt-5 space-y-4">
+      {sections.map((section, index) => {
+        const isPriceSection = /fourchette|prix de mise en march/i.test(section.title);
+
+        return (
+          <section
+            key={`${section.title}-${index}`}
+            className={cn(
+              "rounded-lg border p-4",
+              isPriceSection
+                ? "border-teal-200 bg-teal-50/70 dark:border-teal-900 dark:bg-teal-950/30"
+                : "border-slate-200 bg-slate-50/70 dark:border-slate-800 dark:bg-slate-950/45",
+            )}
+          >
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="text-sm font-semibold text-slate-950 dark:text-white">{section.title}</h3>
+              {isPriceSection ? <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-teal-700 ring-1 ring-teal-200 dark:bg-slate-950 dark:text-teal-200 dark:ring-teal-900">À valider</span> : null}
+            </div>
+            <div className="mt-3 space-y-3">
+              {renderAnalysisBlocks(section.body)}
+            </div>
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
+function splitAnalysisSections(text: string) {
+  const lines = text.split(/\r?\n/);
+  const sections: Array<{ title: string; body: string }> = [];
+  let currentTitle = "Analyse comparative";
+  let currentLines: string[] = [];
+
+  for (const line of lines) {
+    const heading = line.match(/^\s*(?:#{1,3}\s*)?(?:\d{1,2}[.)]\s*)?(.+?)\s*$/);
+    const normalized = heading?.[1]?.replace(/\*\*/g, "").trim() || "";
+    const looksLikeSection =
+      normalized.length > 0 &&
+      normalized.length < 90 &&
+      /^(Résumé|Tableau|Grille|Comparables|Ajustements|Fourchette|Prix|Arguments|Objections|Note de prudence)/i.test(normalized);
+
+    if (looksLikeSection) {
+      if (currentLines.join("\n").trim()) {
+        sections.push({ title: currentTitle, body: currentLines.join("\n").trim() });
+      }
+      currentTitle = normalized.replace(/:$/, "");
+      currentLines = [];
+    } else {
+      currentLines.push(line);
+    }
+  }
+
+  if (currentLines.join("\n").trim()) {
+    sections.push({ title: currentTitle, body: currentLines.join("\n").trim() });
+  }
+
+  return sections.length ? sections : [{ title: "Analyse comparative", body: text }];
+}
+
+function renderAnalysisBlocks(body: string) {
+  const blocks: JSX.Element[] = [];
+  const lines = body.split(/\r?\n/);
+  let paragraph: string[] = [];
+  let table: string[] = [];
+
+  function flushParagraph() {
+    if (!paragraph.length) return;
+    blocks.push(
+      <p key={`p-${blocks.length}`} className="whitespace-pre-wrap text-sm leading-7 text-slate-700 dark:text-slate-200">
+        {paragraph.join("\n")}
+      </p>,
+    );
+    paragraph = [];
+  }
+
+  function flushTable() {
+    if (!table.length) return;
+    blocks.push(<AnalysisTable key={`t-${blocks.length}`} lines={table} />);
+    table = [];
+  }
+
+  for (const line of lines) {
+    if (line.trim().startsWith("|") && line.includes("|")) {
+      flushParagraph();
+      table.push(line);
+      continue;
+    }
+
+    flushTable();
+    if (line.trim()) paragraph.push(line);
+  }
+
+  flushParagraph();
+  flushTable();
+
+  return blocks.length ? blocks : <p className="text-sm text-slate-500 dark:text-slate-400">non détecté</p>;
+}
+
+function AnalysisTable({ lines }: { lines: string[] }) {
+  const rows = lines
+    .filter((line) => !/^\s*\|?\s*-{3,}/.test(line))
+    .map((line) =>
+      line
+        .split("|")
+        .map((cell) => cell.trim())
+        .filter(Boolean),
+    )
+    .filter((row) => row.length);
+
+  const [head, ...body] = rows;
+  if (!head) return null;
+
+  return (
+    <div className="overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+      <div className="overflow-x-auto">
+        <table className="min-w-full divide-y divide-slate-200 text-left text-xs dark:divide-slate-800">
+          <thead className="bg-slate-100 text-slate-600 dark:bg-slate-950 dark:text-slate-300">
+            <tr>
+              {head.map((cell) => (
+                <th key={cell} className="px-3 py-2 font-semibold">
+                  {cell}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+            {body.map((row, rowIndex) => (
+              <tr key={rowIndex}>
+                {head.map((_, cellIndex) => (
+                  <td key={cellIndex} className="px-3 py-2 align-top text-slate-700 dark:text-slate-200">
+                    <SimilarityBadge value={row[cellIndex] || "non détecté"} />
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function SimilarityBadge({ value }: { value: string }) {
+  const normalized = value.toLowerCase();
+  const badge =
+    normalized.includes("très pertinent") || normalized.includes("tres pertinent")
+      ? "bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-950 dark:text-emerald-200 dark:ring-emerald-900"
+      : normalized.includes("à utiliser avec prudence") || normalized.includes("a utiliser avec prudence")
+        ? "bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-950 dark:text-amber-200 dark:ring-amber-900"
+        : normalized.includes("peu comparable")
+          ? "bg-rose-50 text-rose-700 ring-rose-200 dark:bg-rose-950 dark:text-rose-200 dark:ring-rose-900"
+          : normalized.includes("pertinent")
+            ? "bg-teal-50 text-teal-700 ring-teal-200 dark:bg-teal-950 dark:text-teal-200 dark:ring-teal-900"
+            : "";
+
+  if (!badge) return <span>{value}</span>;
+
+  return <span className={cn("inline-flex rounded-full px-2 py-1 text-xs font-semibold ring-1", badge)}>{value}</span>;
 }
 
 function ComparableFields({
@@ -523,6 +688,7 @@ function ComparableFields({
         <Field label="Date de vente" value={comparable.saleDate} onChange={(value) => onChange(index, "saleDate", value)} />
         <Field label="Type de propriété" value={comparable.propertyType} onChange={(value) => onChange(index, "propertyType", value)} />
         <Field label="Chambres" value={comparable.bedrooms} onChange={(value) => onChange(index, "bedrooms", value)} />
+        <Field label="Chambres hors sol" value={comparable.aboveGroundBedrooms} onChange={(value) => onChange(index, "aboveGroundBedrooms", value)} />
         <Field label="Salles de bain" value={comparable.bathrooms} onChange={(value) => onChange(index, "bathrooms", value)} />
         <Field label="Superficie habitable" value={comparable.livingArea} onChange={(value) => onChange(index, "livingArea", value)} />
         <Field label="Superficie terrain" value={comparable.landArea} onChange={(value) => onChange(index, "landArea", value)} />

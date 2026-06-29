@@ -4,6 +4,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
+  FolderKanban,
+  Radar,
   GraduationCap,
   Search,
   Heart,
@@ -14,6 +16,8 @@ import { cn } from "@/lib/utils";
 
 const items = [
   { href: "/tableau-de-bord", label: "Aperçu", icon: LayoutDashboard },
+  { href: "/tableau-de-bord/mandats", label: "Mandats", icon: FolderKanban },
+  { href: "/tableau-de-bord/radar-prospection", label: "Radar", icon: Radar },
   { href: "/tableau-de-bord/formations", label: "Formations", icon: GraduationCap },
   { href: "/tableau-de-bord/prompts", label: "Prompts", icon: Search },
   { href: "/tableau-de-bord/favoris", label: "Favoris", icon: Heart },

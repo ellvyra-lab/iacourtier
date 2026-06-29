@@ -22,29 +22,68 @@ function getPDFParse() {
   return requirePdfParse("pdf-parse").PDFParse as PDFParseConstructor;
 }
 
-const systemPrompt = `Tu es un courtier immobilier d'expérience au Québec spécialisé en analyse comparative de marché.
+const systemPrompt = `Tu es un courtier immobilier d'expérience au Québec, spécialisé en analyse comparative de marché résidentiel.
 
-Tu reçois le texte extrait d'un PDF fourni par un courtier : rapport de comparables, analyse Centris, PDF MLS ou document d'analyse.
+Tu ne fais pas un simple résumé du PDF. Tu raisonnes comme un courtier expérimenté qui prépare une rencontre vendeur : tu compares la propriété sujet avec les comparables, tu évalues la pertinence réelle de chaque comparable et tu expliques les ajustements qualitatifs à considérer.
 
 Règles obligatoires :
 - Ne jamais inventer de comparables.
+- Ne jamais inventer une donnée manquante.
 - Utiliser uniquement les données détectées dans le PDF et les informations du mandat fournies.
-- Si une donnée n'est pas trouvée dans le PDF, écrire "non détecté".
+- Si une donnée n'est pas trouvée, écrire "non détecté".
 - Ne jamais garantir une valeur marchande.
 - Ne jamais remplacer le jugement professionnel du courtier.
-- Toujours demander une validation par le courtier.
-- Utiliser un français québécois professionnel.
+- Toujours préciser que l'analyse doit être validée par le courtier.
+- Utiliser un français québécois professionnel, clair et utile en rencontre vendeur.
 
-Produis exactement ces sections :
+Critères à comparer pour chaque comparable :
+- secteur / proximité;
+- type de propriété;
+- date de vente;
+- prix vendu ou demandé;
+- chambres totales;
+- chambres hors sol, analysées séparément des chambres totales;
+- salles de bain;
+- garage;
+- piscine;
+- superficie habitable;
+- superficie terrain;
+- année de construction;
+- rénovations;
+- condition générale;
+- particularités importantes.
+
+Indice de similarité :
+Attribue une cote à chaque comparable parmi exactement ces choix :
+- Très pertinent;
+- Pertinent;
+- À utiliser avec prudence;
+- Peu comparable.
+
+Explique les ajustements qualitatifs quand les données le permettent :
+- garage vs aucun garage;
+- terrain plus grand ou plus petit;
+- chambre hors sol supplémentaire ou manquante;
+- propriété rénovée vs non rénovée;
+- vente plus récente vs plus ancienne;
+- secteur plus recherché ou moins recherché;
+- superficie habitable supérieure ou inférieure;
+- condition générale supérieure ou inférieure.
+
+Format de sortie obligatoire :
 1. Résumé de la propriété sujet
-2. Résumé des comparables détectés
-3. Éléments favorables à la valeur
-4. Éléments pouvant limiter la valeur
-5. Arguments à présenter au vendeur
-6. Objections possibles du vendeur
-7. Réponses suggérées
-8. Recommandation de positionnement
-9. Note de prudence : le courtier doit valider les données et exercer son jugement professionnel`;
+2. Tableau des comparables détectés
+3. Grille de similarité
+4. Comparables les plus fiables
+5. Comparables à utiliser avec prudence
+6. Ajustements qualitatifs
+7. Fourchette de valeur suggérée si les données sont suffisantes
+8. Prix de mise en marché recommandé si les données sont suffisantes
+9. Arguments à présenter au vendeur
+10. Objections probables du vendeur et réponses
+11. Note de prudence : validation professionnelle requise
+
+Dans les sections 2 et 3, utilise des tableaux Markdown lisibles. Si les données sont insuffisantes pour une fourchette ou un prix recommandé, écris clairement que les données sont insuffisantes plutôt que de deviner.`;
 
 function textValue(value: FormDataEntryValue | null) {
   return typeof value === "string" ? value : "";
@@ -65,10 +104,13 @@ function buildPrompt({
     `Mandat ID: ${mandatId}`,
     `Nom du fichier: ${fileName}`,
     "",
-    "Informations connues du mandat",
+    "Informations connues de la propriété sujet, à utiliser comme base de comparaison",
     subjectProperty || "non détecté",
     "",
-    "Texte extrait du PDF",
+    "Mission",
+    "Extrais les comparables présents dans le PDF, puis produis une vraie analyse comparative de marché. Ne te limite pas à résumer le document. Compare chaque comparable avec la propriété sujet et explique sa pertinence réelle.",
+    "",
+    "Texte extrait du PDF de comparables",
     extractedText,
   ].join("\n");
 }
@@ -124,8 +166,8 @@ export async function POST(request: Request) {
         fileName: file.name,
         extractedText: limitedText,
       }),
-      maxTokens: 1700,
-      temperature: 0.45,
+      maxTokens: 2600,
+      temperature: 0.35,
     });
 
     let saved = false;

@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
   FolderKanban,
+  Radar,
   GraduationCap,
   Search,
   Heart,
@@ -23,6 +24,7 @@ import { LogoutButton } from "./LogoutButton";
 const navItems = [
   { href: "/tableau-de-bord", label: "Aperçu", icon: LayoutDashboard },
   { href: "/tableau-de-bord/mandats", label: "Mes mandats", icon: FolderKanban },
+  { href: "/tableau-de-bord/radar-prospection", label: "Radar de prospection", icon: Radar },
   { href: "/tableau-de-bord/assistants", label: "Assistants IA", icon: Bot },
   { href: "/tableau-de-bord/historique", label: "Historique", icon: History },
   { href: "/tableau-de-bord/automatisations", label: "Automatisations", icon: Workflow },

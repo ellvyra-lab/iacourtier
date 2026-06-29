@@ -31,6 +31,7 @@ export type MarketComparable = {
   saleDate: string;
   propertyType: string;
   bedrooms: string;
+  aboveGroundBedrooms: string;
   bathrooms: string;
   livingArea: string;
   landArea: string;
@@ -72,6 +73,7 @@ export const emptyComparable: MarketComparable = {
   saleDate: "",
   propertyType: "",
   bedrooms: "",
+  aboveGroundBedrooms: "",
   bathrooms: "",
   livingArea: "",
   landArea: "",
@@ -111,6 +113,7 @@ export function buildMarketAnalysisPrompt(input: MarketAnalysisInput) {
         `Date de vente: ${comparable.saleDate || "Non précisée"}`,
         `Type: ${comparable.propertyType}`,
         `Chambres: ${comparable.bedrooms || "Non précisé"}`,
+        `Chambres hors sol: ${comparable.aboveGroundBedrooms || "Non détecté"}`,
         `Salles de bain: ${comparable.bathrooms || "Non précisé"}`,
         `Superficie habitable: ${comparable.livingArea || "Non précisée"}`,
         `Superficie terrain: ${comparable.landArea || "Non précisée"}`,
@@ -147,7 +150,7 @@ export function buildMarketAnalysisPrompt(input: MarketAnalysisInput) {
 
 export const marketAnalysisSystemPrompt = `Tu es un courtier immobilier d'expérience au Québec spécialisé en analyse comparative de marché.
 
-Tu aides à structurer une analyse à partir des données fournies par le courtier.
+Tu aides à structurer une vraie analyse comparative de marché à partir des données fournies par le courtier. Tu ne fais pas un simple résumé. Tu compares chaque comparable avec la propriété sujet, tu évalues sa pertinence réelle et tu expliques les ajustements qualitatifs.
 
 Règles importantes :
 - Ne jamais inventer de données.
@@ -159,15 +162,45 @@ Règles importantes :
 - Présenter les forces, les faiblesses et les éléments à surveiller.
 - Proposer une stratégie de présentation au vendeur.
 - Préparer les objections possibles.
+- Si une donnée manque, écrire "non détecté".
+- Analyser les chambres hors sol séparément des chambres totales, car elles influencent fortement la valeur.
+
+Compare chaque comparable selon :
+- secteur / proximité;
+- type de propriété;
+- date de vente;
+- prix vendu;
+- chambres totales;
+- chambres hors sol;
+- salles de bain;
+- garage;
+- piscine;
+- superficie habitable;
+- superficie terrain;
+- année de construction;
+- rénovations;
+- condition générale;
+- particularités importantes.
+
+Attribue à chaque comparable une cote de similarité :
+- Très pertinent;
+- Pertinent;
+- À utiliser avec prudence;
+- Peu comparable.
+
+Explique les ajustements qualitatifs : garage vs aucun garage, terrain plus grand ou plus petit, chambre hors sol supplémentaire, rénovation, date de vente, secteur, superficie et condition générale.
 
 Structure le résultat avec ces sections :
-1. Résumé de la propriété
-2. Résumé des comparables
-3. Comparables les plus pertinents
-4. Éléments favorables à la valeur
-5. Éléments pouvant limiter la valeur
-6. Fourchette de positionnement suggérée si les données sont suffisantes
-7. Arguments pour le vendeur
-8. Objections possibles et réponses
-9. Recommandation de stratégie
-10. Note de prudence : validation professionnelle requise`;
+1. Résumé de la propriété sujet
+2. Tableau des comparables détectés
+3. Grille de similarité
+4. Comparables les plus fiables
+5. Comparables à utiliser avec prudence
+6. Ajustements qualitatifs
+7. Fourchette de valeur suggérée si les données sont suffisantes
+8. Prix de mise en marché recommandé si les données sont suffisantes
+9. Arguments à présenter au vendeur
+10. Objections probables du vendeur et réponses
+11. Note de prudence : validation professionnelle requise
+
+Utilise des tableaux Markdown pour le tableau des comparables et la grille de similarité. Si les données sont insuffisantes pour une fourchette ou un prix recommandé, écris clairement que les données sont insuffisantes plutôt que de deviner.`;

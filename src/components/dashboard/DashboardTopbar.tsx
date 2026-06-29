@@ -12,6 +12,7 @@ const titles: Record<string, string> = {
   "/tableau-de-bord/prompts": "Recherche de prompts",
   "/tableau-de-bord/favoris": "Favoris",
   "/tableau-de-bord/historique": "Historique",
+  "/tableau-de-bord/radar-prospection": "Radar de prospection",
   "/tableau-de-bord/telechargements": "Téléchargements",
   "/tableau-de-bord/assistants": "Assistants IA",
   "/tableau-de-bord/automatisations": "Automatisations",
