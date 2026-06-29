@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { PDFParse } from "pdf-parse";
+import { createRequire } from "node:module";
 
 import { generateWithOpenAI } from "@/lib/openai";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -8,6 +8,19 @@ export const runtime = "nodejs";
 
 const MAX_PDF_BYTES = 12 * 1024 * 1024;
 const MAX_EXTRACTED_CHARS = 24_000;
+
+type PDFParseInstance = {
+  getText: () => Promise<{ text: string }>;
+  destroy: () => Promise<void> | void;
+};
+
+type PDFParseConstructor = new (options: { data: Buffer }) => PDFParseInstance;
+
+const requirePdfParse = createRequire(import.meta.url);
+
+function getPDFParse() {
+  return requirePdfParse("pdf-parse").PDFParse as PDFParseConstructor;
+}
 
 const systemPrompt = `Tu es un courtier immobilier d'expérience au Québec spécialisé en analyse comparative de marché.
 
@@ -83,6 +96,7 @@ export async function POST(request: Request) {
 
     try {
       const buffer = Buffer.from(await file.arrayBuffer());
+      const PDFParse = getPDFParse();
       const parser = new PDFParse({ data: buffer });
       const result = await parser.getText();
       extractedText = result.text.trim().replace(/\s+\n/g, "\n");

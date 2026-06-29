@@ -3,6 +3,9 @@ import { withSentryConfig } from "@sentry/nextjs";
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  experimental: {
+    serverComponentsExternalPackages: ["pdf-parse"],
+  },
   // Full Next.js mode (not static export): required for the working
   // API routes (auth, /api/generate, Stripe checkout/webhook) below.
   // Deploy on Vercel (recommended) or Netlify with @netlify/plugin-nextjs.
