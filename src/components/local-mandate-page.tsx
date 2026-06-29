@@ -6,6 +6,7 @@ import { ChevronLeft, MapPin } from "lucide-react";
 
 import { MandateGeneratedContent } from "@/components/mandate-generated-content";
 import { MandateActionGrid } from "@/components/mandate-action-grid";
+import { MandateMarketAnalyses } from "@/components/mandate-market-analyses";
 
 type LocalMandate = {
   id: string;
@@ -89,6 +90,8 @@ export function LocalMandatePage({ id }: { id: string }) {
       </section>
 
       <MandateGeneratedContent mandatId={mandate.id} />
+
+      <MandateMarketAnalyses mandatId={mandate.id} />
 
       <MandateActionGrid dossierId={mandate.id} isLocal />
     </div>

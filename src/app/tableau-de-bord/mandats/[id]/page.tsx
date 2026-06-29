@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { ChevronLeft, MapPin } from "lucide-react";
 
 import { MandateGeneratedContent } from "@/components/mandate-generated-content";
+import { MandateMarketAnalyses } from "@/components/mandate-market-analyses";
 import { MandateActionGrid } from "@/components/mandate-action-grid";
 import { buildPropertyAssistantContext, getPropertyDossierById, propertyDossiers } from "@/data/property-dossiers";
 
@@ -88,6 +89,8 @@ export default async function DossierPage({ params }: DossierPageProps) {
       </section>
 
       <MandateGeneratedContent mandatId={dossier.id} />
+
+      <MandateMarketAnalyses mandatId={dossier.id} />
 
       <MandateActionGrid dossierId={dossier.id} />
     </div>

@@ -8,6 +8,18 @@ function statusClasses(status: string) {
   return "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300";
 }
 
+function generatorHref(generatorId: string, dossierId: string, isLocal: boolean) {
+  if (generatorId === "description-propriete") {
+    return `/tableau-de-bord/assistants/description-propriete?mandatId=${dossierId}${isLocal ? "&source=local" : ""}`;
+  }
+
+  if (generatorId === "analyse-comparative") {
+    return `/tableau-de-bord/mandats/${isLocal ? `local/${dossierId}` : dossierId}/analyse-comparative`;
+  }
+
+  return "#";
+}
+
 export function MandateActionGrid({ dossierId, isLocal = false }: { dossierId: string; isLocal?: boolean }) {
   return (
     <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900/72">
@@ -20,36 +32,29 @@ export function MandateActionGrid({ dossierId, isLocal = false }: { dossierId: s
       </div>
 
       <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {mandateGenerators.map((generator) => {
-          const href =
-            generator.id === "description-propriete"
-              ? `/tableau-de-bord/assistants/description-propriete?mandatId=${dossierId}${isLocal ? "&source=local" : ""}`
-              : "#";
-
-          return (
-            <Link
-              key={generator.id}
-              href={href}
-              className="group min-h-44 rounded-lg border border-slate-200 bg-slate-50 p-5 transition hover:-translate-y-1 hover:border-teal-300 hover:bg-white hover:shadow-premium dark:border-slate-800 dark:bg-slate-950/50 dark:hover:border-teal-900 dark:hover:bg-slate-900"
-              aria-disabled={generator.status !== "Disponible"}
-            >
-              <div className="flex items-start justify-between gap-4">
-                <div className="grid h-11 w-11 place-items-center rounded-lg bg-white text-slate-900 shadow-sm dark:bg-slate-900 dark:text-slate-100">
-                  <generator.icon className="h-5 w-5" />
-                </div>
-                <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${statusClasses(generator.status)}`}>
-                  {generator.status}
-                </span>
+        {mandateGenerators.map((generator) => (
+          <Link
+            key={generator.id}
+            href={generatorHref(generator.id, dossierId, isLocal)}
+            className="group min-h-44 rounded-lg border border-slate-200 bg-slate-50 p-5 transition hover:-translate-y-1 hover:border-teal-300 hover:bg-white hover:shadow-premium dark:border-slate-800 dark:bg-slate-950/50 dark:hover:border-teal-900 dark:hover:bg-slate-900"
+            aria-disabled={generator.status !== "Disponible"}
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div className="grid h-11 w-11 place-items-center rounded-lg bg-white text-slate-900 shadow-sm dark:bg-slate-900 dark:text-slate-100">
+                <generator.icon className="h-5 w-5" />
               </div>
-              <h3 className="mt-5 text-lg font-semibold">{generator.label}</h3>
-              <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">{generator.description}</p>
-              <div className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-teal-700 opacity-0 transition group-hover:opacity-100 dark:text-teal-300">
-                {generator.status === "Disponible" ? "Créer" : "Bientôt disponible"}
-                <ArrowRight className="h-4 w-4" />
-              </div>
-            </Link>
-          );
-        })}
+              <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${statusClasses(generator.status)}`}>
+                {generator.status}
+              </span>
+            </div>
+            <h3 className="mt-5 text-lg font-semibold">{generator.label}</h3>
+            <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">{generator.description}</p>
+            <div className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-teal-700 opacity-0 transition group-hover:opacity-100 dark:text-teal-300">
+              {generator.id === "analyse-comparative" ? "Créer l’analyse" : generator.status === "Disponible" ? "Créer" : "Bientôt disponible"}
+              <ArrowRight className="h-4 w-4" />
+            </div>
+          </Link>
+        ))}
       </div>
     </section>
   );

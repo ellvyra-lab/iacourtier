@@ -1,4 +1,4 @@
-import { BookOpen, DoorOpen, Facebook, FileText, Instagram, Mail, Megaphone, Video, type LucideIcon } from "lucide-react";
+import { BarChart3, BookOpen, DoorOpen, Facebook, FileText, Instagram, Mail, Megaphone, Video, type LucideIcon } from "lucide-react";
 
 export type MandateGenerator = {
   id: string;
@@ -14,6 +14,13 @@ export const mandateGenerators: MandateGenerator[] = [
     label: "Description de propriété",
     description: "Générer une description professionnelle à partir du mandat.",
     icon: FileText,
+    status: "Disponible",
+  },
+  {
+    id: "analyse-comparative",
+    label: "Analyse comparative",
+    description: "Importez ou saisissez vos comparables et obtenez une synthèse claire pour votre rencontre vendeur.",
+    icon: BarChart3,
     status: "Disponible",
   },
   {
