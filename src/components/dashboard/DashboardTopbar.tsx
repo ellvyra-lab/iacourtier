@@ -7,7 +7,7 @@ import { ThemeToggle } from "@/components/layout/ThemeToggle";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
 const titles: Record<string, string> = {
-  "/tableau-de-bord": "Aperçu",
+  "/tableau-de-bord": "Accueil",
   "/tableau-de-bord/formations": "Formations",
   "/tableau-de-bord/prompts": "Recherche de prompts",
   "/tableau-de-bord/favoris": "Favoris",
