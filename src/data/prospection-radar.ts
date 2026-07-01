@@ -86,7 +86,7 @@ export const prospectionOpportunities: ProspectionOpportunity[] = [
     actions: {
       facebook: "Bonjour, je sais que certaines démarches immobilières peuvent arriver dans des moments sensibles. Si vous avez besoin d'une opinion de valeur claire pour une propriété familiale à Laval, je peux vous aider avec tact et sans pression.",
       email: "Bonjour,\n\nJe me permets de vous écrire avec beaucoup de respect. Lorsqu'une propriété familiale doit être évaluée, il est souvent utile d'avoir une analyse simple, documentée et neutre.\n\nJe peux vous préparer une opinion de valeur basée sur les ventes comparables du secteur, sans engagement.\n\nSouhaitez-vous que je vous propose un moment pour en discuter?",
-      call: "Bonjour, je vous appelle avec délicatesse. J'aide régulièrement des familles à comprendre la valeur d'une propriété dans un contexte de succession ou de transition. Je peux vous donner un portrait objectif du marché local.",
+      call: "Bonjour, ici [Votre nom], courtier immobilier. Je travaille dans votre secteur et je prépare des portraits de marché pour quelques propriétaires. Je voulais simplement vous demander : est-ce que ce genre d'information pourrait vous être utile, même sans projet immédiat?",
       sms: "Bonjour, je peux vous aider à obtenir une opinion de valeur claire pour une propriété à Laval, sans pression. Voulez-vous que je vous envoie les prochaines étapes?",
       followUp7: "Bonjour, je voulais simplement vérifier si une courte opinion de valeur pourrait vous être utile pour clarifier les démarches autour de la propriété.",
       followUp30: "Bonjour, je reste disponible si vous souhaitez obtenir une analyse de marché sobre et documentée pour la propriété.",

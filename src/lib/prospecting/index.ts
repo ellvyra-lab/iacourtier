@@ -1,4 +1,4 @@
-export { createProspectingActions } from "./actions";
+export { createProspectingActions, prospectingCommunicationStyles, type ProspectingCommunicationStyle } from "./actions";
 export { parseProspectsCsv } from "./csv-provider";
 export { expiredProvider } from "./expired-provider";
 export { judicialProvider } from "./judicial-provider";

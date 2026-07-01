@@ -2,6 +2,7 @@
 
 import type { ElementType } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import {
   ArrowUpRight,
   Building2,
@@ -26,11 +27,14 @@ import {
   manualProspects,
   parseProspectsCsv,
   parseRoleEvaluationFile,
+  prospectingCommunicationStyles,
   prospectingCategories,
+  type ProspectingCommunicationStyle,
   type ProspectingPriority,
   type ProspectRecord,
 } from "@/lib/prospecting";
 import type { GovernmentSourceRecord, GovernmentSourceType } from "@/lib/prospecting/government-source";
+import { coachSalesCall, type CallCoachSuggestion } from "@/lib/sales-intelligence";
 import { cn } from "@/lib/utils";
 
 const priorities: Array<ProspectingPriority | "Toutes"> = ["Toutes", "Élevée", "Moyenne", "Faible"];
@@ -96,6 +100,7 @@ export function ProspectionRadar() {
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState(manualProspects[0]?.id || "");
   const [copied, setCopied] = useState("");
+  const [communicationStyle, setCommunicationStyle] = useState<ProspectingCommunicationStyle>("Québécois naturel");
   const [importStatus, setImportStatus] = useState("");
   const [roleImportStatus, setRoleImportStatus] = useState("");
   const [isImportingRoleXml, setIsImportingRoleXml] = useState(false);
@@ -529,7 +534,7 @@ export function ProspectionRadar() {
           )}
         </section>
 
-        <ActionsPanel opportunity={selected} copied={copied} onCopy={copyAction} />
+        <ActionsPanel opportunity={selected} style={communicationStyle} onStyleChange={setCommunicationStyle} copied={copied} onCopy={copyAction} />
       </div>
     </div>
   );
@@ -719,6 +724,13 @@ function OpportunityCard({ opportunity, active, onSelect }: { opportunity: Prosp
         Voir les actions IA
         <ArrowUpRight className="h-4 w-4" />
       </button>
+      <Link
+        href={`/tableau-de-bord/coach?scenario=radar_owner&city=${encodeURIComponent(opportunity.city)}`}
+        className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-950"
+      >
+        Pratiquer l&apos;appel avec le Coach
+        <ArrowUpRight className="h-4 w-4" />
+      </Link>
     </article>
   );
 }
@@ -899,13 +911,32 @@ function formatArea(value: number) {
   return value ? `${value.toLocaleString("fr-CA")} m²` : "Non détecté";
 }
 
-function ActionsPanel({ opportunity, copied, onCopy }: { opportunity: ProspectRecord; copied: string; onCopy: (label: string, value: string) => void }) {
-  const actions = createProspectingActions(opportunity);
+function ActionsPanel({
+  opportunity,
+  style,
+  onStyleChange,
+  copied,
+  onCopy,
+}: {
+  opportunity: ProspectRecord;
+  style: ProspectingCommunicationStyle;
+  onStyleChange: (style: ProspectingCommunicationStyle) => void;
+  copied: string;
+  onCopy: (label: string, value: string) => void;
+}) {
+  const actions = createProspectingActions(opportunity, style);
+  const [callNote, setCallNote] = useState("");
+  const [coachSuggestion, setCoachSuggestion] = useState<CallCoachSuggestion | null>(null);
+  useEffect(() => {
+    setCallNote("");
+    setCoachSuggestion(null);
+  }, [opportunity.id, style]);
+
   const actionItems = [
-    { label: "Premier message Facebook", icon: MessageCircle, value: actions.facebook },
-    { label: "Premier courriel", icon: Mail, value: actions.email },
     { label: "Premier appel", icon: Phone, value: actions.call },
-    { label: "Message texte", icon: MessageCircle, value: actions.sms },
+    { label: "Premier texto", icon: MessageCircle, value: actions.sms },
+    { label: "Premier courriel", icon: Mail, value: actions.email },
+    { label: "Message social", icon: MessageCircle, value: actions.facebook },
     { label: "Relance après 7 jours", icon: RotateCcw, value: actions.followUp7 },
     { label: "Relance après 30 jours", icon: RotateCcw, value: actions.followUp30 },
   ];
@@ -914,40 +945,106 @@ function ActionsPanel({ opportunity, copied, onCopy }: { opportunity: ProspectRe
     <aside className="xl:sticky xl:top-8 xl:self-start">
       <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-premium dark:border-slate-800 dark:bg-slate-900/76">
         <div className="border-b border-slate-200 bg-slate-50 p-5 dark:border-slate-800 dark:bg-slate-950/50">
-          <p className="text-sm font-medium text-teal-700 dark:text-teal-300">Actions IA</p>
+          <p className="text-sm font-medium text-teal-700 dark:text-teal-300">Scripts de contact</p>
           <h2 className="mt-1 text-xl font-semibold tracking-tight">{opportunity.address}</h2>
           <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
-            {opportunity.category} · Score {opportunity.opportunityScore}/100 · {sourceLabel(opportunity.source)}
+            Messages naturels pour ouvrir la conversation et mener vers un rendez-vous d&apos;évaluation.
           </p>
         </div>
 
         <div className="space-y-4 p-5">
+          <div className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950/45">
+            <label className="text-sm font-semibold" htmlFor="communication-style">
+              Style de communication
+            </label>
+            <select
+              id="communication-style"
+              value={style}
+              onChange={(event) => onStyleChange(event.target.value as ProspectingCommunicationStyle)}
+              className="mt-3 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+            >
+              {prospectingCommunicationStyles.map((item) => (
+                <option key={item} value={item}>
+                  {item}
+                </option>
+              ))}
+            </select>
+          </div>
+
           <PropertyInsightCard opportunity={opportunity} />
 
           {actionItems.map((item) => (
             <ActionBlock key={item.label} label={item.label} value={item.value} copied={copied === item.label} icon={item.icon} onCopy={() => onCopy(item.label, item.value)} />
           ))}
 
-          <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/50">
-            <h3 className="text-sm font-semibold">Objections probables</h3>
-            <ul className="mt-3 space-y-2 text-sm leading-6 text-slate-600 dark:text-slate-300">
-              {actions.objections.map((objection) => (
-                <li key={objection}>- {objection}</li>
+          <div className="rounded-lg border border-teal-200 bg-teal-50/70 p-4 dark:border-teal-900 dark:bg-teal-950/30">
+            <h3 className="text-sm font-semibold text-teal-900 dark:text-teal-100">Objections et réponses</h3>
+            <div className="mt-3 space-y-3">
+              {actions.objectionPlaybooks.map((item) => (
+                <div key={item.id} className="rounded-lg border border-teal-200/70 bg-white/80 p-3 text-sm leading-6 dark:border-teal-900 dark:bg-slate-950/40">
+                  <p className="font-semibold text-teal-950 dark:text-teal-100">{item.objection}</p>
+                  <p className="mt-1 text-teal-900/80 dark:text-teal-100/80">{item.shortResponse}</p>
+                  <p className="mt-2 text-slate-600 dark:text-slate-300">Question : {item.followUpQuestion}</p>
+                  <p className="mt-1 text-xs font-medium uppercase tracking-wide text-teal-700 dark:text-teal-300">{item.conversionGoal}</p>
+                </div>
               ))}
-            </ul>
+            </div>
           </div>
 
-          <div className="rounded-lg border border-teal-200 bg-teal-50/70 p-4 dark:border-teal-900 dark:bg-teal-950/30">
-            <h3 className="text-sm font-semibold text-teal-900 dark:text-teal-100">Réponses suggérées</h3>
-            <ul className="mt-3 space-y-2 text-sm leading-6 text-teal-900/80 dark:text-teal-100/80">
-              {actions.responses.map((response) => (
-                <li key={response}>- {response}</li>
-              ))}
-            </ul>
+          <div className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950/45">
+            <h3 className="text-sm font-semibold">Coach après appel</h3>
+            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Collez une courte note d&apos;appel pour obtenir la prochaine meilleure action.</p>
+            <textarea
+              value={callNote}
+              onChange={(event) => setCallNote(event.target.value)}
+              placeholder="Ex. Le propriétaire dit qu'il veut attendre au printemps, mais il est curieux de connaître la valeur."
+              className="mt-3 min-h-28 w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+            />
+            <button
+              type="button"
+              onClick={() =>
+                setCoachSuggestion(
+                  coachSalesCall({
+                    note: callNote,
+                    style,
+                    prospect: {
+                      contactName: opportunity.contactName,
+                      ownerName: opportunity.ownerName,
+                      address: opportunity.address,
+                      city: opportunity.city,
+                      propertyType: opportunity.propertyType,
+                    },
+                  }),
+                )
+              }
+              disabled={!callNote.trim()}
+              className="mt-3 inline-flex items-center gap-2 rounded-lg bg-slate-950 px-3 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200"
+            >
+              <Sparkles className="h-4 w-4" />
+              Analyser l&apos;appel
+            </button>
+
+            {coachSuggestion && (
+              <div className="mt-4 space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm leading-6 dark:border-slate-800 dark:bg-slate-900/60">
+                <CoachLine label="À améliorer" value={coachSuggestion.whatCouldBeBetter} />
+                <CoachLine label="Prochaine question" value={coachSuggestion.nextQuestion} />
+                <CoachLine label="Prochaine relance" value={coachSuggestion.nextFollowUp} />
+                <CoachLine label="Angle de reprise" value={coachSuggestion.bestReentryAngle} />
+              </div>
+            )}
           </div>
         </div>
       </div>
     </aside>
+  );
+}
+
+function CoachLine({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">{label}</p>
+      <p className="mt-1 text-slate-700 dark:text-slate-200">{value}</p>
+    </div>
   );
 }
 
