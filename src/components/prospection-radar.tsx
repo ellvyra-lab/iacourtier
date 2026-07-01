@@ -12,6 +12,7 @@ import {
   Link as LinkIcon,
   Loader2,
   Mail,
+  MapPin,
   MessageCircle,
   Phone,
   RotateCcw,
@@ -24,6 +25,7 @@ import {
   createProspectingActions,
   manualProspects,
   parseProspectsCsv,
+  parseRoleEvaluationFile,
   prospectingCategories,
   type ProspectingPriority,
   type ProspectRecord,
@@ -43,6 +45,16 @@ type SourceForm = {
   updateFrequency: string;
 };
 
+type SmartFilters = {
+  propertyClass: "Tous" | "Maisons" | "Plex" | "Condos";
+  minValue: string;
+  maxYear: string;
+  minLandArea: string;
+  minOwnerYears: string;
+  sector: string;
+  minScore: string;
+};
+
 const defaultSourceForm: SourceForm = {
   name: "",
   province: "Québec",
@@ -53,10 +65,22 @@ const defaultSourceForm: SourceForm = {
   updateFrequency: "nightly",
 };
 
+const defaultSmartFilters: SmartFilters = {
+  propertyClass: "Tous",
+  minValue: "",
+  maxYear: "",
+  minLandArea: "",
+  minOwnerYears: "",
+  sector: "",
+  minScore: "",
+};
+
 export function ProspectionRadar() {
   const csvInputRef = useRef<HTMLInputElement>(null);
+  const roleXmlInputRef = useRef<HTMLInputElement>(null);
   const [syncedProspects, setSyncedProspects] = useState<ProspectRecord[]>([]);
   const [csvProspects, setCsvProspects] = useState<ProspectRecord[]>([]);
+  const [roleEvaluationProspects, setRoleEvaluationProspects] = useState<ProspectRecord[]>([]);
   const [sources, setSources] = useState<GovernmentSourceRecord[]>([]);
   const [sourceForm, setSourceForm] = useState<SourceForm>(defaultSourceForm);
   const [sourceStatus, setSourceStatus] = useState("");
@@ -67,19 +91,22 @@ export function ProspectionRadar() {
   const [propertyType, setPropertyType] = useState("Tous");
   const [priority, setPriority] = useState<(typeof priorities)[number]>("Toutes");
   const [category, setCategory] = useState("Toutes");
+  const [smartFilters, setSmartFilters] = useState<SmartFilters>(defaultSmartFilters);
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState(manualProspects[0]?.id || "");
   const [copied, setCopied] = useState("");
   const [importStatus, setImportStatus] = useState("");
+  const [roleImportStatus, setRoleImportStatus] = useState("");
+  const [isImportingRoleXml, setIsImportingRoleXml] = useState(false);
 
   useEffect(() => {
     void refreshRadarData();
   }, []);
 
   const opportunities = useMemo(() => {
-    const fallbackDemo = syncedProspects.length || csvProspects.length ? [] : manualProspects;
-    return [...syncedProspects, ...csvProspects, ...fallbackDemo];
-  }, [csvProspects, syncedProspects]);
+    const fallbackDemo = syncedProspects.length || csvProspects.length || roleEvaluationProspects.length ? [] : manualProspects;
+    return [...roleEvaluationProspects, ...syncedProspects, ...csvProspects, ...fallbackDemo];
+  }, [csvProspects, roleEvaluationProspects, syncedProspects]);
 
   const cities = useMemo(() => ["Toutes", ...Array.from(new Set(opportunities.map((item) => item.city))).sort()], [opportunities]);
   const propertyTypes = useMemo(() => ["Tous", ...Array.from(new Set(opportunities.map((item) => item.propertyType))).sort()], [opportunities]);
@@ -92,13 +119,14 @@ export function ProspectionRadar() {
         .filter((item) => propertyType === "Tous" || item.propertyType === propertyType)
         .filter((item) => priority === "Toutes" || item.priority === priority)
         .filter((item) => category === "Toutes" || item.category === category)
+        .filter((item) => matchesSmartFilters(item, smartFilters))
         .filter((item) => {
           const normalized = query.trim().toLowerCase();
           if (!normalized) return true;
           return [item.address, item.city, item.propertyType, item.category, item.reason, item.ownerName].join(" ").toLowerCase().includes(normalized);
         })
         .sort((a, b) => b.opportunityScore - a.opportunityScore),
-    [category, city, opportunities, priority, propertyType, query],
+    [category, city, opportunities, priority, propertyType, query, smartFilters],
   );
 
   const selected = filtered.find((item) => item.id === selectedId) || filtered[0] || opportunities[0];
@@ -189,6 +217,7 @@ export function ProspectionRadar() {
     setPropertyType("Tous");
     setPriority("Toutes");
     setCategory("Toutes");
+    setSmartFilters(defaultSmartFilters);
     setQuery("");
   }
 
@@ -212,6 +241,35 @@ export function ProspectionRadar() {
       setImportStatus(`${prospects.length} prospect${prospects.length > 1 ? "s" : ""} importé${prospects.length > 1 ? "s" : ""} depuis ${file.name}.`);
     } catch {
       setImportStatus("Le CSV n'a pas pu être lu. Vérifiez les colonnes Adresse, Ville, Nom, Téléphone, Courriel, Catégorie et Notes.");
+    }
+  }
+
+  async function importRoleEvaluationXml(file: File) {
+    const lowerName = file.name.toLowerCase();
+    if (!lowerName.endsWith(".xml")) {
+      setRoleImportStatus("Le format accepté pour cette version est XML.");
+      return;
+    }
+
+    setIsImportingRoleXml(true);
+    setRoleImportStatus(`Lecture de ${file.name}...`);
+
+    try {
+      const prospects = await parseRoleEvaluationFile(file, {
+        city: sourceForm.city || "",
+        sourceName: file.name,
+        limit: 5000,
+        onProgress: ({ parsed, percent }) => {
+          setRoleImportStatus(`Analyse du rôle d'évaluation... ${parsed} immeuble${parsed > 1 ? "s" : ""} détecté${parsed > 1 ? "s" : ""}${percent !== undefined ? ` · ${percent}%` : ""}`);
+        },
+      });
+      setRoleEvaluationProspects((current) => dedupeProspects([...prospects, ...current]));
+      setSelectedId(prospects[0]?.id || selectedId);
+      setRoleImportStatus(`${prospects.length} immeuble${prospects.length > 1 ? "s" : ""} importé${prospects.length > 1 ? "s" : ""} depuis ${file.name}.`);
+    } catch (error) {
+      setRoleImportStatus(error instanceof Error ? error.message : "Le rôle d'évaluation XML n'a pas pu être lu.");
+    } finally {
+      setIsImportingRoleXml(false);
     }
   }
 
@@ -333,6 +391,33 @@ export function ProspectionRadar() {
         </div>
       </section>
 
+      <section className="rounded-lg border border-indigo-200 bg-indigo-50/60 p-4 shadow-sm dark:border-indigo-900 dark:bg-indigo-950/24">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <div className="flex items-center gap-2 text-sm font-semibold text-indigo-800 dark:text-indigo-100">
+              <Database className="h-4 w-4" />
+              Importer un rôle d&apos;évaluation XML
+            </div>
+            <p className="mt-1 text-sm leading-6 text-indigo-900/75 dark:text-indigo-100/75">
+              Déposez un fichier municipal de rôle d&apos;évaluation, comme RL66023_2026.xml. IACourtier extrait les immeubles, calcule un score et évite les doublons avec un lead_hash.
+            </p>
+          </div>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <input ref={roleXmlInputRef} type="file" accept=".xml,text/xml,application/xml" className="hidden" onChange={(event) => event.target.files?.[0] && importRoleEvaluationXml(event.target.files[0])} />
+            <button
+              type="button"
+              onClick={() => roleXmlInputRef.current?.click()}
+              disabled={isImportingRoleXml}
+              className="inline-flex items-center justify-center gap-2 rounded-lg bg-slate-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-white dark:text-slate-950"
+            >
+              {isImportingRoleXml ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileUp className="h-4 w-4" />}
+              {isImportingRoleXml ? "Import en cours..." : "Importer le XML"}
+            </button>
+          </div>
+        </div>
+        {roleImportStatus ? <p className="mt-3 text-sm font-medium text-indigo-900 dark:text-indigo-100">{roleImportStatus}</p> : null}
+      </section>
+
       <section className="rounded-lg border border-teal-200 bg-teal-50/60 p-4 shadow-sm dark:border-teal-900 dark:bg-teal-950/24">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
@@ -385,7 +470,18 @@ export function ProspectionRadar() {
             Réinitialiser
           </button>
         </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
+          <FilterSelect label="Classe" value={smartFilters.propertyClass} options={["Tous", "Maisons", "Plex", "Condos"]} onChange={(value) => setSmartFilters((current) => ({ ...current, propertyClass: value as SmartFilters["propertyClass"] }))} />
+          <NumberFilter label="Valeur min." value={smartFilters.minValue} placeholder="750000" onChange={(value) => setSmartFilters((current) => ({ ...current, minValue: value }))} />
+          <NumberFilter label="Année max." value={smartFilters.maxYear} placeholder="1990" onChange={(value) => setSmartFilters((current) => ({ ...current, maxYear: value }))} />
+          <NumberFilter label="Terrain min." value={smartFilters.minLandArea} placeholder="700" onChange={(value) => setSmartFilters((current) => ({ ...current, minLandArea: value }))} />
+          <NumberFilter label="Détention min." value={smartFilters.minOwnerYears} placeholder="10" onChange={(value) => setSmartFilters((current) => ({ ...current, minOwnerYears: value }))} />
+          <TextInput label="Secteur" value={smartFilters.sector} placeholder="COMMUNE" onChange={(value) => setSmartFilters((current) => ({ ...current, sector: value }))} />
+          <NumberFilter label="Score min." value={smartFilters.minScore} placeholder="70" onChange={(value) => setSmartFilters((current) => ({ ...current, minScore: value }))} />
+        </div>
       </section>
+
+      <RadarMap opportunities={filtered} selectedId={selected?.id || ""} onSelect={setSelectedId} />
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
         <section className="space-y-4">
@@ -436,6 +532,21 @@ function TextInput({ label, value, placeholder, onChange }: { label: string; val
   );
 }
 
+function NumberFilter({ label, value, placeholder, onChange }: { label: string; value: string; placeholder: string; onChange: (value: string) => void }) {
+  return (
+    <label className="block">
+      <span className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-200">{label}</span>
+      <input
+        type="number"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500 focus:ring-4 focus:ring-teal-500/10 dark:border-slate-700 dark:bg-slate-950"
+      />
+    </label>
+  );
+}
+
 function SourceStatusBadge({ status, active }: { status: string; active: boolean }) {
   const label = active ? status : "inactive";
   const className =
@@ -464,6 +575,52 @@ function FilterSelect({ label, value, options, onChange }: { label: string; valu
         ))}
       </select>
     </label>
+  );
+}
+
+function RadarMap({ opportunities, selectedId, onSelect }: { opportunities: ProspectRecord[]; selectedId: string; onSelect: (id: string) => void }) {
+  const visible = opportunities.slice(0, 120);
+
+  return (
+    <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900/72">
+      <div className="flex flex-col gap-3 border-b border-slate-200 p-4 dark:border-slate-800 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="flex items-center gap-2 text-sm font-semibold text-teal-700 dark:text-teal-300">
+            <MapPin className="h-4 w-4" />
+            Carte des opportunitÃ©s
+          </p>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Positionnement local temporaire basÃ© sur la clÃ© de propriÃ©tÃ©, prÃªt pour le gÃ©ocodage.</p>
+        </div>
+        <div className="flex flex-wrap gap-2 text-xs text-slate-500">
+          <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />Faible</span>
+          <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full bg-amber-500" />Moyen</span>
+          <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full bg-rose-600" />TrÃ¨s fort</span>
+        </div>
+      </div>
+      <div className="relative h-[360px] bg-[linear-gradient(90deg,rgba(15,23,42,.06)_1px,transparent_1px),linear-gradient(0deg,rgba(15,23,42,.06)_1px,transparent_1px)] bg-[size:42px_42px] dark:bg-[linear-gradient(90deg,rgba(148,163,184,.13)_1px,transparent_1px),linear-gradient(0deg,rgba(148,163,184,.13)_1px,transparent_1px)]">
+        <div className="absolute inset-6 rounded-lg border border-slate-200/70 bg-slate-50/60 dark:border-slate-800 dark:bg-slate-950/40" />
+        {visible.map((opportunity) => {
+          const position = mapPosition(opportunity);
+          const active = selectedId === opportunity.id;
+          return (
+            <button
+              key={opportunity.id}
+              type="button"
+              onClick={() => onSelect(opportunity.id)}
+              title={`${opportunity.address} - ${opportunity.opportunityScore}/100`}
+              className={cn(
+                "absolute z-10 flex h-8 w-8 items-center justify-center rounded-full border-2 border-white text-[10px] font-bold text-white shadow-lg transition hover:scale-110 dark:border-slate-950",
+                mapMarkerColor(opportunity.opportunityScore),
+                active ? "scale-125 ring-4 ring-slate-950/15 dark:ring-white/20" : "",
+              )}
+              style={{ left: `${position.x}%`, top: `${position.y}%` }}
+            >
+              {opportunity.opportunityScore}
+            </button>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 
@@ -549,13 +706,150 @@ function sourceLabel(source: ProspectRecord["source"]) {
     judicial: "Judiciaire",
     municipal: "Municipal",
     government: "Gouvernement / Données Québec",
+    role_evaluation: "Rôle d'évaluation",
   };
 
   return labels[source];
 }
 
+function dedupeProspects(prospects: ProspectRecord[]) {
+  const seen = new Set<string>();
+  return prospects.filter((prospect) => {
+    const key = prospect.leadHash || prospect.id;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function PropertyInsightCard({ opportunity }: { opportunity: ProspectRecord }) {
+  const raw = opportunity.rawData || {};
+  const breakdown = Array.isArray(raw.score_breakdown) ? (raw.score_breakdown as Array<{ label?: string; points?: number }>) : [];
+  const sources = Array.isArray(raw.enrichment_sources) ? raw.enrichment_sources.map(String) : [sourceLabel(opportunity.source)];
+
+  return (
+    <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/50">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold">Fiche propriÃ©tÃ© enrichie</h3>
+          <p className="mt-1 text-xs text-slate-500">{sources.join(" + ")}</p>
+        </div>
+        <span className={cn("rounded-full px-2.5 py-1 text-xs font-semibold text-white", mapMarkerColor(opportunity.opportunityScore))}>{opportunity.opportunityScore}/100</span>
+      </div>
+
+      <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+        <InfoStat label="Valeur municipale" value={formatCurrency(numberFromRaw(raw.total_value))} />
+        <InfoStat label="Type" value={opportunity.propertyType} />
+        <InfoStat label="Terrain" value={formatArea(numberFromRaw(raw.land_area))} />
+        <InfoStat label="AnnÃ©e" value={stringFromRaw(raw.year_built) || "Non dÃ©tectÃ©e"} />
+        <InfoStat label="Matricule" value={stringFromRaw(raw.matricule) || "Non dÃ©tectÃ©"} />
+        <InfoStat label="Secteur" value={stringFromRaw(raw.sector) || opportunity.city} />
+      </div>
+
+      <div className="mt-4 rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900/70">
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Pourquoi ce score</p>
+        {breakdown.length ? (
+          <ul className="mt-2 space-y-1.5 text-sm text-slate-600 dark:text-slate-300">
+            {breakdown.map((item, index) => (
+              <li key={`${item.label}-${index}`} className="flex items-center justify-between gap-3">
+                <span>{item.label}</span>
+                <span className="font-semibold text-teal-700 dark:text-teal-300">+{item.points}</span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="mt-2 text-sm text-slate-500">{opportunity.reason}</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function InfoStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="text-xs text-slate-500 dark:text-slate-400">{label}</p>
+      <p className="mt-1 truncate font-semibold text-slate-800 dark:text-slate-100">{value}</p>
+    </div>
+  );
+}
+
 function formatDate(value: string) {
   return new Intl.DateTimeFormat("fr-CA", { year: "numeric", month: "short", day: "numeric" }).format(new Date(value));
+}
+
+function matchesSmartFilters(item: ProspectRecord, filters: SmartFilters) {
+  const type = item.propertyType.toLowerCase();
+  if (filters.propertyClass === "Maisons" && !type.includes("unifamiliale") && !type.includes("maison")) return false;
+  if (filters.propertyClass === "Plex" && !type.includes("plex") && !type.includes("logement")) return false;
+  if (filters.propertyClass === "Condos" && !type.includes("condo")) return false;
+
+  const minValue = Number(filters.minValue || 0);
+  if (minValue && numberFromRaw(item.rawData?.total_value) < minValue) return false;
+
+  const maxYear = Number(filters.maxYear || 0);
+  if (maxYear) {
+    const year = numberFromRaw(item.rawData?.year_built);
+    if (!year || year > maxYear) return false;
+  }
+
+  const minLandArea = Number(filters.minLandArea || 0);
+  if (minLandArea && numberFromRaw(item.rawData?.land_area) < minLandArea) return false;
+
+  const minOwnerYears = Number(filters.minOwnerYears || 0);
+  if (minOwnerYears && numberFromRaw(item.rawData?.owner_years) < minOwnerYears) return false;
+
+  const minScore = Number(filters.minScore || 0);
+  if (minScore && item.opportunityScore < minScore) return false;
+
+  const sector = filters.sector.trim().toLowerCase();
+  if (sector && !stringFromRaw(item.rawData?.sector).toLowerCase().includes(sector) && !item.address.toLowerCase().includes(sector)) return false;
+
+  return true;
+}
+
+function mapPosition(opportunity: ProspectRecord) {
+  const key = stringFromRaw(opportunity.rawData?.normalized_property_key) || opportunity.leadHash || opportunity.id;
+  const hash = hashString(key);
+  return {
+    x: 8 + (hash % 84),
+    y: 10 + (Math.floor(hash / 97) % 78),
+  };
+}
+
+function mapMarkerColor(score: number) {
+  if (score >= 80) return "bg-rose-600";
+  if (score >= 60) return "bg-amber-500";
+  return "bg-emerald-500";
+}
+
+function hashString(value: string) {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 31 + value.charCodeAt(index)) >>> 0;
+  }
+  return hash;
+}
+
+function numberFromRaw(value: unknown) {
+  if (typeof value === "number") return value;
+  if (typeof value === "string") {
+    const parsed = Number(value.replace(/\s/g, "").replace(",", "."));
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
+}
+
+function stringFromRaw(value: unknown) {
+  return typeof value === "string" ? value : value === null || value === undefined ? "" : String(value);
+}
+
+function formatCurrency(value: number) {
+  return value ? new Intl.NumberFormat("fr-CA", { style: "currency", currency: "CAD", maximumFractionDigits: 0 }).format(value) : "Non détectée";
+}
+
+function formatArea(value: number) {
+  return value ? `${value.toLocaleString("fr-CA")} m²` : "Non détecté";
 }
 
 function ActionsPanel({ opportunity, copied, onCopy }: { opportunity: ProspectRecord; copied: string; onCopy: (label: string, value: string) => void }) {
@@ -581,6 +875,8 @@ function ActionsPanel({ opportunity, copied, onCopy }: { opportunity: ProspectRe
         </div>
 
         <div className="space-y-4 p-5">
+          <PropertyInsightCard opportunity={opportunity} />
+
           {actionItems.map((item) => (
             <ActionBlock key={item.label} label={item.label} value={item.value} copied={copied === item.label} icon={item.icon} onCopy={() => onCopy(item.label, item.value)} />
           ))}

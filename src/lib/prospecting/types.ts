@@ -12,9 +12,10 @@ export type ProspectingCategory =
   | "Multiplex"
   | "Opportunités investisseurs"
   | "Import CSV"
+  | "Rôle d'évaluation"
   | "Gouvernement";
 
-export type ProspectingSource = "manual" | "csv" | "expired" | "judicial" | "municipal" | "government";
+export type ProspectingSource = "manual" | "csv" | "expired" | "judicial" | "municipal" | "government" | "role_evaluation";
 
 export type ProspectRecord = {
   id: string;
@@ -34,6 +35,7 @@ export type ProspectRecord = {
   phone?: string;
   email?: string;
   notes?: string;
+  leadHash?: string;
   rawData?: Record<string, unknown>;
 };
 
@@ -56,5 +58,6 @@ export const prospectingCategories: ProspectingCategory[] = [
   "Multiplex",
   "Opportunités investisseurs",
   "Import CSV",
+  "Rôle d'évaluation",
   "Gouvernement",
 ];
