@@ -7,18 +7,19 @@ import { ThemeToggle } from "@/components/layout/ThemeToggle";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
 const titles: Record<string, string> = {
-  "/tableau-de-bord": "Accueil",
-  "/tableau-de-bord/pipeline": "Pipeline intelligent",
-  "/tableau-de-bord/coach": "Coach IA",
-  "/tableau-de-bord/coach/appels": "Mes appels",
-  "/tableau-de-bord/prospects": "Prospects",
+  "/tableau-de-bord": "Ma journée",
+  "/tableau-de-bord/pipeline": "Parcours clients",
+  "/tableau-de-bord/coach": "M'entraîner",
+  "/tableau-de-bord/coach/appels": "Faire mes appels",
+  "/tableau-de-bord/prospects": "Faire mes suivis",
   "/tableau-de-bord/formations": "Formations",
   "/tableau-de-bord/prompts": "Recherche de prompts",
   "/tableau-de-bord/favoris": "Favoris",
   "/tableau-de-bord/historique": "Historique",
-  "/tableau-de-bord/radar-prospection": "Radar de prospection",
+  "/tableau-de-bord/radar-prospection": "Trouver des vendeurs",
   "/tableau-de-bord/telechargements": "Téléchargements",
-  "/tableau-de-bord/assistants": "Assistants IA",
+  "/tableau-de-bord/actions": "Missions du jour",
+  "/tableau-de-bord/assistants": "Services IA internes",
   "/tableau-de-bord/automatisations": "Automatisations",
   "/tableau-de-bord/abonnement": "Abonnement",
   "/tableau-de-bord/parametres": "Paramètres",
@@ -27,7 +28,7 @@ const titles: Record<string, string> = {
 
 export function DashboardTopbar() {
   const pathname = usePathname();
-  const title = titles[pathname] ?? "Tableau de bord";
+  const title = titles[pathname] ?? titleFromPath(pathname);
   const [label, setLabel] = useState<string>("");
   const [initial, setInitial] = useState<string>("");
 
@@ -62,4 +63,15 @@ export function DashboardTopbar() {
       </div>
     </header>
   );
+}
+
+function titleFromPath(pathname: string) {
+  if (pathname.startsWith("/tableau-de-bord/actions/prepare-market-analysis")) return "Préparer un rendez-vous";
+  if (pathname.startsWith("/tableau-de-bord/actions/generate-marketing-launch")) return "Mettre une propriété en marché";
+  if (pathname.startsWith("/tableau-de-bord/actions/prepare-first-seller-call")) return "Préparer un premier contact";
+  if (pathname.startsWith("/tableau-de-bord/actions/generate-sold-campaign")) return "Générer la campagne vendu";
+  if (pathname.startsWith("/tableau-de-bord/actions/")) return "Mission de travail";
+  if (pathname.startsWith("/tableau-de-bord/mandats")) return "Mes propriétés";
+  if (pathname.startsWith("/tableau-de-bord/prospects")) return "Faire mes suivis";
+  return "Ma journée";
 }

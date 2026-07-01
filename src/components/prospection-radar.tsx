@@ -961,7 +961,7 @@ function RadarActionLink({
 
 function buildRadarActionHref(opportunity: ProspectRecord, channel: string) {
   const params = new URLSearchParams(buildRadarActionContext(opportunity, channel));
-  return `/tableau-de-bord/assistants/message-prospection?${params.toString()}`;
+  return `/tableau-de-bord/actions/prepare-first-seller-call?${params.toString()}`;
 }
 
 function buildRadarActionContext(opportunity: ProspectRecord, channel: string) {

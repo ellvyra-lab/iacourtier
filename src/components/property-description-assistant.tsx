@@ -271,77 +271,84 @@ export function PropertyDescriptionAssistant() {
       <form className="space-y-5 rounded-lg border border-slate-200 bg-white p-5 shadow-premium dark:border-slate-800 dark:bg-slate-900/76 sm:p-6" onSubmit={(event) => event.preventDefault()}>
         {linkedMandat ? (
           <div className="rounded-lg border border-teal-200 bg-teal-50 p-4 dark:border-teal-900 dark:bg-teal-950/50">
-            <p className="text-sm font-semibold text-teal-900 dark:text-teal-100">Mandat lié</p>
+            <p className="text-sm font-semibold text-teal-900 dark:text-teal-100">Données utilisées par l&apos;IA</p>
             <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
               <div>
                 <p className="font-semibold text-slate-950 dark:text-white">{linkedMandat.address}</p>
                 <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
-                  {linkedMandat.city} · {linkedMandat.asking_price || "Prix à préciser"}
+                  {linkedMandat.city} · {linkedMandat.property_type || "Propriété"} · {linkedMandat.asking_price || "Prix à préciser"}
                 </p>
               </div>
               <Link href={linkedMandat.returnHref} className="inline-flex items-center justify-center rounded-lg bg-slate-950 px-3 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 dark:bg-white dark:text-slate-950">
                 Retour au mandat
               </Link>
             </div>
+            <div className="mt-4 rounded-lg border border-teal-200/70 bg-white/70 p-3 text-sm leading-6 text-teal-950 dark:border-teal-900 dark:bg-slate-950/30 dark:text-teal-100">
+              Aucun formulaire manuel requis. La description sera générée à partir du dossier du mandat déjà sélectionné.
+            </div>
           </div>
         ) : null}
 
-        <Step title="1" label="Informations générales">
-          <div className="grid gap-4 md:grid-cols-2">
-            <Select label="Type de propriété" value={form.propertyType} onChange={(value) => update("propertyType", value)} options={propertyTypes} />
-            <Field label="Ville" value={form.city} onChange={(value) => update("city", value)} required />
-            <Field label="Adresse (facultatif)" value={form.address || ""} onChange={(value) => update("address", value)} />
-            <Field label="Prix demandé" value={form.price || ""} onChange={(value) => update("price", value)} inputMode="numeric" />
-            <Field label="Année de construction" value={form.constructionYear || ""} onChange={(value) => update("constructionYear", value)} inputMode="numeric" />
-          </div>
-        </Step>
+        {!linkedMandat ? (
+          <>
+            <Step title="1" label="Informations générales">
+              <div className="grid gap-4 md:grid-cols-2">
+                <Select label="Type de propriété" value={form.propertyType} onChange={(value) => update("propertyType", value)} options={propertyTypes} />
+                <Field label="Ville" value={form.city} onChange={(value) => update("city", value)} required />
+                <Field label="Adresse (facultatif)" value={form.address || ""} onChange={(value) => update("address", value)} />
+                <Field label="Prix demandé" value={form.price || ""} onChange={(value) => update("price", value)} inputMode="numeric" />
+                <Field label="Année de construction" value={form.constructionYear || ""} onChange={(value) => update("constructionYear", value)} inputMode="numeric" />
+              </div>
+            </Step>
 
-        <Step title="2" label="Caractéristiques">
-          <div className="grid gap-4 md:grid-cols-3">
-            <Field label="Nombre de chambres" value={form.bedrooms || ""} onChange={(value) => update("bedrooms", value)} inputMode="numeric" />
-            <Field label="Nombre de salles de bain" value={form.bathrooms || ""} onChange={(value) => update("bathrooms", value)} inputMode="decimal" />
-            <Field label="Superficie habitable" value={form.livingArea || ""} onChange={(value) => update("livingArea", value)} />
-            <Field label="Superficie du terrain" value={form.lotArea || ""} onChange={(value) => update("lotArea", value)} />
-            <Field label="Stationnements" value={form.parking || ""} onChange={(value) => update("parking", value)} inputMode="numeric" />
-          </div>
-          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {[
-              ["garage", "Garage"],
-              ["pool", "Piscine"],
-              ["basement", "Sous-sol"],
-              ["fireplace", "Foyer"],
-              ["airConditioning", "Air climatisé"],
-            ].map(([key, label]) => (
-              <Toggle
-                key={key}
-                label={label}
-                checked={Boolean(form[key as keyof PropertyDescriptionForm])}
-                onChange={(checked) => update(key as keyof PropertyDescriptionForm, checked as never)}
-              />
-            ))}
-          </div>
-        </Step>
+            <Step title="2" label="Caractéristiques">
+              <div className="grid gap-4 md:grid-cols-3">
+                <Field label="Nombre de chambres" value={form.bedrooms || ""} onChange={(value) => update("bedrooms", value)} inputMode="numeric" />
+                <Field label="Nombre de salles de bain" value={form.bathrooms || ""} onChange={(value) => update("bathrooms", value)} inputMode="decimal" />
+                <Field label="Superficie habitable" value={form.livingArea || ""} onChange={(value) => update("livingArea", value)} />
+                <Field label="Superficie du terrain" value={form.lotArea || ""} onChange={(value) => update("lotArea", value)} />
+                <Field label="Stationnements" value={form.parking || ""} onChange={(value) => update("parking", value)} inputMode="numeric" />
+              </div>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {[
+                  ["garage", "Garage"],
+                  ["pool", "Piscine"],
+                  ["basement", "Sous-sol"],
+                  ["fireplace", "Foyer"],
+                  ["airConditioning", "Air climatisé"],
+                ].map(([key, label]) => (
+                  <Toggle
+                    key={key}
+                    label={label}
+                    checked={Boolean(form[key as keyof PropertyDescriptionForm])}
+                    onChange={(checked) => update(key as keyof PropertyDescriptionForm, checked as never)}
+                  />
+                ))}
+              </div>
+            </Step>
 
-        <Step title="3" label="Points forts">
-          <label className="block">
-            <span className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-200">Détails à mettre en valeur</span>
-            <textarea
-              value={form.highlights}
-              onChange={(event) => update("highlights", event.target.value)}
-              rows={7}
-              placeholder="Décrivez les rénovations, les avantages, le quartier, la luminosité, la cour, les écoles, les transports, etc."
-              className="w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-teal-500 focus:ring-4 focus:ring-teal-500/10 dark:border-slate-700 dark:bg-slate-950 dark:placeholder:text-slate-500"
-            />
-          </label>
-        </Step>
+            <Step title="3" label="Points forts">
+              <label className="block">
+                <span className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-200">Détails à mettre en valeur</span>
+                <textarea
+                  value={form.highlights}
+                  onChange={(event) => update("highlights", event.target.value)}
+                  rows={7}
+                  placeholder="Décrivez les rénovations, les avantages, le quartier, la luminosité, la cour, les écoles, les transports, etc."
+                  className="w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-teal-500 focus:ring-4 focus:ring-teal-500/10 dark:border-slate-700 dark:bg-slate-950 dark:placeholder:text-slate-500"
+                />
+              </label>
+            </Step>
 
-        <Step title="4" label="Style d'écriture">
-          <RadioGroup value={form.style} options={writingStyles} onChange={(value) => update("style", value)} />
-        </Step>
+            <Step title="4" label="Style d'écriture">
+              <RadioGroup value={form.style} options={writingStyles} onChange={(value) => update("style", value)} />
+            </Step>
 
-        <Step title="5" label="Longueur">
-          <RadioGroup value={form.length} options={descriptionLengths} onChange={(value) => update("length", value)} />
-        </Step>
+            <Step title="5" label="Longueur">
+              <RadioGroup value={form.length} options={descriptionLengths} onChange={(value) => update("length", value)} />
+            </Step>
+          </>
+        ) : null}
 
         {error ? <p className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-200">{error}</p> : null}
 
@@ -352,7 +359,7 @@ export function PropertyDescriptionAssistant() {
           className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-slate-950 px-5 py-3.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-70 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200"
         >
           {isGenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Rocket className="h-4 w-4" />}
-          Générer la description
+          {linkedMandat ? "Générer avec le dossier" : "Générer la description"}
         </button>
       </form>
 

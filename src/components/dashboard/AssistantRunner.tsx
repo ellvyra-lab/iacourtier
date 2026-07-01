@@ -48,7 +48,7 @@ export function AssistantRunner({ assistant, searchParams }: { assistant: Assist
 
   useEffect(() => {
     if (!aiContext || !isContextAwareAssistant(assistant.slug)) return;
-    const contextValues = valuesFromAiContext(assistant.slug, aiContext);
+    const contextValues = valuesFromAiContext(assistant.slug, aiContext, { fillRequiredFallbacks: aiContext.source !== "documents" });
     setValues((current) => ({
       ...current,
       ...contextValues,
@@ -91,6 +91,11 @@ export function AssistantRunner({ assistant, searchParams }: { assistant: Assist
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (!canSubmit) {
+      setStatus("error");
+      setError("Importez des documents ou lancez l'assistant depuis un dossier avant de générer.");
+      return;
+    }
     runGeneration();
   }
 
@@ -149,6 +154,14 @@ export function AssistantRunner({ assistant, searchParams }: { assistant: Assist
   const isLoading = status === "loading";
   const contextSummary = aiContext ? summarizeAiContext(aiContext, assistant.slug) : null;
   const contextAware = isContextAwareAssistant(assistant.slug);
+  const contextOnlyMode = contextAware && aiContext && aiContext.source !== "documents";
+  const documentCompletionMode = contextAware && aiContext?.source === "documents";
+  const fieldsToRender = contextAware
+    ? documentCompletionMode
+      ? assistant.fields.filter((field) => field.required && !values[field.name]?.trim())
+      : []
+    : assistant.fields;
+  const canSubmit = !contextAware || Boolean(aiContext);
 
   return (
     <div className="grid gap-6 lg:grid-cols-2">
@@ -168,7 +181,18 @@ export function AssistantRunner({ assistant, searchParams }: { assistant: Assist
 
         {contextSummary ? <AiContextCard summary={contextSummary} /> : null}
 
-        {assistant.fields.filter((field) => !(aiContext && assistant.slug === "message-prospection" && field.name === "type_prospect")).map((field) => (
+        {contextOnlyMode ? (
+          <ContextReadyNotice sourceLabel={aiContext.sourceLabel} />
+        ) : null}
+
+        {documentCompletionMode && fieldsToRender.length ? (
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
+            <p className="font-semibold">Quelques détails seulement à compléter</p>
+            <p className="mt-1 leading-6">Les documents ont rempli le dossier. IACourtier vous demande uniquement ce qui manque pour générer un résultat fiable.</p>
+          </div>
+        ) : null}
+
+        {fieldsToRender.map((field) => (
           <div key={field.name} className="flex flex-col gap-2">
             <label className="text-sm font-medium">
               {field.label}
@@ -217,7 +241,11 @@ export function AssistantRunner({ assistant, searchParams }: { assistant: Assist
           </div>
         ))}
 
-        <Button type="submit" size="lg" className="mt-2 w-full justify-center">
+        <Button
+          type="submit"
+          size="lg"
+          className={`mt-2 w-full justify-center ${!canSubmit || isLoading ? "cursor-not-allowed opacity-60" : ""}`}
+        >
           {isLoading ? (
             <>
               <Loader2 size={16} className="animate-spin" />
@@ -226,10 +254,13 @@ export function AssistantRunner({ assistant, searchParams }: { assistant: Assist
           ) : (
             <>
               <Sparkles size={16} />
-              Générer
+              {contextAware ? "Générer avec le contexte" : "Générer"}
             </>
           )}
         </Button>
+        {contextAware && !aiContext ? (
+          <p className="text-center text-xs leading-5 text-muted">Importez d&apos;abord les documents ou lancez l&apos;assistant depuis un prospect, un mandat ou une propriété.</p>
+        ) : null}
       </form>
 
       {/* ---- Result ---- */}
@@ -239,8 +270,9 @@ export function AssistantRunner({ assistant, searchParams }: { assistant: Assist
         {status === "idle" && (
           <div className="flex flex-1 items-center justify-center rounded-xl border border-dashed border-subtle p-10 text-center">
             <p className="text-sm text-muted">
-              Remplissez le formulaire et cliquez sur « Générer » pour voir le
-              résultat apparaître ici.
+              {contextAware
+                ? "Sélectionnez un dossier ou importez des documents, puis cliquez sur « Générer avec le contexte »."
+                : "Remplissez le formulaire et cliquez sur « Générer » pour voir le résultat apparaître ici."}
             </p>
           </div>
         )}
@@ -283,6 +315,17 @@ export function AssistantRunner({ assistant, searchParams }: { assistant: Assist
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+function ContextReadyNotice({ sourceLabel }: { sourceLabel: string }) {
+  return (
+    <div className="rounded-2xl border border-teal-200 bg-teal-50 p-4 text-sm text-teal-950">
+      <p className="font-semibold">Aucun formulaire manuel requis</p>
+      <p className="mt-1 leading-6">
+        Cet assistant utilise automatiquement les informations du dossier {sourceLabel.toLowerCase()}. Le courtier n&apos;a rien à retaper.
+      </p>
     </div>
   );
 }

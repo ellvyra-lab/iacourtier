@@ -2,6 +2,7 @@ export {
   aiActionContexts,
   contextFromPipelineStatus,
   getAllContextualAiActions,
+  getContextualAiActionById,
   getContextualAiActions,
   getFeaturedContextualAiActions,
   getPrimaryContextualAiAction,

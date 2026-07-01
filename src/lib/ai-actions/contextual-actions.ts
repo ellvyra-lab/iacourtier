@@ -22,13 +22,15 @@ export type ContextualAiAction = {
   outputs: string[];
   href?: string;
   assistantSlug?: string;
+  serviceSlugs?: string[];
+  serviceLabels?: string[];
 };
 
 export const aiActionContexts: Array<{ id: AiActionContext; label: string; description: string }> = [
   {
     id: "prospect vendeur",
     label: "Prospect vendeur",
-    description: "Ouvrir une conversation naturelle et mener vers une estimation ou un rendez-vous.",
+    description: "Ouvrir une conversation naturelle et créer une occasion de rendez-vous.",
   },
   {
     id: "prospect acheteur",
@@ -38,7 +40,7 @@ export const aiActionContexts: Array<{ id: AiActionContext; label: string; descr
   {
     id: "rendez-vous vendeur obtenu",
     label: "Rendez-vous vendeur obtenu",
-    description: "Preparer l'analyse de marche avant la rencontre vendeur.",
+    description: "Préparer la rencontre vendeur avant d'arriver chez le client.",
   },
   {
     id: "evaluation en preparation",
@@ -47,8 +49,8 @@ export const aiActionContexts: Array<{ id: AiActionContext; label: string; descr
   },
   {
     id: "mandat vendeur signe",
-    label: "Mandat vendeur signe",
-    description: "Generer toute la mise en marche sans ressaisir les informations du dossier.",
+    label: "Mandat vendeur signé",
+    description: "Lancer la mise en marché sans ressaisir les informations du dossier.",
   },
   {
     id: "propriete en marche",
@@ -126,111 +128,133 @@ const sellerAppointmentOutputs = [
 const contextualActions: ContextualAiAction[] = [
   {
     id: "generate-marketing-launch",
-    label: "Generer la mise en marche",
-    description: "Creer en une seule action les textes essentiels pour lancer le mandat vendeur signe.",
+    label: "Lancer la mise en marché",
+    description: "Préparer en une seule mission les textes essentiels pour sortir la propriété proprement.",
     context: "mandat vendeur signe",
     primary: true,
     outputs: marketingLaunchOutputs,
-    href: "/tableau-de-bord/assistants/description-centris",
+    href: "/tableau-de-bord/actions/generate-marketing-launch",
     assistantSlug: "description-centris",
+    serviceSlugs: ["description-centris", "publication-facebook", "script-video", "courriel-vendeur", "plan-marketing"],
+    serviceLabels: ["Description Centris", "Publication Facebook", "Script vidéo", "Courriel acheteurs", "Plan marketing"],
   },
   {
     id: "generate-sold-campaign",
-    label: "Generer campagne vendu",
-    description: "Transformer la transaction conclue en contenus de preuve sociale et de relation client.",
+    label: "Générer la campagne vendu",
+    description: "Transformer une vente conclue en preuve sociale et en relances intelligentes.",
     context: "propriete vendue",
     primary: true,
     outputs: soldCampaignOutputs,
-    href: "/tableau-de-bord/assistants/publication-facebook",
+    href: "/tableau-de-bord/actions/generate-sold-campaign",
     assistantSlug: "publication-facebook",
+    serviceSlugs: ["publication-facebook", "suivi-client"],
+    serviceLabels: ["Publications vendu", "Messages de remerciement et anciens clients"],
   },
   {
     id: "prepare-first-seller-call",
-    label: "Preparer premier appel",
-    description: "Creer un appel naturel, un texto, un courriel et les relances sans reveler la source du prospect.",
+    label: "Préparer un premier contact",
+    description: "Préparer l’appel, le texto, le courriel et les relances sans révéler pourquoi le prospect a été choisi.",
     context: "prospect vendeur",
     primary: true,
     outputs: sellerProspectOutputs,
-    href: "/tableau-de-bord/assistants/message-prospection",
+    href: "/tableau-de-bord/actions/prepare-first-seller-call",
     assistantSlug: "message-prospection",
+    serviceSlugs: ["message-prospection"],
+    serviceLabels: ["Scripts de premier contact et relances"],
   },
   {
     id: "prepare-market-analysis",
-    label: "Preparer analyse de marche",
-    description: "Assembler l'analyse comparative, les arguments vendeur et les questions avant la rencontre.",
+    label: "Préparer le rendez-vous vendeur",
+    description: "Assembler l’analyse de marché, les questions et les arguments avant la rencontre.",
     context: "rendez-vous vendeur obtenu",
     primary: true,
     outputs: sellerAppointmentOutputs,
-    href: "/tableau-de-bord/mandats",
+    href: "/tableau-de-bord/actions/prepare-market-analysis",
+    serviceSlugs: ["message-prospection", "reponse-objection"],
+    serviceLabels: ["Questions vendeur", "Arguments et objections", "Script de rendez-vous"],
   },
   {
     id: "prepare-evaluation-materials",
-    label: "Structurer l'evaluation vendeur",
-    description: "Consolider les comparables, angles de presentation et objections probables.",
+    label: "Structurer l’évaluation vendeur",
+    description: "Consolider les comparables, les angles de présentation et les objections probables.",
     context: "evaluation en preparation",
     primary: true,
     outputs: sellerAppointmentOutputs,
-    href: "/tableau-de-bord/mandats",
+    href: "/tableau-de-bord/actions/prepare-evaluation-materials",
+    serviceSlugs: ["reponse-objection", "courriel-vendeur"],
+    serviceLabels: ["Arguments vendeur", "Présentation et objections"],
   },
   {
     id: "market-property-followup",
-    label: "Preparer suivi de mise en marche",
-    description: "Creer les suivis vendeur, ajustements marketing et messages apres visites.",
+    label: "Faire le suivi de mise en marché",
+    description: "Préparer les suivis vendeur, les ajustements marketing et les messages après visites.",
     context: "propriete en marche",
     primary: true,
     outputs: ["Courriel vendeur", "Relance apres visite", "Ajustement publication", "Resume des reactions acheteurs"],
-    href: "/tableau-de-bord/assistants/courriel-vendeur",
+    href: "/tableau-de-bord/actions/market-property-followup",
     assistantSlug: "courriel-vendeur",
+    serviceSlugs: ["courriel-vendeur", "publication-facebook"],
+    serviceLabels: ["Suivi vendeur", "Ajustements marketing"],
   },
   {
     id: "qualify-buyer",
-    label: "Qualifier l'acheteur",
-    description: "Preparer les questions de qualification, les criteres et le message de prochaine etape.",
+    label: "Qualifier un acheteur",
+    description: "Préparer les questions, les critères et la prochaine étape.",
     context: "prospect acheteur",
     primary: true,
     outputs: ["Questions de qualification", "Texto de suivi", "Courriel recapitulatif", "Prochaine etape"],
-    href: "/tableau-de-bord/assistants/suivi-client",
+    href: "/tableau-de-bord/actions/qualify-buyer",
     assistantSlug: "suivi-client",
+    serviceSlugs: ["suivi-client"],
+    serviceLabels: ["Qualification acheteur et suivi"],
   },
   {
     id: "buyer-search-plan",
     label: "Organiser la recherche acheteur",
-    description: "Transformer les criteres en plan de recherche et suivis de visites.",
+    description: "Transformer les critères en plan de recherche et suivis de visites.",
     context: "contrat acheteur signe",
     primary: true,
     outputs: ["Plan de recherche", "Message nouvelles inscriptions", "Suivi apres visite", "Questions de priorisation"],
-    href: "/tableau-de-bord/assistants/suivi-client",
+    href: "/tableau-de-bord/actions/buyer-search-plan",
     assistantSlug: "suivi-client",
+    serviceSlugs: ["suivi-client"],
+    serviceLabels: ["Plan de recherche et suivis"],
   },
   {
     id: "buyer-next-step",
-    label: "Preparer prochaine etape acheteur",
-    description: "Clarifier le besoin acheteur et proposer une action simple.",
+    label: "Préparer la prochaine étape acheteur",
+    description: "Clarifier le besoin et proposer une action simple.",
     context: "acheteur qualifie",
     primary: true,
     outputs: ["Message de qualification", "Questions ouvertes", "Suivi budget", "Invitation a discuter"],
-    href: "/tableau-de-bord/assistants/suivi-client",
+    href: "/tableau-de-bord/actions/buyer-next-step",
     assistantSlug: "suivi-client",
+    serviceSlugs: ["suivi-client"],
+    serviceLabels: ["Message de qualification"],
   },
   {
     id: "general-prospecting",
-    label: "Creer une action de prospection",
-    description: "Generer un message libre quand aucun client n'est encore selectionne.",
+    label: "Préparer une action de prospection",
+    description: "Créer un message libre quand aucun client n’est encore sélectionné.",
     context: "prospection generale",
     primary: true,
     outputs: sellerProspectOutputs,
-    href: "/tableau-de-bord/assistants/message-prospection",
+    href: "/tableau-de-bord/actions/general-prospecting",
     assistantSlug: "message-prospection",
+    serviceSlugs: ["message-prospection"],
+    serviceLabels: ["Prospection libre"],
   },
   {
     id: "client-followup",
-    label: "Preparer un suivi client",
-    description: "Creer une relance humaine et claire selon la situation du client.",
+    label: "Préparer un suivi client",
+    description: "Créer une relance humaine et claire selon la situation du client.",
     context: "suivi client",
     primary: true,
     outputs: ["Texto de suivi", "Courriel de suivi", "Question de relance", "Prochaine action"],
-    href: "/tableau-de-bord/assistants/suivi-client",
+    href: "/tableau-de-bord/actions/client-followup",
     assistantSlug: "suivi-client",
+    serviceSlugs: ["suivi-client"],
+    serviceLabels: ["Suivi client"],
   },
 ];
 
@@ -244,6 +268,10 @@ export function getPrimaryContextualAiAction(context: AiActionContext) {
 
 export function getAllContextualAiActions() {
   return contextualActions;
+}
+
+export function getContextualAiActionById(id: string) {
+  return contextualActions.find((action) => action.id === id);
 }
 
 export function getFeaturedContextualAiActions() {

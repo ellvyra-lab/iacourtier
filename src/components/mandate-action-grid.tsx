@@ -48,8 +48,10 @@ function contextQuery(context?: MandateActionContext) {
 }
 
 function generatorHref(generatorId: string, dossierId: string, isLocal: boolean, context?: MandateActionContext) {
+  const query = contextQuery(context);
+
   if (generatorId === "description-propriete") {
-    return `/tableau-de-bord/assistants/description-propriete?mandatId=${dossierId}${isLocal ? "&source=local" : ""}`;
+    return `/tableau-de-bord/actions/generate-marketing-launch${query ? `?${query}` : ""}`;
   }
 
   if (generatorId === "analyse-comparative") {
@@ -57,13 +59,11 @@ function generatorHref(generatorId: string, dossierId: string, isLocal: boolean,
   }
 
   if (generatorId === "facebook") {
-    const query = contextQuery(context);
-    return `/tableau-de-bord/assistants/publication-facebook${query ? `?${query}` : ""}`;
+    return `/tableau-de-bord/actions/generate-marketing-launch${query ? `?${query}` : ""}`;
   }
 
   if (generatorId === "plan-marketing") {
-    const query = contextQuery(context);
-    return `/tableau-de-bord/assistants/plan-marketing${query ? `?${query}` : ""}`;
+    return `/tableau-de-bord/actions/generate-marketing-launch${query ? `?${query}` : ""}`;
   }
 
   return "#";

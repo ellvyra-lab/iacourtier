@@ -162,7 +162,7 @@ function QuickShortcuts() {
   const shortcuts = [
     { label: "Nouveau mandat", href: "/tableau-de-bord/mandats/nouveau", icon: Plus },
     { label: "Radar", href: "/tableau-de-bord/radar-prospection", icon: Radar },
-    { label: "Description IA", href: "/tableau-de-bord/assistants/description-propriete", icon: FileText },
+    { label: "Lancer mise en marché", href: "/tableau-de-bord/actions/generate-marketing-launch", icon: FileText },
     { label: "Analyse comparative", href: "/tableau-de-bord/mandats/boucherville-familiale/analyse-comparative", icon: BarChart3 },
     { label: "Documents", href: "/tableau-de-bord/mandats/nouveau", icon: FileSearch },
   ];

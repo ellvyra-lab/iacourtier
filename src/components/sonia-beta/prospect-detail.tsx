@@ -336,7 +336,7 @@ export function ProspectDetail({ id }: { id: string }) {
 }
 
 function buildProspectContextHref(href: string, prospect: SoniaProspect) {
-  if (!href.includes("/tableau-de-bord/assistants/")) return href;
+  if (!href.includes("/tableau-de-bord/assistants/") && !href.includes("/tableau-de-bord/actions/")) return href;
 
   const [pathname, query = ""] = href.split("?");
   const params = new URLSearchParams(query);

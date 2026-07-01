@@ -75,13 +75,23 @@ export function summarizeAiContext(context: AiPropertyContext, slug: string): Ai
   };
 }
 
-export function valuesFromAiContext(slug: string, context: AiPropertyContext) {
+export function valuesFromAiContext(slug: string, context: AiPropertyContext, options: { fillRequiredFallbacks?: boolean } = {}) {
   const profile = assistantContextProfiles[slug];
   if (!profile) return {};
 
-  return Object.fromEntries(
+  const values = Object.fromEntries(
     Object.entries(profile.fieldMap).map(([fieldName, contextKey]) => [fieldName, valueForField(context, contextKey)]),
   );
+
+  if (!options.fillRequiredFallbacks) return values;
+
+  for (const [fieldName] of Object.entries(profile.fieldMap)) {
+    if (!String(values[fieldName] || "").trim()) {
+      values[fieldName] = "Information non précisée dans le dossier. Ne pas inventer; formuler de façon générale.";
+    }
+  }
+
+  return values;
 }
 
 export function buildContextPrompt(context: AiPropertyContext) {

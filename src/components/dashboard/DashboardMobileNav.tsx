@@ -6,10 +6,8 @@ import {
   LayoutDashboard,
   FolderKanban,
   Radar,
-  GraduationCap,
-  Search,
-  Heart,
-  Bot,
+  CalendarCheck,
+  Megaphone,
   Workflow,
   Trophy,
   Phone,
@@ -18,18 +16,15 @@ import {
 import { cn } from "@/lib/utils";
 
 const items = [
-  { href: "/tableau-de-bord", label: "Accueil", icon: LayoutDashboard },
-  { href: "/tableau-de-bord/pipeline", label: "Pipeline", icon: Workflow },
-  { href: "/tableau-de-bord/coach", label: "Coach IA", icon: Trophy },
+  { href: "/tableau-de-bord", label: "Ma journée", icon: LayoutDashboard },
+  { href: "/tableau-de-bord/radar-prospection", label: "Prospecter", icon: Radar },
+  { href: "/tableau-de-bord/prospects", label: "Suivis", icon: UserRound },
   { href: "/tableau-de-bord/coach/appels", label: "Appels", icon: Phone },
-  { href: "/tableau-de-bord/prospects", label: "Prospects", icon: UserRound },
-  { href: "/tableau-de-bord/mandats", label: "Mandats", icon: FolderKanban },
-  { href: "/tableau-de-bord/radar-prospection", label: "Radar", icon: Radar },
-  { href: "/tableau-de-bord/formations", label: "Formations", icon: GraduationCap },
-  { href: "/tableau-de-bord/prompts", label: "Prompts", icon: Search },
-  { href: "/tableau-de-bord/favoris", label: "Favoris", icon: Heart },
-  { href: "/tableau-de-bord/assistants", label: "Assistants IA", icon: Bot },
-  { href: "/tableau-de-bord/automatisations", label: "Automatisations", icon: Workflow },
+  { href: "/tableau-de-bord/actions/prepare-market-analysis", label: "Rendez-vous", icon: CalendarCheck },
+  { href: "/tableau-de-bord/mandats", label: "Propriétés", icon: FolderKanban },
+  { href: "/tableau-de-bord/actions/generate-marketing-launch", label: "Marché", icon: Megaphone },
+  { href: "/tableau-de-bord/pipeline", label: "Clients", icon: Workflow },
+  { href: "/tableau-de-bord/coach", label: "Coach", icon: Trophy },
 ];
 
 // Horizontal scrollable nav shown only below the desktop sidebar breakpoint.
