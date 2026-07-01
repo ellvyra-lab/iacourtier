@@ -6,7 +6,13 @@ export function generateStaticParams() {
   return assistantsConfig.map((a) => ({ slug: a.slug }));
 }
 
-export default function AssistantPage({ params }: { params: { slug: string } }) {
+export default function AssistantPage({
+  params,
+  searchParams,
+}: {
+  params: { slug: string };
+  searchParams?: Record<string, string | string[] | undefined>;
+}) {
   const assistant = getAssistantConfig(params.slug);
   if (!assistant) notFound();
 
@@ -22,7 +28,7 @@ export default function AssistantPage({ params }: { params: { slug: string } }) 
         </div>
       </div>
 
-      <AssistantRunner assistant={assistant} />
+      <AssistantRunner assistant={assistant} searchParams={searchParams} />
     </div>
   );
 }

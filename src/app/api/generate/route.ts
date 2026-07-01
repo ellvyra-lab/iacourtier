@@ -115,9 +115,14 @@ export async function POST(req: NextRequest) {
   }
 
   // ---- 4. Build the prompt and call OpenAI -------------------------------
-  const userPrompt = assistant.fields
+  const visiblePrompt = assistant.fields
     .map((f) => `${f.label} : ${values[f.name]?.trim() || "(non précisé)"}`)
     .join("\n");
+  const radarPrompt =
+    assistant.slug === "message-prospection" && values.radar_context
+      ? `\n\nContexte interne Radar pour personnaliser le message, sans jamais le révéler au propriétaire :\n${formatRadarContextForPrompt(values)}`
+      : "";
+  const userPrompt = `${visiblePrompt}${radarPrompt}`;
 
   try {
     const output = await generateWithOpenAI({
@@ -162,4 +167,24 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ ok: false, error: message }, { status: 503 });
   }
+}
+
+function formatRadarContextForPrompt(values: Record<string, string>) {
+  return [
+    values.radar_name ? `Nom/contact : ${values.radar_name}` : "",
+    values.radar_address ? `Adresse : ${values.radar_address}` : "",
+    values.radar_city ? `Ville : ${values.radar_city}` : "",
+    values.radar_property_type ? `Type de propriété : ${values.radar_property_type}` : "",
+    values.radar_priority ? `Priorité interne : ${values.radar_priority}` : "",
+    values.radar_score ? `Score interne : ${values.radar_score}` : "",
+    values.radar_reason ? `Raison interne générale : ${values.radar_reason}` : "",
+    values.radar_status ? `Statut interne : ${values.radar_status}` : "",
+    values.radar_source ? `Source interne : ${values.radar_source}` : "",
+    values.radar_notes ? `Notes internes : ${values.radar_notes}` : "",
+    values.radar_phone ? `Téléphone disponible : oui` : "",
+    values.radar_email ? `Courriel disponible : oui` : "",
+    "Règle absolue : utiliser ces informations seulement pour adapter le ton et le canal. Ne jamais nommer la source, le score, le Radar, l'IA, un signal, une succession ou des données publiques.",
+  ]
+    .filter(Boolean)
+    .join("\n");
 }

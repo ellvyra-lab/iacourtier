@@ -39,6 +39,7 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const isDashboard = pathname.startsWith("/tableau-de-bord");
   const isAuthPage = pathname === "/connexion" || pathname === "/inscription";
+  const isHomePage = pathname === "/";
 
   if (isDashboard && !isLoggedIn) {
     const url = request.nextUrl.clone();
@@ -54,12 +55,20 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
+  if (isHomePage && isLoggedIn) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/tableau-de-bord";
+    url.search = "";
+    return NextResponse.redirect(url);
+  }
+
   return response;
 }
 
 export const config = {
   matcher: [
     "/tableau-de-bord/:path*",
+    "/",
     "/connexion",
     "/inscription",
   ],

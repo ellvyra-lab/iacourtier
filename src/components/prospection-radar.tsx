@@ -849,6 +849,7 @@ function OpportunityCard({ opportunity, active, onSelect }: { opportunity: Prosp
         prospectId: opportunity.id,
         recordingEnabled: true,
         provider: "twilio",
+        radarContext: buildRadarActionContext(opportunity, "Appel téléphonique"),
       }),
     });
     const payload = (await response.json()) as { message?: string; error?: string };
@@ -902,6 +903,12 @@ function OpportunityCard({ opportunity, active, onSelect }: { opportunity: Prosp
         Voir les actions IA
         <ArrowUpRight className="h-4 w-4" />
       </button>
+      <div className="mt-2 grid grid-cols-2 gap-2">
+        <RadarActionLink opportunity={opportunity} channel="Appel téléphonique" label="Préparer appel" icon={Phone} />
+        <RadarActionLink opportunity={opportunity} channel="Message texte" label="Préparer texto" icon={MessageCircle} />
+        <RadarActionLink opportunity={opportunity} channel="Courriel" label="Préparer courriel" icon={Mail} />
+        <RadarActionLink opportunity={opportunity} channel="Message Facebook" label="Message Facebook" icon={MessageCircle} />
+      </div>
       <button
         type="button"
         onClick={createSellerProspect}
@@ -928,6 +935,52 @@ function OpportunityCard({ opportunity, active, onSelect }: { opportunity: Prosp
       </Link>
     </article>
   );
+}
+
+function RadarActionLink({
+  opportunity,
+  channel,
+  label,
+  icon: Icon,
+}: {
+  opportunity: ProspectRecord;
+  channel: string;
+  label: string;
+  icon: ElementType;
+}) {
+  return (
+    <Link
+      href={buildRadarActionHref(opportunity, channel)}
+      className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-900"
+    >
+      <Icon className="h-3.5 w-3.5 text-teal-600" />
+      {label}
+    </Link>
+  );
+}
+
+function buildRadarActionHref(opportunity: ProspectRecord, channel: string) {
+  const params = new URLSearchParams(buildRadarActionContext(opportunity, channel));
+  return `/tableau-de-bord/assistants/message-prospection?${params.toString()}`;
+}
+
+function buildRadarActionContext(opportunity: ProspectRecord, channel: string) {
+  return {
+    context: "radar",
+    channel,
+    address: opportunity.address || "",
+    city: opportunity.city || "",
+    propertyType: opportunity.propertyType || "",
+    score: String(opportunity.opportunityScore || ""),
+    reason: opportunity.reason || "",
+    priority: opportunity.priority || "",
+    status: opportunity.status || "reserved",
+    source: sourceLabel(opportunity.source),
+    notes: opportunity.notes || "",
+    phone: opportunity.phone || "",
+    email: opportunity.email || "",
+    name: opportunity.contactName || opportunity.ownerName || "",
+  };
 }
 
 function ScoreRing({ score }: { score: number }) {

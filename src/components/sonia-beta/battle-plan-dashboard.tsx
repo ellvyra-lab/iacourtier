@@ -1,10 +1,18 @@
 "use client";
 
+import type { ElementType } from "react";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { BarChart3, CalendarCheck, FileText, Megaphone, Phone, Radar, RotateCcw, ShieldCheck } from "lucide-react";
+import { ArrowRight, BarChart3, CalendarCheck, FileText, Megaphone, Phone, Radar, RotateCcw, Sparkles, Target } from "lucide-react";
 
 import { buildSoniaBattlePlan, getSoniaProspects, type SoniaProspect } from "@/lib/sonia-beta";
+
+const focusLines = [
+  "Prospection avant perfection.",
+  "Un appel vaut mieux que dix idées.",
+  "Ton prochain mandat commence probablement par un suivi.",
+  "Commence pendant que ton énergie est haute.",
+];
 
 export function BattlePlanDashboard() {
   const [prospects, setProspects] = useState<SoniaProspect[]>([]);
@@ -13,70 +21,107 @@ export function BattlePlanDashboard() {
     setProspects(getSoniaProspects());
   }, []);
 
-  const plan = useMemo(() => buildSoniaBattlePlan(prospects), [prospects]);
-  const totalActions =
-    plan.radarProspectsToCall.length +
-    plan.callsToMake.length +
-    plan.followupsDue.length +
-    plan.sellerAppointmentsToPrepare.length +
-    plan.marketAnalysesToPrepare.length +
-    plan.mandatesWithMissingDocuments.length +
-    plan.marketingActionsToGenerate.length;
+  const realProspects = useMemo(() => prospects.filter((prospect) => !prospect.id.startsWith("sonia-demo-")), [prospects]);
+  const workingProspects = useMemo(() => (realProspects.length ? prospects : []), [prospects, realProspects.length]);
+  const plan = useMemo(() => buildSoniaBattlePlan(workingProspects), [workingProspects]);
+  const firstAction = getFirstPriorityAction(plan);
+  const recommendations = buildCoachRecommendations(plan);
+  const isEmpty = workingProspects.length === 0;
 
   return (
     <div className="space-y-7">
       <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900/72">
-        <div className="grid gap-6 p-6 lg:grid-cols-[minmax(0,1fr)_340px] lg:p-7">
+        <div className="grid gap-6 p-6 lg:grid-cols-[minmax(0,1fr)_360px] lg:p-8">
           <div>
-            <p className="text-sm font-semibold text-teal-700 dark:text-teal-300">Sonia Beta</p>
-            <h1 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">Plan de bataille aujourd&apos;hui</h1>
-            <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600 dark:text-slate-300 sm:text-base">
-              Radar, appels, suivis, rendez-vous vendeurs, analyses de marché, documents et mise en marché sont regroupés dans un seul parcours de travail.
+            <p className="text-sm font-semibold text-teal-700 dark:text-teal-300">Coach IA</p>
+            <h1 className="mt-2 text-4xl font-semibold tracking-tight sm:text-5xl">Bonjour Sonia 👋</h1>
+            <p className="mt-4 max-w-3xl text-lg leading-8 text-slate-700 dark:text-slate-200">
+              Aujourd&apos;hui, on va avancer. Je t&apos;ai préparé ton plan de bataille.
             </p>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-500 dark:text-slate-400">
+              On garde ça simple : appels, relances, rendez-vous vendeurs, analyses de marché avant la rencontre, puis documents et mise en marché quand le mandat est signé.
+            </p>
+            <div className="mt-7 flex flex-col gap-3 sm:flex-row">
+              <Link href={firstAction.href} className="inline-flex items-center justify-center gap-2 rounded-lg bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 dark:bg-white dark:text-slate-950">
+                Commencer ma journée
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+              <Link href="/tableau-de-bord/radar-prospection" className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-950">
+                Ouvrir le Radar
+              </Link>
+            </div>
           </div>
-          <div className="rounded-lg border border-slate-200 bg-slate-50 p-5 dark:border-slate-800 dark:bg-slate-950/50">
-            <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">Priorité du jour</p>
-            <p className="mt-2 text-4xl font-semibold tracking-tight">{totalActions}</p>
-            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">actions prêtes à exécuter</p>
-            <Link href="/tableau-de-bord/radar-prospection" className="mt-5 inline-flex w-full items-center justify-center rounded-lg bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 dark:bg-white dark:text-slate-950">
-              Ouvrir le Radar
-            </Link>
+
+          <div className="rounded-lg border border-teal-200 bg-teal-50/70 p-5 dark:border-teal-900 dark:bg-teal-950/30">
+            <p className="flex items-center gap-2 text-sm font-semibold text-teal-900 dark:text-teal-100">
+              <Target className="h-4 w-4" />
+              Aujourd&apos;hui, ton focus
+            </p>
+            <p className="mt-3 text-2xl font-semibold tracking-tight text-teal-950 dark:text-teal-50">{focusLines[new Date().getDay() % focusLines.length]}</p>
+            <p className="mt-3 text-sm leading-6 text-teal-900/75 dark:text-teal-100/75">
+              Fais les actions qui créent du mouvement avant d&apos;ouvrir les détails qui peuvent attendre.
+            </p>
           </div>
         </div>
       </section>
 
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard icon={Radar} label="Prospects Radar à appeler" value={plan.radarProspectsToCall.length} />
-        <MetricCard icon={Phone} label="Appels à faire" value={plan.callsToMake.length} />
-        <MetricCard icon={RotateCcw} label="Relances dues" value={plan.followupsDue.length} />
-        <MetricCard icon={CalendarCheck} label="Rendez-vous à préparer" value={plan.sellerAppointmentsToPrepare.length} />
+      {isEmpty ? <EmptyCoachState /> : null}
+
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+        <ObjectiveCard icon={Phone} label="Appels à faire" value={plan.callsToMake.length} />
+        <ObjectiveCard icon={Radar} label="Prospects Radar" value={plan.radarProspectsToCall.length} />
+        <ObjectiveCard icon={RotateCcw} label="Relances dues" value={plan.followupsDue.length} />
+        <ObjectiveCard icon={CalendarCheck} label="Rendez-vous à préparer" value={plan.sellerAppointmentsToPrepare.length} />
+        <ObjectiveCard icon={BarChart3} label="Analyses à finaliser" value={plan.marketAnalysesToPrepare.length} />
       </section>
 
-      <div className="grid gap-5 xl:grid-cols-2">
-        <ActionList title="Prospects Radar à appeler aujourd'hui" icon={Radar} items={plan.radarProspectsToCall} empty="Aucun prospect Radar en attente d'appel." />
-        <ActionList title="Appels à faire" icon={Phone} items={plan.callsToMake} empty="Aucun appel prioritaire." />
-        <ActionList title="Relances dues" icon={RotateCcw} items={plan.followupsDue} empty="Aucune relance due aujourd'hui." />
-        <ActionList title="Rendez-vous vendeurs à préparer" icon={CalendarCheck} items={plan.sellerAppointmentsToPrepare} empty="Aucun rendez-vous vendeur à préparer." />
-        <ActionList title="Analyses de marché à faire" icon={BarChart3} items={plan.marketAnalysesToPrepare} empty="Aucune analyse de marché en attente." />
-        <ActionList title="Mandats avec documents manquants" icon={FileText} items={plan.mandatesWithMissingDocuments} empty="Aucun mandat avec documents manquants." />
-        <ActionList title="Actions marketing à générer" icon={Megaphone} items={plan.marketingActionsToGenerate} empty="Aucune action marketing urgente." />
-        <section className="rounded-lg border border-teal-200 bg-teal-50/70 p-5 dark:border-teal-900 dark:bg-teal-950/30">
-          <p className="flex items-center gap-2 text-sm font-semibold text-teal-900 dark:text-teal-100">
-            <ShieldCheck className="h-4 w-4" />
-            Workflow connecté
-          </p>
-          <div className="mt-4 space-y-2 text-sm leading-6 text-teal-900/80 dark:text-teal-100/80">
-            <p>Radar → Prospect → Appel → Coach → Suivi → Rendez-vous vendeur.</p>
-            <p>Rendez-vous obtenu → analyse de marché avant la rencontre.</p>
-            <p>Mandat signé → documents vendeur et mise en marché.</p>
-          </div>
-        </section>
-      </div>
+      <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900/72">
+        <p className="flex items-center gap-2 text-sm font-semibold text-teal-700 dark:text-teal-300">
+          <Sparkles className="h-4 w-4" />
+          Ce que je te recommande
+        </p>
+        <div className="mt-5 grid gap-3 lg:grid-cols-2">
+          {recommendations.map((recommendation) => (
+            <div key={recommendation} className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-700 dark:border-slate-800 dark:bg-slate-950/50 dark:text-slate-200">
+              {recommendation}
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900/72">
+        <p className="text-sm font-semibold text-teal-700 dark:text-teal-300">Plan de bataille</p>
+        <div className="mt-5 space-y-3">
+          <BattleStep index={1} icon={Radar} title="Appeler les prospects Radar" items={plan.radarProspectsToCall} empty="Débloque tes premiers prospects Radar, puis passe aux appels." />
+          <BattleStep index={2} icon={RotateCcw} title="Faire les relances dues" items={plan.followupsDue} empty="Aucune relance due pour le moment." />
+          <BattleStep index={3} icon={CalendarCheck} title="Préparer les rendez-vous vendeurs" items={plan.sellerAppointmentsToPrepare} empty="Aucun rendez-vous vendeur à préparer." />
+          <BattleStep index={4} icon={BarChart3} title="Finaliser les analyses de marché" items={plan.marketAnalysesToPrepare} empty="Aucune analyse à finaliser. Rappel : elle se prépare avant le rendez-vous vendeur." />
+          <BattleStep index={5} icon={Megaphone} title="Générer les actions marketing si nécessaire" items={plan.marketingActionsToGenerate} empty="Aucune mise en marché urgente." />
+          <BattleStep index={6} icon={FileText} title="Compléter les documents vendeur après mandat signé" items={plan.mandatesWithMissingDocuments} empty="Aucun document vendeur manquant." />
+        </div>
+      </section>
     </div>
   );
 }
 
-function MetricCard({ icon: Icon, label, value }: { icon: typeof Radar; label: string; value: number }) {
+function EmptyCoachState() {
+  return (
+    <section className="rounded-lg border border-teal-200 bg-teal-50/70 p-6 shadow-sm dark:border-teal-900 dark:bg-teal-950/30">
+      <p className="text-xl font-semibold tracking-tight text-teal-950 dark:text-teal-50">
+        Sonia, on part de zéro, et c&apos;est parfait.
+      </p>
+      <p className="mt-3 max-w-3xl text-sm leading-6 text-teal-900/80 dark:text-teal-100/80">
+        La première mission est simple : créer ou débloquer tes premiers prospects Radar, puis faire tes appels.
+      </p>
+      <Link href="/tableau-de-bord/radar-prospection" className="mt-5 inline-flex items-center justify-center gap-2 rounded-lg bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 dark:bg-white dark:text-slate-950">
+        Trouver mes premiers prospects
+        <ArrowRight className="h-4 w-4" />
+      </Link>
+    </section>
+  );
+}
+
+function ObjectiveCard({ icon: Icon, label, value }: { icon: ElementType; label: string; value: number }) {
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900/72">
       <Icon className="h-4 w-4 text-teal-600" />
@@ -86,31 +131,73 @@ function MetricCard({ icon: Icon, label, value }: { icon: typeof Radar; label: s
   );
 }
 
-function ActionList({ title, icon: Icon, items, empty }: { title: string; icon: typeof Radar; items: SoniaProspect[]; empty: string }) {
+function BattleStep({ index, icon: Icon, title, items, empty }: { index: number; icon: ElementType; title: string; items: SoniaProspect[]; empty: string }) {
   return (
-    <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900/72">
-      <p className="flex items-center gap-2 text-sm font-semibold text-teal-700 dark:text-teal-300">
-        <Icon className="h-4 w-4" />
-        {title}
-      </p>
-      <div className="mt-4 space-y-3">
-        {items.length ? (
-          items.map((item) => (
-            <Link key={item.id} href={`/tableau-de-bord/prospects/${item.id}`} className="block rounded-lg border border-slate-200 bg-slate-50 p-4 transition hover:border-teal-200 hover:bg-teal-50/60 dark:border-slate-800 dark:bg-slate-950/50 dark:hover:border-teal-900 dark:hover:bg-teal-950/20">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="font-semibold">{item.name}</p>
-                  <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{item.address ? `${item.address}, ${item.city}` : item.city}</p>
-                </div>
-                <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-slate-600 ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:ring-slate-800">{item.status}</span>
-              </div>
-              <p className="mt-3 text-sm font-medium text-teal-700 dark:text-teal-300">{item.nextAction}</p>
-            </Link>
-          ))
-        ) : (
-          <p className="rounded-lg border border-dashed border-slate-200 p-4 text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">{empty}</p>
-        )}
+    <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/50">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-3">
+          <span className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-950 text-sm font-semibold text-white dark:bg-white dark:text-slate-950">{index}</span>
+          <div>
+            <p className="flex items-center gap-2 font-semibold">
+              <Icon className="h-4 w-4 text-teal-600" />
+              {title}
+            </p>
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{items.length ? `${items.length} action${items.length > 1 ? "s" : ""} prête${items.length > 1 ? "s" : ""}` : empty}</p>
+          </div>
+        </div>
+        {items[0] ? (
+          <Link href={`/tableau-de-bord/prospects/${items[0].id}`} className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+            Ouvrir
+            <ArrowRight className="h-4 w-4" />
+          </Link>
+        ) : null}
       </div>
-    </section>
+    </div>
   );
+}
+
+function getFirstPriorityAction(plan: ReturnType<typeof buildSoniaBattlePlan>) {
+  const firstProspect = plan.radarProspectsToCall[0] || plan.callsToMake[0];
+  if (firstProspect) return { href: `/tableau-de-bord/prospects/${firstProspect.id}` };
+
+  const firstFollowup = plan.followupsDue[0];
+  if (firstFollowup) return { href: `/tableau-de-bord/prospects/${firstFollowup.id}` };
+
+  const firstAppointment = plan.sellerAppointmentsToPrepare[0] || plan.marketAnalysesToPrepare[0];
+  if (firstAppointment) return { href: `/tableau-de-bord/prospects/${firstAppointment.id}` };
+
+  return { href: "/tableau-de-bord/radar-prospection" };
+}
+
+function buildCoachRecommendations(plan: ReturnType<typeof buildSoniaBattlePlan>) {
+  const recommendations: string[] = [];
+
+  if (plan.radarProspectsToCall.length || plan.callsToMake.length) {
+    recommendations.push("Commence par tes appels avant d’ouvrir tes courriels.");
+    recommendations.push(`Tu as ${Math.max(plan.radarProspectsToCall.length, plan.callsToMake.length)} prospect${Math.max(plan.radarProspectsToCall.length, plan.callsToMake.length) > 1 ? "s" : ""} à contacter. Appelle pendant que ton énergie est haute.`);
+  }
+
+  if (plan.followupsDue.length) {
+    recommendations.push("Ce vendeur attend ton suivi aujourd’hui. Ne le laisse pas refroidir.");
+  }
+
+  if (plan.sellerAppointmentsToPrepare.length || plan.marketAnalysesToPrepare.length) {
+    recommendations.push("Tu as un rendez-vous vendeur à préparer. L’analyse de marché doit être prête avant la rencontre.");
+  }
+
+  if (plan.mandatesWithMissingDocuments.length) {
+    recommendations.push("Après mandat signé, ton focus est clair : documents vendeur et mise en marché.");
+  }
+
+  if (plan.marketingActionsToGenerate.length) {
+    recommendations.push("Ta mise en marché doit sortir vite et propre. Génère les contenus avant de te perdre dans les détails.");
+  }
+
+  return recommendations.length
+    ? recommendations.slice(0, 5)
+    : [
+        "Prospection avant perfection. Trouve tes premiers prospects et fais tes appels.",
+        "Ne cherche pas la journée parfaite. Cherche la prochaine conversation.",
+        "Ton prochain mandat commence probablement par un suivi.",
+      ];
 }

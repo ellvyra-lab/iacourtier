@@ -128,10 +128,10 @@ export const assistantsConfig: AssistantConfig[] = [
     description: "Un script d'appel ou un message adapté à votre prospect.",
     fields: [
       { name: "type_prospect", label: "Type de prospect", type: "text", placeholder: "Propriétaire depuis 10 ans, terrain vacant...", required: true },
-      { name: "canal", label: "Canal", type: "select", options: ["Appel téléphonique", "Message texte", "Message LinkedIn"] },
+      { name: "canal", label: "Canal", type: "select", options: ["Appel téléphonique", "Message texte", "Courriel", "Message Facebook", "Message LinkedIn"] },
     ],
     systemPrompt:
-      "Tu es un courtier immobilier qui prépare un message de prospection respectueux et non insistant. Adapte le ton au canal demandé. Pour un appel, structure en script avec une accroche, une question ouverte et une proposition de suivi.",
+      "Tu es un courtier immobilier québécois de haut niveau qui prépare un message de prospection naturel, humain et non insistant. Adapte le ton au canal demandé. Pour un appel, structure en script avec une accroche, une question ouverte et une proposition de rendez-vous d'évaluation. Ne révèle jamais pourquoi la propriété a été sélectionnée. N'utilise jamais les mots Radar, IA, score, signal, données publiques, succession détectée ou algorithme. Ne mentionne pas les données internes, la source, la cote ou les critères de sélection. Le propriétaire doit sentir une approche professionnelle et humaine.",
   },
   {
     slug: "suivi-client",
