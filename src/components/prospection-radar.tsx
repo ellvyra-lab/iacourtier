@@ -48,7 +48,7 @@ import {
   type RadarQuotaState,
 } from "@/lib/radar-quota";
 import { coachSalesCall, type CallCoachSuggestion } from "@/lib/sales-intelligence";
-import { createSellerProspectFromRadar } from "@/lib/sonia-beta";
+import { addProspectHistory, createSellerProspectFromRadar } from "@/lib/sonia-beta";
 import { cn } from "@/lib/utils";
 import { VoiceDictationButton } from "@/components/voice-dictation-button";
 
@@ -836,7 +836,13 @@ function OpportunityCard({ opportunity, active, onSelect }: { opportunity: Prosp
 
   async function startCall() {
     if (!opportunity.phone) {
-      setCallStatus("Ajoutez un numéro de téléphone pour lancer l'appel.");
+      const prospect = createSellerProspectFromRadar(opportunity);
+      addProspectHistory(prospect.id, {
+        title: "Appel démo lancé depuis le Radar",
+        description: "Mode Sonia Beta : appel simulé créé. Notez le résultat de l’appel pour obtenir le feedback Coach et la prochaine relance.",
+        type: "call",
+      });
+      router.push(`/tableau-de-bord/prospects/${prospect.id}?demoCall=1`);
       return;
     }
 

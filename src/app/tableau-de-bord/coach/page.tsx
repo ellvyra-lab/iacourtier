@@ -1,11 +1,5 @@
-import { ProspectingCoachDashboard } from "@/components/prospecting-coach-dashboard";
+import { DailyCoachDashboard } from "@/components/daily-coach-dashboard";
 
-type CoachPageProps = {
-  searchParams?: {
-    scenario?: string;
-  };
-};
-
-export default function CoachPage({ searchParams }: CoachPageProps) {
-  return <ProspectingCoachDashboard initialScenario={searchParams?.scenario} />;
+export default function CoachPage() {
+  return <DailyCoachDashboard />;
 }

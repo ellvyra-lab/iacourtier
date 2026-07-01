@@ -22,7 +22,7 @@ const callResults: Array<{ id: CallResult; label: string }> = [
   { id: "deja_avec_courtier", label: "Vendu / déjà avec courtier" },
 ];
 
-export function ProspectDetail({ id }: { id: string }) {
+export function ProspectDetail({ id, demoCall = false }: { id: string; demoCall?: boolean }) {
   const [prospect, setProspect] = useState<SoniaProspect | null>(null);
   const [callStarted, setCallStarted] = useState(false);
   const [callResult, setCallResult] = useState<CallResult>("pas_repondu");
@@ -32,10 +32,18 @@ export function ProspectDetail({ id }: { id: string }) {
   const [newNote, setNewNote] = useState("");
   const [callStatus, setCallStatus] = useState("");
   const [coachAnalysis, setCoachAnalysis] = useState<CallAnalysis | null>(null);
+  const [demoCallInitialized, setDemoCallInitialized] = useState(false);
 
   useEffect(() => {
     setProspect(getSoniaProspect(id));
   }, [id]);
+
+  useEffect(() => {
+    if (!demoCall || !prospect || demoCallInitialized) return;
+    setCallStarted(true);
+    setCallStatus("Mode démo : l’appel est simulé. Choisissez le résultat de l’appel, ajoutez une note, puis IACourtier générera le feedback Coach et la prochaine relance.");
+    setDemoCallInitialized(true);
+  }, [demoCall, prospect, demoCallInitialized]);
 
   const aiContext = prospect ? contextFromPipelineStatus(prospect.status, prospect.clientType) : "prospect vendeur";
   const recommendedActions = useMemo(() => getContextualAiActions(aiContext), [aiContext]);
