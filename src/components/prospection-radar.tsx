@@ -3,6 +3,7 @@
 import type { ElementType } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   ArrowUpRight,
   Building2,
@@ -35,7 +36,9 @@ import {
 } from "@/lib/prospecting";
 import type { GovernmentSourceRecord, GovernmentSourceType } from "@/lib/prospecting/government-source";
 import { coachSalesCall, type CallCoachSuggestion } from "@/lib/sales-intelligence";
+import { createSellerProspectFromRadar } from "@/lib/sonia-beta";
 import { cn } from "@/lib/utils";
+import { VoiceDictationButton } from "@/components/voice-dictation-button";
 
 const priorities: Array<ProspectingPriority | "Toutes"> = ["Toutes", "Élevée", "Moyenne", "Faible"];
 
@@ -677,6 +680,35 @@ function RadarMap({ opportunities, selectedId, onSelect }: { opportunities: Pros
 }
 
 function OpportunityCard({ opportunity, active, onSelect }: { opportunity: ProspectRecord; active: boolean; onSelect: () => void }) {
+  const router = useRouter();
+  const [callStatus, setCallStatus] = useState("");
+
+  function createSellerProspect() {
+    const prospect = createSellerProspectFromRadar(opportunity);
+    router.push(`/tableau-de-bord/prospects/${prospect.id}`);
+  }
+
+  async function startCall() {
+    if (!opportunity.phone) {
+      setCallStatus("Ajoutez un numéro de téléphone pour lancer l'appel.");
+      return;
+    }
+
+    setCallStatus("Consentement requis avant tout enregistrement. Démarrage...");
+    const response = await fetch("/api/calls/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        to: opportunity.phone,
+        prospectId: opportunity.id,
+        recordingEnabled: true,
+        provider: "twilio",
+      }),
+    });
+    const payload = (await response.json()) as { message?: string; error?: string };
+    setCallStatus(payload.error || payload.message || "Appel lancé.");
+  }
+
   return (
     <article
       className={cn(
@@ -724,6 +756,23 @@ function OpportunityCard({ opportunity, active, onSelect }: { opportunity: Prosp
         Voir les actions IA
         <ArrowUpRight className="h-4 w-4" />
       </button>
+      <button
+        type="button"
+        onClick={createSellerProspect}
+        className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-800 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:hover:bg-slate-900"
+      >
+        Créer prospect vendeur
+        <ArrowUpRight className="h-4 w-4" />
+      </button>
+      <button
+        type="button"
+        onClick={startCall}
+        className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-teal-200 bg-teal-50 px-4 py-3 text-sm font-semibold text-teal-800 transition hover:bg-teal-100 dark:border-teal-900 dark:bg-teal-950/30 dark:text-teal-100 dark:hover:bg-teal-950/50"
+      >
+        <Phone className="h-4 w-4" />
+        Appeler avec IACourtier
+      </button>
+      {callStatus ? <p className="mt-2 text-xs leading-5 text-slate-500 dark:text-slate-400">{callStatus}</p> : null}
       <Link
         href={`/tableau-de-bord/coach?scenario=radar_owner&city=${encodeURIComponent(opportunity.city)}`}
         className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-950"
@@ -941,6 +990,10 @@ function ActionsPanel({
     { label: "Relance après 30 jours", icon: RotateCcw, value: actions.followUp30 },
   ];
 
+  function appendCallTranscript(transcript: string) {
+    setCallNote((current) => [current.trim(), transcript.trim()].filter(Boolean).join(" "));
+  }
+
   return (
     <aside className="xl:sticky xl:top-8 xl:self-start">
       <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-premium dark:border-slate-800 dark:bg-slate-900/76">
@@ -994,6 +1047,7 @@ function ActionsPanel({
           <div className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950/45">
             <h3 className="text-sm font-semibold">Coach après appel</h3>
             <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Collez une courte note d&apos;appel pour obtenir la prochaine meilleure action.</p>
+            <VoiceDictationButton onTranscript={appendCallTranscript} className="mt-3" />
             <textarea
               value={callNote}
               onChange={(event) => setCallNote(event.target.value)}

@@ -1,8 +1,5 @@
-import { IntelligentPipelineDashboard } from "@/components/intelligent-pipeline-dashboard";
-import { buildPipelineDashboardData } from "@/lib/pipeline-intelligence";
+import { BattlePlanDashboard } from "@/components/sonia-beta/battle-plan-dashboard";
 
 export default function DashboardOverviewPage() {
-  const data = buildPipelineDashboardData();
-
-  return <IntelligentPipelineDashboard data={data} />;
+  return <BattlePlanDashboard />;
 }

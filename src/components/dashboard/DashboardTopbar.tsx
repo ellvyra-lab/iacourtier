@@ -10,6 +10,8 @@ const titles: Record<string, string> = {
   "/tableau-de-bord": "Accueil",
   "/tableau-de-bord/pipeline": "Pipeline intelligent",
   "/tableau-de-bord/coach": "Coach IA",
+  "/tableau-de-bord/coach/appels": "Mes appels",
+  "/tableau-de-bord/prospects": "Prospects",
   "/tableau-de-bord/formations": "Formations",
   "/tableau-de-bord/prompts": "Recherche de prompts",
   "/tableau-de-bord/favoris": "Favoris",

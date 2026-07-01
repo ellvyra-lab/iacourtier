@@ -14,6 +14,7 @@ import {
   type CoachScenarioId,
 } from "@/lib/prospecting-coach";
 import { cn } from "@/lib/utils";
+import { VoiceDictationButton } from "@/components/voice-dictation-button";
 
 export function ProspectingCoachDashboard({ initialScenario }: { initialScenario?: string }) {
   const [scenarioId, setScenarioId] = useState<CoachScenarioId>(getCoachScenario(initialScenario).id);
@@ -24,6 +25,10 @@ export function ProspectingCoachDashboard({ initialScenario }: { initialScenario
 
   function analyze() {
     setFeedback(analyzeProspectingResponse(response, scenario.id));
+  }
+
+  function appendTranscript(transcript: string) {
+    setResponse((current) => [current.trim(), transcript.trim()].filter(Boolean).join(" "));
   }
 
   return (
@@ -88,9 +93,12 @@ export function ProspectingCoachDashboard({ initialScenario }: { initialScenario
             <p className="mt-3 text-sm leading-6 text-slate-600 dark:text-slate-300">{scenario.context}</p>
           </div>
 
-          <label className="mt-6 block text-sm font-semibold" htmlFor="coach-response">
-            Votre réponse
-          </label>
+          <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <label className="block text-sm font-semibold" htmlFor="coach-response">
+              Votre réponse
+            </label>
+            <VoiceDictationButton onTranscript={appendTranscript} />
+          </div>
           <textarea
             id="coach-response"
             value={response}

@@ -10,9 +10,9 @@ export const pipelineClients: PipelineClient[] = [
     name: "M. Tremblay",
     address: "1240 rue Notre-Dame",
     city: "Repentigny",
-    status: "Évaluation en préparation",
+    status: "Rendez-vous vendeur obtenu",
     priority: "Élevée",
-    nextStep: "Confirmer le rendez-vous d'évaluation et préparer l'analyse comparative.",
+    nextStep: "Préparer l'analyse de marché avant le rendez-vous vendeur.",
   }),
   createClient({
     id: "gagnon-laval",
@@ -20,7 +20,7 @@ export const pipelineClients: PipelineClient[] = [
     name: "Mme Gagnon",
     address: "2145 boulevard des Laurentides",
     city: "Laval",
-    status: "Mandat signé",
+    status: "Mandat vendeur signé",
     priority: "Élevée",
     nextStep: "Demander les documents et lancer la préparation marketing.",
   }),
@@ -58,7 +58,7 @@ export const pipelineClients: PipelineClient[] = [
     type: "buyer",
     name: "Mme Roy",
     city: "Sherbrooke",
-    status: "Suivi",
+    status: "Suivi après-achat",
     priority: "Faible",
     nextStep: "Relancer avec les nouvelles inscriptions de la semaine.",
   }),
@@ -75,7 +75,7 @@ export const pipelineClients: PipelineClient[] = [
 ];
 
 function createClient(input: Omit<PipelineClient, "actions" | "timeline" | "updatedAt">): PipelineClient {
-  const actions = createActionsForStatus(input.id, input.status, today);
+  const actions = createActionsForStatus(input.id, input.status, today, input.type);
 
   return {
     ...input,

@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ArrowRight, Bot, CalendarCheck, CheckCircle2, Clock3, FileText, Home, Users } from "lucide-react";
+import Link from "next/link";
+import { ArrowRight, Bot, CalendarCheck, CheckCircle2, Clock3, FileText, Home, Phone, Sparkles, Users } from "lucide-react";
 
 import {
   buyerPipelineStatuses,
@@ -11,6 +12,7 @@ import {
   type PipelineDashboardData,
   type PipelineStatus,
 } from "@/lib/pipeline-intelligence";
+import { contextFromPipelineStatus, getContextualAiActions } from "@/lib/ai-actions";
 import { cn } from "@/lib/utils";
 
 export function IntelligentPipelineDashboard({ data }: { data: PipelineDashboardData }) {
@@ -161,6 +163,21 @@ function ClientPanel({
   client: PipelineClient;
   activeActions: Array<PipelineClient["actions"][number] & { client: PipelineClient }>;
 }) {
+  const [callStatus, setCallStatus] = useState("");
+  const aiContext = contextFromPipelineStatus(client.status, client.type);
+  const recommendedActions = getContextualAiActions(aiContext);
+
+  async function startClientCall() {
+    setCallStatus("Assurez-vous d'avoir les consentements requis pour enregistrer et analyser cet appel.");
+    const response = await fetch("/api/calls/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ to: "+15145550123", clientId: client.id, recordingEnabled: true, provider: "twilio" }),
+    });
+    const payload = (await response.json()) as { message?: string; error?: string };
+    setCallStatus(payload.error || payload.message || "Appel lancé.");
+  }
+
   return (
     <aside className="space-y-5 xl:sticky xl:top-8 xl:self-start">
       <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900/72">
@@ -174,6 +191,53 @@ function ClientPanel({
         <div className="mt-5 rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/50">
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Prochaine étape</p>
           <p className="mt-2 text-sm leading-6 text-slate-700 dark:text-slate-200">{client.nextStep}</p>
+        </div>
+        <button
+          type="button"
+          onClick={startClientCall}
+          className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 dark:bg-white dark:text-slate-950"
+        >
+          <Phone className="h-4 w-4" />
+          Appeler avec IACourtier
+        </button>
+        {callStatus ? <p className="mt-3 text-xs leading-5 text-slate-500 dark:text-slate-400">{callStatus}</p> : null}
+      </section>
+
+      <section className="rounded-lg border border-teal-200 bg-teal-50/70 p-5 shadow-sm dark:border-teal-900 dark:bg-teal-950/30">
+        <p className="flex items-center gap-2 text-sm font-semibold text-teal-900 dark:text-teal-100">
+          <Sparkles className="h-4 w-4" />
+          Actions IA recommandées
+        </p>
+        <p className="mt-1 text-xs font-medium uppercase tracking-wide text-teal-700 dark:text-teal-300">{aiContext}</p>
+        <div className="mt-4 space-y-3">
+          {recommendedActions.map((action) => (
+            <div key={action.id} className="rounded-lg border border-teal-200/80 bg-white p-4 dark:border-teal-900 dark:bg-slate-950/45">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-slate-950 dark:text-slate-50">{action.label}</p>
+                  <p className="mt-1 text-sm leading-6 text-slate-600 dark:text-slate-300">{action.description}</p>
+                </div>
+                {action.primary ? <span className="rounded-full bg-teal-100 px-2.5 py-1 text-xs font-semibold text-teal-800 dark:bg-teal-900/60 dark:text-teal-100">Prioritaire</span> : null}
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {action.outputs.slice(0, 4).map((output) => (
+                  <span key={output} className="rounded-full border border-slate-200 px-2.5 py-1 text-xs text-slate-600 dark:border-slate-700 dark:text-slate-300">
+                    {output}
+                  </span>
+                ))}
+                {action.outputs.length > 4 ? <span className="rounded-full border border-slate-200 px-2.5 py-1 text-xs text-slate-500 dark:border-slate-700">+{action.outputs.length - 4}</span> : null}
+              </div>
+              {action.href ? (
+                <Link
+                  href={action.href}
+                  className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 dark:bg-white dark:text-slate-950"
+                >
+                  {action.label}
+                  <ArrowRight className="h-4 w-4" />
+                </Link>
+              ) : null}
+            </div>
+          ))}
         </div>
       </section>
 

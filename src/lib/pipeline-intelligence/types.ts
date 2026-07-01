@@ -1,31 +1,10 @@
+import type { OfficialBuyerStatus, OfficialSellerStatus, OfficialWorkflowStatus } from "@/lib/business-rules";
+
 export type PipelineType = "seller" | "buyer";
 
-export type SellerPipelineStatus =
-  | "Prospect vendeur"
-  | "Rendez-vous obtenu"
-  | "Évaluation en préparation"
-  | "Évaluation terminée"
-  | "Mandat signé"
-  | "Préparation mise en marché"
-  | "En vente"
-  | "Promesse d'achat"
-  | "Conditions"
-  | "Notaire"
-  | "Vendu"
-  | "Suivi après-vente";
-
-export type BuyerPipelineStatus =
-  | "Prospect acheteur"
-  | "Qualification"
-  | "Contrat acheteur"
-  | "Recherche active"
-  | "Visites"
-  | "Promesse d'achat"
-  | "Conditions"
-  | "Notaire"
-  | "Suivi";
-
-export type PipelineStatus = SellerPipelineStatus | BuyerPipelineStatus;
+export type SellerPipelineStatus = OfficialSellerStatus;
+export type BuyerPipelineStatus = OfficialBuyerStatus;
+export type PipelineStatus = OfficialWorkflowStatus;
 
 export type AiEmployeeId = "alex" | "emma" | "noah" | "mia" | "olivia";
 

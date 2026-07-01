@@ -12,6 +12,8 @@ import {
   Bot,
   Workflow,
   Trophy,
+  Phone,
+  UserRound,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -19,6 +21,8 @@ const items = [
   { href: "/tableau-de-bord", label: "Accueil", icon: LayoutDashboard },
   { href: "/tableau-de-bord/pipeline", label: "Pipeline", icon: Workflow },
   { href: "/tableau-de-bord/coach", label: "Coach IA", icon: Trophy },
+  { href: "/tableau-de-bord/coach/appels", label: "Appels", icon: Phone },
+  { href: "/tableau-de-bord/prospects", label: "Prospects", icon: UserRound },
   { href: "/tableau-de-bord/mandats", label: "Mandats", icon: FolderKanban },
   { href: "/tableau-de-bord/radar-prospection", label: "Radar", icon: Radar },
   { href: "/tableau-de-bord/formations", label: "Formations", icon: GraduationCap },
