@@ -306,7 +306,7 @@ export function ProspectDetail({ id }: { id: string }) {
                     ))}
                   </div>
                   {action.href ? (
-                    <Link href={action.href} className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white dark:bg-white dark:text-slate-950">
+                    <Link href={buildProspectContextHref(action.href, prospect)} className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white dark:bg-white dark:text-slate-950">
                       Lancer
                       <ArrowRight className="h-4 w-4" />
                     </Link>
@@ -333,6 +333,23 @@ export function ProspectDetail({ id }: { id: string }) {
       </div>
     </div>
   );
+}
+
+function buildProspectContextHref(href: string, prospect: SoniaProspect) {
+  if (!href.includes("/tableau-de-bord/assistants/")) return href;
+
+  const [pathname, query = ""] = href.split("?");
+  const params = new URLSearchParams(query);
+  params.set("context", "prospect");
+  params.set("name", prospect.name || "");
+  params.set("address", prospect.address || "");
+  params.set("city", prospect.city || "");
+  params.set("phone", prospect.phone || "");
+  params.set("email", prospect.email || "");
+  params.set("notes", [prospect.notes, `Statut : ${prospect.status}`, `Prochaine action : ${prospect.nextAction}`].filter(Boolean).join("\n"));
+  params.set("channel", href.includes("message-prospection") ? "Appel téléphonique" : "");
+
+  return `${pathname}?${params.toString()}`;
 }
 
 function Badge({ children }: { children: ReactNode }) {

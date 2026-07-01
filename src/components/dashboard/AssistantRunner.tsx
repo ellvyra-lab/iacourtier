@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Sparkles,
   Loader2,
@@ -9,59 +9,53 @@ import {
   Check,
   AlertTriangle,
   Building2,
+  FileText,
   MapPin,
+  Upload,
 } from "lucide-react";
 import type { AssistantConfig } from "@/data/assistantsConfig";
 import { Button } from "@/components/ui/Button";
+import {
+  buildContextPrompt,
+  contextFromExtractedDocuments,
+  contextFromSearchParams,
+  isContextAwareAssistant,
+  mergeAiContexts,
+  summarizeAiContext,
+  valuesFromAiContext,
+  type AiPropertyContext,
+} from "@/lib/ai-context";
 
 type Status = "idle" | "loading" | "success" | "error";
 type AssistantSearchParams = Record<string, string | string[] | undefined> | undefined;
-type RadarProspectContext = {
-  address: string;
-  city: string;
-  propertyType: string;
-  score: string;
-  reason: string;
-  priority: string;
-  status: string;
-  source: string;
-  notes: string;
-  phone: string;
-  email: string;
-  name: string;
-  channel: string;
-};
+type UploadStatus = "idle" | "loading" | "success" | "error";
 
 export function AssistantRunner({ assistant, searchParams }: { assistant: AssistantConfig; searchParams?: AssistantSearchParams }) {
-  const radarContext = useMemo(() => parseRadarContext(assistant.slug, searchParams), [assistant.slug, searchParams]);
+  const uploadInputRef = useRef<HTMLInputElement>(null);
+  const initialContext = useMemo(() => contextFromSearchParams(searchParams), [searchParams]);
+  const [aiContext, setAiContext] = useState<AiPropertyContext | null>(initialContext);
   const [values, setValues] = useState<Record<string, string>>({});
   const [status, setStatus] = useState<Status>("idle");
+  const [uploadStatus, setUploadStatus] = useState<UploadStatus>("idle");
+  const [uploadMessage, setUploadMessage] = useState("");
   const [output, setOutput] = useState("");
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
-    if (!radarContext) return;
+    setAiContext(initialContext);
+  }, [initialContext]);
 
+  useEffect(() => {
+    if (!aiContext || !isContextAwareAssistant(assistant.slug)) return;
+    const contextValues = valuesFromAiContext(assistant.slug, aiContext);
     setValues((current) => ({
       ...current,
-      canal: radarContext.channel,
-      type_prospect: buildRadarProspectSummary(radarContext),
-      radar_context: JSON.stringify(radarContext),
-      radar_address: radarContext.address,
-      radar_city: radarContext.city,
-      radar_property_type: radarContext.propertyType,
-      radar_priority: radarContext.priority,
-      radar_score: radarContext.score,
-      radar_reason: radarContext.reason,
-      radar_status: radarContext.status,
-      radar_source: radarContext.source,
-      radar_notes: radarContext.notes,
-      radar_phone: radarContext.phone,
-      radar_email: radarContext.email,
-      radar_name: radarContext.name,
+      ...contextValues,
+      ai_context: JSON.stringify(aiContext),
+      ai_context_prompt: buildContextPrompt(aiContext),
     }));
-  }, [radarContext]);
+  }, [aiContext, assistant.slug]);
 
   function updateField(name: string, value: string) {
     setValues((prev) => ({ ...prev, [name]: value }));
@@ -106,7 +100,55 @@ export function AssistantRunner({ assistant, searchParams }: { assistant: Assist
     setTimeout(() => setCopied(false), 1800);
   }
 
+  async function importDocuments(files: FileList | null) {
+    if (!files?.length) return;
+
+    const acceptedFiles = Array.from(files).filter((file) => file.type === "application/pdf" || file.type.startsWith("image/") || /\.(pdf|png|jpg|jpeg|webp)$/i.test(file.name));
+    if (!acceptedFiles.length) {
+      setUploadStatus("error");
+      setUploadMessage("Ajoutez un PDF ou une image lisible.");
+      return;
+    }
+
+    const pdfFiles = acceptedFiles.filter((file) => file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf"));
+    const imageFiles = acceptedFiles.filter((file) => !pdfFiles.includes(file));
+
+    setUploadStatus("loading");
+    setUploadMessage("Lecture des documents en cours...");
+
+    try {
+      let documentContext: AiPropertyContext = {
+        source: "documents",
+        sourceLabel: "Documents uploadés",
+        notes: imageFiles.length ? `Images ajoutées : ${imageFiles.map((file) => file.name).join(", ")}. À valider manuellement si les champs ne sont pas détectés.` : "",
+      };
+
+      if (pdfFiles.length) {
+        const formData = new FormData();
+        pdfFiles.forEach((file) => formData.append("files", file));
+        const response = await fetch("/api/extract-mandate-documents", {
+          method: "POST",
+          body: formData,
+        });
+        const payload = (await response.json()) as { fields?: Record<string, string>; fileNames?: string[]; error?: string };
+        if (!response.ok || !payload.fields) throw new Error(payload.error || "Les documents n'ont pas pu être lus.");
+        documentContext = mergeAiContexts(documentContext, contextFromExtractedDocuments(payload.fields, payload.fileNames ?? []));
+      }
+
+      setAiContext((current) => mergeAiContexts(current, documentContext));
+      setUploadStatus("success");
+      setUploadMessage("Les informations détectées ont été ajoutées au formulaire. Complétez seulement les champs manquants.");
+    } catch (importError) {
+      setUploadStatus("error");
+      setUploadMessage(importError instanceof Error ? importError.message : "Les documents n'ont pas pu être analysés.");
+    } finally {
+      if (uploadInputRef.current) uploadInputRef.current.value = "";
+    }
+  }
+
   const isLoading = status === "loading";
+  const contextSummary = aiContext ? summarizeAiContext(aiContext, assistant.slug) : null;
+  const contextAware = isContextAwareAssistant(assistant.slug);
 
   return (
     <div className="grid gap-6 lg:grid-cols-2">
@@ -115,9 +157,18 @@ export function AssistantRunner({ assistant, searchParams }: { assistant: Assist
         onSubmit={handleSubmit}
         className="flex flex-col gap-4 rounded-2xl border border-subtle bg-surface-soft p-6"
       >
-        {radarContext ? <RadarProspectCard context={radarContext} /> : null}
+        {contextAware && !aiContext ? (
+          <DocumentImportCard
+            uploadStatus={uploadStatus}
+            uploadMessage={uploadMessage}
+            inputRef={uploadInputRef}
+            onFiles={importDocuments}
+          />
+        ) : null}
 
-        {assistant.fields.filter((field) => !(radarContext && field.name === "type_prospect")).map((field) => (
+        {contextSummary ? <AiContextCard summary={contextSummary} /> : null}
+
+        {assistant.fields.filter((field) => !(aiContext && assistant.slug === "message-prospection" && field.name === "type_prospect")).map((field) => (
           <div key={field.name} className="flex flex-col gap-2">
             <label className="text-sm font-medium">
               {field.label}
@@ -236,22 +287,66 @@ export function AssistantRunner({ assistant, searchParams }: { assistant: Assist
   );
 }
 
-function RadarProspectCard({ context }: { context: RadarProspectContext }) {
+function DocumentImportCard({
+  uploadStatus,
+  uploadMessage,
+  inputRef,
+  onFiles,
+}: {
+  uploadStatus: UploadStatus;
+  uploadMessage: string;
+  inputRef: React.RefObject<HTMLInputElement>;
+  onFiles: (files: FileList | null) => void;
+}) {
+  return (
+    <div className="rounded-2xl border border-dashed border-electric-500/30 bg-surface p-4">
+      <div className="flex items-start gap-3">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-electric-500/10 text-electric-500">
+          {uploadStatus === "loading" ? <Loader2 size={18} className="animate-spin" /> : <Upload size={18} />}
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="font-semibold">Importer les informations de la propriété</p>
+          <p className="mt-1 text-sm leading-6 text-muted">
+            Déposez une fiche Centris, un certificat, des taxes, une déclaration du vendeur, un acte de vente ou des photos. Les PDF texte seront lus automatiquement.
+          </p>
+          <input
+            ref={inputRef}
+            type="file"
+            multiple
+            accept="application/pdf,image/png,image/jpeg,image/webp"
+            className="hidden"
+            onChange={(event) => onFiles(event.target.files)}
+          />
+          <Button type="button" variant="secondary" size="sm" className="mt-3" onClick={() => inputRef.current?.click()}>
+            <FileText size={14} />
+            Ajouter des documents
+          </Button>
+          {uploadMessage ? (
+            <p className={uploadStatus === "error" ? "mt-3 text-sm text-amber-700" : "mt-3 text-sm text-muted"}>{uploadMessage}</p>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AiContextCard({ summary }: { summary: ReturnType<typeof summarizeAiContext> }) {
+  const { context, foundFields, missingFields } = summary;
   return (
     <div className="rounded-2xl border border-electric-500/20 bg-electric-500/5 p-4">
-      <p className="text-xs font-semibold uppercase tracking-wide text-electric-500">Prospect sélectionné</p>
+      <p className="text-xs font-semibold uppercase tracking-wide text-electric-500">Données utilisées par l&apos;IA</p>
       <div className="mt-3 flex flex-col gap-3">
         <div>
-          <p className="text-base font-semibold text-foreground">{context.address || "Adresse non précisée"}</p>
+          <p className="text-base font-semibold text-foreground">{context.address || context.sourceLabel}</p>
           <p className="mt-1 flex items-center gap-2 text-sm text-muted">
             <MapPin size={15} />
-            {context.city || "Ville non précisée"}
+            {context.city || "Ville non précisée"} · Source : {context.sourceLabel}
           </p>
         </div>
         <div className="grid gap-2 sm:grid-cols-2">
           <InfoPill label="Type" value={context.propertyType || "Non précisé"} icon={Building2} />
-          <InfoPill label="Priorité" value={context.priority || "À qualifier"} />
-          <InfoPill label="Canal" value={context.channel || "Appel téléphonique"} />
+          <InfoPill label="Champs trouvés" value={foundFields.length ? foundFields.join(", ") : "Aucun champ détecté"} />
+          <InfoPill label="Champs manquants" value={missingFields.length ? missingFields.join(", ") : "Rien d'essentiel"} />
           <InfoPill label="Prochaine action" value={nextActionForChannel(context.channel)} />
         </div>
       </div>
@@ -271,51 +366,10 @@ function InfoPill({ label, value, icon: Icon }: { label: string; value: string; 
   );
 }
 
-function parseRadarContext(slug: string, searchParams: AssistantSearchParams): RadarProspectContext | null {
-  if (slug !== "message-prospection" || readParam(searchParams, "context") !== "radar") return null;
-
-  return {
-    address: readParam(searchParams, "address"),
-    city: readParam(searchParams, "city"),
-    propertyType: readParam(searchParams, "propertyType"),
-    score: readParam(searchParams, "score"),
-    reason: readParam(searchParams, "reason"),
-    priority: readParam(searchParams, "priority"),
-    status: readParam(searchParams, "status"),
-    source: readParam(searchParams, "source"),
-    notes: readParam(searchParams, "notes"),
-    phone: readParam(searchParams, "phone"),
-    email: readParam(searchParams, "email"),
-    name: readParam(searchParams, "name"),
-    channel: readParam(searchParams, "channel") || "Appel téléphonique",
-  };
-}
-
-function readParam(searchParams: AssistantSearchParams, key: string) {
-  const value = searchParams?.[key];
-  if (Array.isArray(value)) return value[0] || "";
-  return value || "";
-}
-
-function buildRadarProspectSummary(context: RadarProspectContext) {
-  return [
-    context.name ? `Nom/contact : ${context.name}` : "",
-    context.address ? `Adresse : ${context.address}` : "",
-    context.city ? `Ville : ${context.city}` : "",
-    context.propertyType ? `Type de propriété : ${context.propertyType}` : "",
-    context.priority ? `Priorité interne : ${context.priority}` : "",
-    context.reason ? `Contexte interne : ${context.reason}` : "",
-    context.notes ? `Notes : ${context.notes}` : "",
-    context.phone ? `Téléphone : ${context.phone}` : "",
-    context.email ? `Courriel : ${context.email}` : "",
-  ]
-    .filter(Boolean)
-    .join("\n");
-}
-
-function nextActionForChannel(channel: string) {
+function nextActionForChannel(channel = "") {
   if (channel.toLowerCase().includes("texto")) return "Envoyer un message court et naturel";
   if (channel.toLowerCase().includes("courriel")) return "Envoyer un courriel de prise de contact";
   if (channel.toLowerCase().includes("facebook")) return "Ouvrir une conversation sans pression";
-  return "Préparer l'appel et viser un rendez-vous d'évaluation";
+  if (channel.toLowerCase().includes("appel")) return "Préparer l'appel et viser un rendez-vous d'évaluation";
+  return "Compléter les champs manquants, puis générer";
 }

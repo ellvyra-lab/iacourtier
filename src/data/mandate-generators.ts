@@ -28,7 +28,7 @@ export const mandateGenerators: MandateGenerator[] = [
     label: "Publication Facebook",
     description: "Préparer une publication sociale liée au mandat.",
     icon: Facebook,
-    status: "Bientôt disponible",
+    status: "Disponible",
   },
   {
     id: "instagram",
@@ -63,7 +63,7 @@ export const mandateGenerators: MandateGenerator[] = [
     label: "Plan marketing",
     description: "Planifier la mise en marché du mandat.",
     icon: Megaphone,
-    status: "Bientôt disponible",
+    status: "Disponible",
   },
   {
     id: "open-house",

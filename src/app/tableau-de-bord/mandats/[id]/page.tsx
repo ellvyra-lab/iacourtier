@@ -92,7 +92,23 @@ export default async function DossierPage({ params }: DossierPageProps) {
 
       <MandateMarketAnalyses mandatId={dossier.id} />
 
-      <MandateActionGrid dossierId={dossier.id} />
+      <MandateActionGrid
+        dossierId={dossier.id}
+        context={{
+          address: dossier.address,
+          city: dossier.city,
+          propertyType: dossier.type,
+          price: dossier.price,
+          bedrooms: dossier.bedrooms,
+          bathrooms: dossier.bathrooms,
+          landArea: dossier.lot,
+          garage: dossier.garage ? "Oui" : "Non",
+          pool: dossier.pool ? "Oui" : "Non",
+          highlights: dossier.description,
+          features: dossier.characteristics.join(", "),
+          notes: [dossier.neighborhood, dossier.schools, dossier.transport, ...dossier.particularities].join("\n"),
+        }}
+      />
     </div>
   );
 }

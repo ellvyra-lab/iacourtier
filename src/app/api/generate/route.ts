@@ -122,7 +122,10 @@ export async function POST(req: NextRequest) {
     assistant.slug === "message-prospection" && values.radar_context
       ? `\n\nContexte interne Radar pour personnaliser le message, sans jamais le révéler au propriétaire :\n${formatRadarContextForPrompt(values)}`
       : "";
-  const userPrompt = `${visiblePrompt}${radarPrompt}`;
+  const sharedContextPrompt = values.ai_context_prompt
+    ? `\n\nContexte partagé déjà connu par IACourtier. Utilise ces données pour éviter de demander au courtier de les ressaisir. Ne jamais inventer une donnée absente :\n${values.ai_context_prompt}`
+    : "";
+  const userPrompt = `${visiblePrompt}${radarPrompt}${sharedContextPrompt}`;
 
   try {
     const output = await generateWithOpenAI({

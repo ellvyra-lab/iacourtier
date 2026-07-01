@@ -93,7 +93,22 @@ export function LocalMandatePage({ id }: { id: string }) {
 
       <MandateMarketAnalyses mandatId={mandate.id} />
 
-      <MandateActionGrid dossierId={mandate.id} isLocal />
+      <MandateActionGrid
+        dossierId={mandate.id}
+        isLocal
+        context={{
+          address: mandate.address,
+          city: mandate.city,
+          propertyType,
+          price,
+          bedrooms: mandate.bedrooms,
+          bathrooms: mandate.bathrooms,
+          landArea: mandate.land_area || mandate.lot || "",
+          highlights: summary,
+          features: [mandate.schools ? `Écoles : ${mandate.schools}` : "", mandate.transport ? `Transport : ${mandate.transport}` : ""].filter(Boolean).join("\n"),
+          notes: Array.isArray(mandate.particularities) ? mandate.particularities.join(", ") : "",
+        }}
+      />
     </div>
   );
 }

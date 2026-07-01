@@ -8,7 +8,46 @@ function statusClasses(status: string) {
   return "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300";
 }
 
-function generatorHref(generatorId: string, dossierId: string, isLocal: boolean) {
+type MandateActionContext = {
+  address?: string;
+  city?: string;
+  propertyType?: string;
+  price?: string;
+  bedrooms?: string;
+  bathrooms?: string;
+  landArea?: string;
+  livingArea?: string;
+  yearBuilt?: string;
+  garage?: string;
+  pool?: string;
+  highlights?: string;
+  features?: string;
+  notes?: string;
+};
+
+function contextQuery(context?: MandateActionContext) {
+  if (!context) return "";
+  const params = new URLSearchParams({
+    context: "mandat",
+    address: context.address || "",
+    city: context.city || "",
+    propertyType: context.propertyType || "",
+    price: context.price || "",
+    bedrooms: context.bedrooms || "",
+    bathrooms: context.bathrooms || "",
+    landArea: context.landArea || "",
+    livingArea: context.livingArea || "",
+    yearBuilt: context.yearBuilt || "",
+    garage: context.garage || "",
+    pool: context.pool || "",
+    highlights: context.highlights || "",
+    features: context.features || "",
+    notes: context.notes || "",
+  });
+  return params.toString();
+}
+
+function generatorHref(generatorId: string, dossierId: string, isLocal: boolean, context?: MandateActionContext) {
   if (generatorId === "description-propriete") {
     return `/tableau-de-bord/assistants/description-propriete?mandatId=${dossierId}${isLocal ? "&source=local" : ""}`;
   }
@@ -17,10 +56,20 @@ function generatorHref(generatorId: string, dossierId: string, isLocal: boolean)
     return `/tableau-de-bord/mandats/${isLocal ? `local/${dossierId}` : dossierId}/analyse-comparative`;
   }
 
+  if (generatorId === "facebook") {
+    const query = contextQuery(context);
+    return `/tableau-de-bord/assistants/publication-facebook${query ? `?${query}` : ""}`;
+  }
+
+  if (generatorId === "plan-marketing") {
+    const query = contextQuery(context);
+    return `/tableau-de-bord/assistants/plan-marketing${query ? `?${query}` : ""}`;
+  }
+
   return "#";
 }
 
-export function MandateActionGrid({ dossierId, isLocal = false }: { dossierId: string; isLocal?: boolean }) {
+export function MandateActionGrid({ dossierId, isLocal = false, context }: { dossierId: string; isLocal?: boolean; context?: MandateActionContext }) {
   return (
     <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900/72">
       <div>
@@ -35,7 +84,7 @@ export function MandateActionGrid({ dossierId, isLocal = false }: { dossierId: s
         {mandateGenerators.map((generator) => (
           <Link
             key={generator.id}
-            href={generatorHref(generator.id, dossierId, isLocal)}
+            href={generatorHref(generator.id, dossierId, isLocal, context)}
             className="group min-h-44 rounded-lg border border-slate-200 bg-slate-50 p-5 transition hover:-translate-y-1 hover:border-teal-300 hover:bg-white hover:shadow-premium dark:border-slate-800 dark:bg-slate-950/50 dark:hover:border-teal-900 dark:hover:bg-slate-900"
             aria-disabled={generator.status !== "Disponible"}
           >
