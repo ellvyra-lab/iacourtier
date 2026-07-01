@@ -84,6 +84,7 @@ export function ProspectionRadar() {
   const [sources, setSources] = useState<GovernmentSourceRecord[]>([]);
   const [sourceForm, setSourceForm] = useState<SourceForm>(defaultSourceForm);
   const [sourceStatus, setSourceStatus] = useState("");
+  const [sourceAuthRequired, setSourceAuthRequired] = useState(false);
   const [isLoadingSources, setIsLoadingSources] = useState(true);
   const [syncingSourceId, setSyncingSourceId] = useState("");
   const [isSyncingAll, setIsSyncingAll] = useState(false);
@@ -139,6 +140,9 @@ export function ProspectionRadar() {
       const [sourcesResponse, opportunitiesResponse] = await Promise.all([fetch("/api/radar/sources"), fetch("/api/radar/opportunities?limit=300")]);
       const sourcesPayload = (await sourcesResponse.json()) as { sources?: GovernmentSourceRecord[]; error?: string };
       const opportunitiesPayload = (await opportunitiesResponse.json()) as { opportunities?: ProspectRecord[]; error?: string };
+      const authRequired = sourcesResponse.status === 401 || opportunitiesResponse.status === 401;
+
+      setSourceAuthRequired(authRequired);
 
       if (sourcesResponse.ok) setSources(sourcesPayload.sources ?? []);
       if (opportunitiesResponse.ok) {
@@ -146,7 +150,11 @@ export function ProspectionRadar() {
         setSyncedProspects(prospects);
         setSelectedId((current) => current || prospects[0]?.id || manualProspects[0]?.id || "");
       }
-      if (!sourcesResponse.ok || !opportunitiesResponse.ok) {
+      if (authRequired) {
+        setSources([]);
+        setSyncedProspects([]);
+        setSourceStatus("");
+      } else if (!sourcesResponse.ok || !opportunitiesResponse.ok) {
         setSourceStatus(sourcesPayload.error || opportunitiesPayload.error || "Le Radar local n'a pas pu être chargé.");
       }
     } catch {
@@ -157,6 +165,11 @@ export function ProspectionRadar() {
   }
 
   async function addSource() {
+    if (sourceAuthRequired) {
+      setSourceStatus("Connectez-vous pour ajouter une source gouvernementale.");
+      return;
+    }
+
     if (!sourceForm.name.trim() || !sourceForm.url.trim()) {
       setSourceStatus("Ajoutez un nom et une URL publique pour créer la source.");
       return;
@@ -181,6 +194,11 @@ export function ProspectionRadar() {
   }
 
   async function syncAllSources() {
+    if (sourceAuthRequired) {
+      setSourceStatus("Connectez-vous pour synchroniser les sources gouvernementales.");
+      return;
+    }
+
     setIsSyncingAll(true);
     setSourceStatus("Synchronisation de toutes les sources actives...");
     try {
@@ -197,6 +215,11 @@ export function ProspectionRadar() {
   }
 
   async function syncSource(sourceId: string) {
+    if (sourceAuthRequired) {
+      setSourceStatus("Connectez-vous pour synchroniser cette source.");
+      return;
+    }
+
     setSyncingSourceId(sourceId);
     setSourceStatus("Synchronisation de la source...");
     try {
@@ -310,13 +333,15 @@ export function ProspectionRadar() {
           <button
             type="button"
             onClick={syncAllSources}
-            disabled={isSyncingAll || !sources.some((source) => source.active)}
+            disabled={sourceAuthRequired || isSyncingAll || !sources.some((source) => source.active)}
             className="inline-flex items-center justify-center gap-2 rounded-lg bg-slate-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-white dark:text-slate-950"
           >
             {isSyncingAll ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
             Synchroniser maintenant
           </button>
         </div>
+
+        {sourceAuthRequired ? <SourceAuthNotice /> : null}
 
         <div className="mt-5 grid gap-3 lg:grid-cols-[1.1fr_.7fr_.7fr_.8fr_120px]">
           <TextInput label="Nom" value={sourceForm.name} placeholder="Rôle foncier Laval" onChange={(value) => setSourceForm((current) => ({ ...current, name: value }))} />
@@ -341,7 +366,8 @@ export function ProspectionRadar() {
           <button
             type="button"
             onClick={addSource}
-            className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-800 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:hover:bg-slate-900"
+            disabled={sourceAuthRequired}
+            className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-800 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:hover:bg-slate-900"
           >
             <CheckCircle2 className="h-4 w-4" />
             Ajouter la source
@@ -350,7 +376,7 @@ export function ProspectionRadar() {
         </div>
 
         <div className="mt-5 overflow-hidden rounded-lg border border-slate-200 dark:border-slate-800">
-          <div className="grid grid-cols-[1.2fr_.7fr_.6fr_.6fr_.7fr_150px] bg-slate-50 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:bg-slate-950/50 dark:text-slate-400">
+          <div className="grid grid-cols-[1.2fr_.7fr_.75fr_.55fr_.8fr_150px] gap-3 bg-slate-50 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:bg-slate-950/50 dark:text-slate-400">
             <span>Source</span>
             <span>Dernière sync</span>
             <span>Enregistrements</span>
@@ -365,7 +391,7 @@ export function ProspectionRadar() {
             </div>
           ) : sources.length ? (
             sources.map((source) => (
-              <div key={source.id} className="grid grid-cols-[1.2fr_.7fr_.6fr_.6fr_.7fr_150px] items-center gap-3 border-t border-slate-200 px-4 py-3 text-sm dark:border-slate-800">
+              <div key={source.id} className="grid grid-cols-[1.2fr_.7fr_.75fr_.55fr_.8fr_150px] items-center gap-3 border-t border-slate-200 px-4 py-3 text-sm dark:border-slate-800">
                 <div className="min-w-0">
                   <p className="truncate font-semibold">{source.name}</p>
                   <p className="truncate text-xs text-slate-500">{source.organization || "Organisme non précisé"} · {source.source_type}</p>
@@ -377,7 +403,7 @@ export function ProspectionRadar() {
                 <button
                   type="button"
                   onClick={() => syncSource(source.id)}
-                  disabled={syncingSourceId === source.id}
+                  disabled={sourceAuthRequired || syncingSourceId === source.id}
                   className="inline-flex items-center justify-center gap-2 rounded-lg bg-slate-950 px-3 py-2 text-xs font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-white dark:text-slate-950"
                 >
                   {syncingSourceId === source.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
@@ -514,6 +540,27 @@ function Metric({ label, value }: { label: string; value: string }) {
     <div>
       <p className="text-2xl font-semibold tracking-tight">{value}</p>
       <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{label}</p>
+    </div>
+  );
+}
+
+function SourceAuthNotice() {
+  return (
+    <div className="mt-5 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="font-semibold">Connexion requise pour gérer les sources publiques</p>
+          <p className="mt-1 leading-6">
+            Le Radar peut importer un XML local, mais l&apos;ajout et la synchronisation des sources gouvernementales nécessitent une session active.
+          </p>
+        </div>
+        <a
+          href="/connexion?next=/tableau-de-bord/radar-prospection"
+          className="inline-flex shrink-0 items-center justify-center rounded-lg bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 dark:bg-white dark:text-slate-950"
+        >
+          Se connecter
+        </a>
+      </div>
     </div>
   );
 }
