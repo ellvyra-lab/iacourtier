@@ -36,6 +36,10 @@ export type ProspectRecord = {
   email?: string;
   notes?: string;
   leadHash?: string;
+  assignedTo?: string;
+  reservedAt?: string;
+  status?: "available" | "reserved" | "archived";
+  unlockedByPlan?: "free" | "pro" | "elite" | "founder";
   rawData?: Record<string, unknown>;
 };
 

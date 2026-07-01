@@ -12,6 +12,7 @@ import {
   Database,
   FileUp,
   Link as LinkIcon,
+  Lock,
   Loader2,
   Mail,
   MapPin,
@@ -35,6 +36,17 @@ import {
   type ProspectRecord,
 } from "@/lib/prospecting";
 import type { GovernmentSourceRecord, GovernmentSourceType } from "@/lib/prospecting/government-source";
+import {
+  canUnlockRadarOpportunity,
+  getCurrentRadarUserId,
+  getMaskedAvailableOpportunities,
+  getRadarQuotaState,
+  getUnlockedOpportunities,
+  isUnlimitedRadarUser,
+  unlockBestRadarOpportunity,
+  type MaskedRadarOpportunity,
+  type RadarQuotaState,
+} from "@/lib/radar-quota";
 import { coachSalesCall, type CallCoachSuggestion } from "@/lib/sales-intelligence";
 import { createSellerProspectFromRadar } from "@/lib/sonia-beta";
 import { cn } from "@/lib/utils";
@@ -85,6 +97,7 @@ const defaultSmartFilters: SmartFilters = {
 export function ProspectionRadar() {
   const csvInputRef = useRef<HTMLInputElement>(null);
   const roleXmlInputRef = useRef<HTMLInputElement>(null);
+  const radarUserId = getCurrentRadarUserId();
   const [syncedProspects, setSyncedProspects] = useState<ProspectRecord[]>([]);
   const [csvProspects, setCsvProspects] = useState<ProspectRecord[]>([]);
   const [roleEvaluationProspects, setRoleEvaluationProspects] = useState<ProspectRecord[]>([]);
@@ -107,10 +120,13 @@ export function ProspectionRadar() {
   const [importStatus, setImportStatus] = useState("");
   const [roleImportStatus, setRoleImportStatus] = useState("");
   const [isImportingRoleXml, setIsImportingRoleXml] = useState(false);
+  const [quotaState, setQuotaState] = useState<RadarQuotaState | null>(null);
+  const [unlockStatus, setUnlockStatus] = useState("");
 
   useEffect(() => {
+    setQuotaState(getRadarQuotaState(radarUserId));
     void refreshRadarData();
-  }, []);
+  }, [radarUserId]);
 
   const opportunities = useMemo(() => {
     const fallbackDemo = syncedProspects.length || csvProspects.length || roleEvaluationProspects.length ? [] : manualProspects;
@@ -140,7 +156,26 @@ export function ProspectionRadar() {
 
   const selected = filtered.find((item) => item.id === selectedId) || filtered[0] || opportunities[0];
   const averageScore = Math.round(filtered.reduce((total, item) => total + item.opportunityScore, 0) / Math.max(filtered.length, 1));
-  const highPriorityCount = filtered.filter((item) => item.priority === "Élevée").length;
+  const highPriorityCount = filtered.filter((item) => String(item.priority).toLowerCase().includes("lev")).length;
+
+  const unlockedRadarOpportunities = useMemo(() => (quotaState ? getUnlockedOpportunities(radarUserId, filtered, quotaState) : []), [filtered, quotaState, radarUserId]);
+  const maskedRadarOpportunities = useMemo(() => (quotaState ? getMaskedAvailableOpportunities(radarUserId, filtered, quotaState).slice(0, 8) : []), [filtered, quotaState, radarUserId]);
+  const radarQuota = quotaState ? canUnlockRadarOpportunity(radarUserId) : null;
+  const isUnlimitedRadar = quotaState ? isUnlimitedRadarUser(quotaState.subscription) : false;
+  const selectedUnlocked = unlockedRadarOpportunities.find((item) => item.id === selectedId) || unlockedRadarOpportunities[0];
+  const unlockedAverageScore = Math.round(unlockedRadarOpportunities.reduce((total, item) => total + item.opportunityScore, 0) / Math.max(unlockedRadarOpportunities.length, 1));
+  const unlockedHighPriorityCount = unlockedRadarOpportunities.filter((item) => String(item.priority).toLowerCase().includes("lev")).length;
+
+  function unlockOpportunity() {
+    const result = unlockBestRadarOpportunity(radarUserId, filtered, city);
+    setQuotaState(result.state);
+    if (result.ok) {
+      setSelectedId(result.opportunity.id);
+      setUnlockStatus("Opportunité débloquée et réservée exclusivement pour vous.");
+    } else {
+      setUnlockStatus(result.reason);
+    }
+  }
 
   async function refreshRadarData() {
     setIsLoadingSources(true);
@@ -148,7 +183,8 @@ export function ProspectionRadar() {
       const [sourcesResponse, opportunitiesResponse] = await Promise.all([fetch("/api/radar/sources"), fetch("/api/radar/opportunities?limit=300")]);
       const sourcesPayload = (await sourcesResponse.json()) as { sources?: GovernmentSourceRecord[]; error?: string };
       const opportunitiesPayload = (await opportunitiesResponse.json()) as { opportunities?: ProspectRecord[]; error?: string };
-      const authRequired = sourcesResponse.status === 401 || opportunitiesResponse.status === 401;
+      const adminAccess = isUnlimitedRadarUser(getRadarQuotaState(radarUserId).subscription);
+      const authRequired = (sourcesResponse.status === 401 || opportunitiesResponse.status === 401) && !adminAccess;
 
       setSourceAuthRequired(authRequired);
 
@@ -323,6 +359,51 @@ export function ProspectionRadar() {
             <Metric label="Score moyen" value={averageScore.toString()} />
             <Metric label="Priorité élevée" value={highPriorityCount.toString()} />
           </div>
+        </div>
+      </section>
+
+      <section className="rounded-lg border border-teal-200 bg-teal-50/70 p-5 shadow-sm dark:border-teal-900 dark:bg-teal-950/30">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <p className="flex items-center gap-2 text-sm font-semibold text-teal-900 dark:text-teal-100">
+              <Lock className="h-4 w-4" />
+              {isUnlimitedRadar ? "Mode Sonia Beta — accès illimité" : "Distribution exclusive Radar"}
+            </p>
+            {isUnlimitedRadar ? (
+              <>
+                <h2 className="mt-1 text-xl font-semibold tracking-tight text-teal-950 dark:text-teal-50">Accès complet au Radar pour tester le produit.</h2>
+                <p className="mt-2 text-sm leading-6 text-teal-900/75 dark:text-teal-100/75">
+                  Rôle {radarQuota?.subscription.role ?? "sonia_beta"} : aucun quota, toutes les opportunités visibles, sources et synchronisation accessibles.
+                </p>
+              </>
+            ) : (
+              <>
+                <h2 className="mt-1 text-xl font-semibold tracking-tight text-teal-950 dark:text-teal-50">
+                  Il vous reste {radarQuota?.remaining ?? 0} opportunité{(radarQuota?.remaining ?? 0) > 1 ? "s" : ""} Radar cette semaine.
+                </h2>
+                <p className="mt-2 text-sm leading-6 text-teal-900/75 dark:text-teal-100/75">
+                  Plan {radarQuota?.subscription.plan ?? "founder"} : {radarQuota?.subscription.weeklyRadarLimit ?? 25} opportunités par semaine. Une opportunité débloquée est réservée pour vous et retirée de la distribution.
+                </p>
+              </>
+            )}
+            <div className="mt-4 grid max-w-xl grid-cols-3 gap-3">
+              <Metric label="Débloquées" value={unlockedRadarOpportunities.length.toString()} />
+              <Metric label="Score moyen" value={unlockedAverageScore.toString()} />
+              <Metric label="Priorité élevée" value={unlockedHighPriorityCount.toString()} />
+            </div>
+            {unlockStatus ? <p className="mt-3 text-sm font-semibold text-teal-900 dark:text-teal-100">{unlockStatus}</p> : null}
+          </div>
+          {!isUnlimitedRadar ? (
+            <button
+              type="button"
+              onClick={unlockOpportunity}
+              disabled={!radarQuota?.canUnlock || !maskedRadarOpportunities.length}
+              className="inline-flex items-center justify-center gap-2 rounded-lg bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white dark:text-slate-950"
+            >
+              <Lock className="h-4 w-4" />
+              Débloquer une opportunité
+            </button>
+          ) : null}
         </div>
       </section>
 
@@ -515,7 +596,7 @@ export function ProspectionRadar() {
         </div>
       </section>
 
-      <RadarMap opportunities={filtered} selectedId={selected?.id || ""} onSelect={setSelectedId} />
+      <RadarMap opportunities={unlockedRadarOpportunities} selectedId={selectedUnlocked?.id || ""} onSelect={setSelectedId} />
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
         <section className="space-y-4">
@@ -524,10 +605,10 @@ export function ProspectionRadar() {
             {filtered.length} opportunité{filtered.length > 1 ? "s" : ""} détectée{filtered.length > 1 ? "s" : ""}
           </div>
 
-          {filtered.length ? (
+          {unlockedRadarOpportunities.length ? (
             <div className="grid gap-4 lg:grid-cols-2">
-              {filtered.map((opportunity) => (
-                <OpportunityCard key={opportunity.id} opportunity={opportunity} active={selected.id === opportunity.id} onSelect={() => setSelectedId(opportunity.id)} />
+              {unlockedRadarOpportunities.map((opportunity) => (
+                <OpportunityCard key={opportunity.id} opportunity={opportunity} active={selectedUnlocked?.id === opportunity.id} onSelect={() => setSelectedId(opportunity.id)} />
               ))}
             </div>
           ) : (
@@ -535,9 +616,26 @@ export function ProspectionRadar() {
               Aucune opportunité ne correspond aux filtres actuels.
             </div>
           )}
+          {!isUnlimitedRadar ? <div className="pt-3">
+            <div className="mb-3">
+              <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Opportunités disponibles à débloquer</p>
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Adresse, propriétaire et coordonnées restent masqués jusqu&apos;au déblocage.</p>
+            </div>
+            {maskedRadarOpportunities.length ? (
+              <div className="grid gap-4 lg:grid-cols-2">
+                {maskedRadarOpportunities.map((opportunity) => (
+                  <MaskedOpportunityCard key={opportunity.id} opportunity={opportunity} onUnlock={unlockOpportunity} disabled={!radarQuota?.canUnlock} />
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-lg border border-dashed border-slate-300 bg-white p-6 text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-900/72 dark:text-slate-400">
+                Aucune opportunité masquée disponible avec ces filtres.
+              </div>
+            )}
+          </div> : null}
         </section>
 
-        <ActionsPanel opportunity={selected} style={communicationStyle} onStyleChange={setCommunicationStyle} copied={copied} onCopy={copyAction} />
+        {selectedUnlocked ? <ActionsPanel opportunity={selectedUnlocked} style={communicationStyle} onStyleChange={setCommunicationStyle} copied={copied} onCopy={copyAction} /> : <LockedActionsPanel />}
       </div>
     </div>
   );
@@ -549,6 +647,54 @@ function Metric({ label, value }: { label: string; value: string }) {
       <p className="text-2xl font-semibold tracking-tight">{value}</p>
       <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{label}</p>
     </div>
+  );
+}
+
+function MaskedOpportunityCard({ opportunity, onUnlock, disabled }: { opportunity: MaskedRadarOpportunity; onUnlock: () => void; disabled?: boolean }) {
+  return (
+    <article className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900/72">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <PriorityBadge priority={opportunity.priority} />
+            <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">{opportunity.category}</span>
+          </div>
+          <h3 className="mt-3 flex items-center gap-2 text-lg font-semibold tracking-tight">
+            <Lock className="h-4 w-4 text-slate-400" />
+            Adresse masquée
+          </h3>
+          <p className="mt-1 flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
+            <Building2 className="h-4 w-4" />
+            {opportunity.city} · {opportunity.propertyType}
+          </p>
+        </div>
+        <ScoreRing score={opportunity.opportunityScore} />
+      </div>
+      <p className="mt-4 text-sm leading-6 text-slate-600 dark:text-slate-300">{opportunity.reasonGeneral}</p>
+      <button
+        type="button"
+        onClick={onUnlock}
+        disabled={disabled}
+        className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-slate-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white dark:text-slate-950"
+      >
+        <Lock className="h-4 w-4" />
+        Débloquer
+      </button>
+    </article>
+  );
+}
+
+function LockedActionsPanel() {
+  return (
+    <aside className="xl:sticky xl:top-8 xl:self-start">
+      <div className="rounded-lg border border-slate-200 bg-white p-5 text-sm leading-6 text-slate-600 shadow-sm dark:border-slate-800 dark:bg-slate-900/72 dark:text-slate-300">
+        <p className="flex items-center gap-2 font-semibold text-slate-900 dark:text-slate-100">
+          <Lock className="h-4 w-4 text-teal-600" />
+          Actions IA verrouillées
+        </p>
+        <p className="mt-2">Débloquez une opportunité pour voir l&apos;adresse complète, créer le prospect vendeur, appeler avec IACourtier et accéder aux scripts.</p>
+      </div>
+    </aside>
   );
 }
 
