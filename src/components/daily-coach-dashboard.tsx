@@ -33,6 +33,23 @@ export function DailyCoachDashboard() {
           </Link>
         </section>
 
+        <section className="rounded-2xl border border-subtle bg-surface p-5">
+          <p className="text-sm font-semibold text-electric-500">Plan de départ Sonia Beta</p>
+          <div className="mt-4 grid gap-3 md:grid-cols-4">
+            {[
+              ["1", "Débloquer des prospects Radar"],
+              ["2", "Créer un prospect vendeur"],
+              ["3", "Faire un appel démo"],
+              ["4", "Obtenir le feedback Coach"],
+            ].map(([step, label]) => (
+              <div key={step} className="rounded-2xl border border-subtle bg-surface-soft p-4">
+                <p className="text-xs font-semibold text-electric-500">Étape {step}</p>
+                <p className="mt-2 text-sm font-semibold leading-6">{label}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
         <section className="grid gap-4 lg:grid-cols-3">
           {[
             "Je t’ai préparé des opportunités réalistes pour tester le workflow.",

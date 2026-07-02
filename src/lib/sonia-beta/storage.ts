@@ -58,7 +58,14 @@ export function createSellerProspectFromRadar(opportunity: ProspectRecord) {
     clientType: "seller",
     source: "Radar",
     status: sellerStatus.prospect,
-    notes: opportunity.notes || opportunity.reason,
+    notes: [
+      `Type : ${opportunity.propertyType}`,
+      `Priorité : ${opportunity.priority}`,
+      `Pourquoi ce prospect : ${opportunity.reason}`,
+      opportunity.notes ? `Notes : ${opportunity.notes}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n"),
     nextAction: "Appeler",
     nextActionDate: today(),
     createdAt: now,
@@ -68,7 +75,7 @@ export function createSellerProspectFromRadar(opportunity: ProspectRecord) {
         id: `history-${Date.now()}`,
         date: now,
         title: "Prospect créé depuis le Radar",
-        description: `${opportunity.address}, ${opportunity.city}. Prochaine action : appeler.`,
+        description: `${opportunity.address}, ${opportunity.city}. Type : ${opportunity.propertyType}. Priorité : ${opportunity.priority}. Prochaine action : appeler.`,
         type: "status",
       },
     ],
@@ -115,6 +122,7 @@ export function updateProspectStatus(id: string, status: PipelineStatus, nextAct
         description: nextAction,
         type: "status",
       },
+      ...automaticEventsForStatus(status),
       ...prospect.history,
     ],
   }));
@@ -163,8 +171,8 @@ export function buildSoniaBattlePlan(prospects: SoniaProspect[]): SoniaBattlePla
 const callResultRules: Record<CallResult, { label: string; description: string; nextAction: string; days: number; status?: PipelineStatus }> = {
   pas_repondu: {
     label: "Pas répondu",
-    description: "Aucune réponse. IACourtier planifie une relance courte.",
-    nextAction: "Relance téléphonique",
+    description: "Aucune réponse. IACourtier crée une relance dans 2 jours et prépare un texto court pour rouvrir la porte.",
+    nextAction: "Relance téléphonique + texto court",
     days: 2,
   },
   mauvais_numero: {
@@ -175,14 +183,14 @@ const callResultRules: Record<CallResult, { label: string; description: string; 
   },
   interesse: {
     label: "Intéressé",
-    description: "Le prospect démontre de l'ouverture. Préparer la suite de la conversation.",
-    nextAction: "Préparer rendez-vous vendeur",
+    description: "Le prospect démontre de l'ouverture. IACourtier propose un rendez-vous vendeur et prépare les questions de découverte.",
+    nextAction: "Proposer rendez-vous vendeur",
     days: 1,
     status: sellerStatus.callQualification,
   },
   rendez_vous_obtenu: {
     label: "Rendez-vous obtenu",
-    description: "Rendez-vous vendeur obtenu. L'analyse de marché doit être préparée avant la rencontre.",
+    description: "Rendez-vous vendeur obtenu. IACourtier déclenche l'analyse de marché, les arguments vendeur et le script de rendez-vous.",
     nextAction: "Préparer analyse de marché",
     days: 0,
     status: sellerStatus.appointmentObtained,
@@ -195,8 +203,8 @@ const callResultRules: Record<CallResult, { label: string; description: string; 
   },
   pas_interesse: {
     label: "Pas intéressé",
-    description: "Le prospect ne veut pas avancer maintenant. Relance longue ou archivage.",
-    nextAction: "Relance 90 jours",
+    description: "Le prospect ne veut pas avancer maintenant. IACourtier propose une relance 90 jours ou un archivage.",
+    nextAction: "Relance 90 jours ou archiver",
     days: 90,
   },
   deja_avec_courtier: {
@@ -209,6 +217,17 @@ const callResultRules: Record<CallResult, { label: string; description: string; 
 
 function automaticEventsForStatus(status: PipelineStatus): SoniaHistoryEvent[] {
   const now = new Date().toISOString();
+  if (status === sellerStatus.callQualification) {
+    return [
+      {
+        id: `history-${Date.now()}-interested`,
+        date: now,
+        title: "Actions déclenchées",
+        description: "Proposer un rendez-vous vendeur, préparer questions de découverte et angle de relance.",
+        type: "ai",
+      },
+    ];
+  }
   if (status === sellerStatus.appointmentObtained) {
     return [
       {

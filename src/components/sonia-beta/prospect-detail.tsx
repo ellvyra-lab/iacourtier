@@ -47,6 +47,7 @@ export function ProspectDetail({ id, demoCall = false }: { id: string; demoCall?
 
   const aiContext = prospect ? contextFromPipelineStatus(prospect.status, prospect.clientType) : "prospect vendeur";
   const recommendedActions = useMemo(() => getContextualAiActions(aiContext), [aiContext]);
+  const nextBestAction = recommendedActions[0];
   const coach = useMemo(() => (coachAnalysis ? createCallCoachFeedback(coachAnalysis) : null), [coachAnalysis]);
 
   if (!prospect) {
@@ -104,6 +105,7 @@ export function ProspectDetail({ id, demoCall = false }: { id: string; demoCall?
       duration: 300,
     });
     setCoachAnalysis(analysis);
+    setCallStatus("Résultat enregistré. Le Coach a préparé le feedback et la prochaine action.");
   }
 
   function saveNote() {
@@ -276,11 +278,12 @@ export function ProspectDetail({ id, demoCall = false }: { id: string; demoCall?
                   Coach IA après appel
                 </p>
                 <div className="mt-4 grid gap-3 lg:grid-cols-2">
+                  <CoachLine label="Résumé" value={coachAnalysis?.summary || "Appel analysé."} />
                   <CoachLine label="Ce qui était bon" value={coach.good} />
                   <CoachLine label="À améliorer" value={coach.improve} />
                   <CoachLine label="Prochaine meilleure question" value={coach.topSellerQuestion} />
                   <CoachLine label="Message de relance recommandé" value={coach.nextFollowup} />
-                  <CoachLine label="Objectif du prochain contact" value={coach.nextCallGoal} />
+                  <CoachLine label="Prochaine action" value={prospect.nextAction} />
                 </div>
               </div>
             ) : null}
@@ -301,27 +304,28 @@ export function ProspectDetail({ id, demoCall = false }: { id: string; demoCall?
           <section className="rounded-lg border border-teal-200 bg-teal-50/70 p-5 shadow-sm dark:border-teal-900 dark:bg-teal-950/30">
             <p className="flex items-center gap-2 text-sm font-semibold text-teal-900 dark:text-teal-100">
               <Sparkles className="h-4 w-4" />
-              Actions IA recommandées
+              Prochaine meilleure action
             </p>
-            <div className="mt-4 space-y-3">
-              {recommendedActions.map((action) => (
-                <div key={action.id} className="rounded-lg border border-teal-200/80 bg-white p-4 dark:border-teal-900 dark:bg-slate-950/45">
-                  <p className="text-sm font-semibold">{action.label}</p>
-                  <p className="mt-1 text-sm leading-6 text-slate-600 dark:text-slate-300">{action.description}</p>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {action.outputs.slice(0, 4).map((output) => (
-                      <span key={output} className="rounded-full border border-slate-200 px-2 py-1 text-xs text-slate-600 dark:border-slate-700">{output}</span>
-                    ))}
-                  </div>
-                  {action.href ? (
-                    <Link href={buildProspectContextHref(action.href, prospect)} className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white dark:bg-white dark:text-slate-950">
-                      Lancer
-                      <ArrowRight className="h-4 w-4" />
-                    </Link>
-                  ) : null}
+            {nextBestAction ? (
+              <div className="mt-4 rounded-lg border border-teal-200/80 bg-white p-4 dark:border-teal-900 dark:bg-slate-950/45">
+                <p className="text-sm font-semibold">{nextBestAction.label}</p>
+                <p className="mt-1 text-sm leading-6 text-slate-600 dark:text-slate-300">{nextBestAction.description}</p>
+                <p className="mt-3 rounded-lg bg-teal-50 p-3 text-sm leading-6 text-teal-950 dark:bg-teal-950/40 dark:text-teal-100">
+                  {bestActionCoachLine(prospect.status)}
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {nextBestAction.outputs.slice(0, 4).map((output) => (
+                    <span key={output} className="rounded-full border border-slate-200 px-2 py-1 text-xs text-slate-600 dark:border-slate-700">{output}</span>
+                  ))}
                 </div>
-              ))}
-            </div>
+                {nextBestAction.href ? (
+                  <Link href={buildProspectContextHref(nextBestAction.href, prospect)} className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white dark:bg-white dark:text-slate-950">
+                    Commencer
+                    <ArrowRight className="h-4 w-4" />
+                  </Link>
+                ) : null}
+              </div>
+            ) : null}
           </section>
 
           <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900/72">
@@ -358,6 +362,19 @@ function buildProspectContextHref(href: string, prospect: SoniaProspect) {
   params.set("channel", href.includes("message-prospection") ? "Appel téléphonique" : "");
 
   return `${pathname}?${params.toString()}`;
+}
+
+function bestActionCoachLine(status: string) {
+  if (/Rendez-vous vendeur obtenu/i.test(status)) {
+    return "Là, tu as un rendez-vous. On prépare ton analyse de marché avant d’y aller, pas après le mandat.";
+  }
+  if (/Mandat vendeur signé|Documents vendeur|Préparation mise en marché/i.test(status)) {
+    return "Le mandat est signé. Maintenant, on récupère les documents vendeur et on prépare la mise en marché.";
+  }
+  if (/Appel|Prospect vendeur|Prospection/i.test(status)) {
+    return "Commence par l’appel. Si ça ne répond pas, je te prépare le texto et la relance.";
+  }
+  return "On garde le focus sur la prochaine action concrète. Une étape claire, puis on avance.";
 }
 
 function Badge({ children }: { children: ReactNode }) {

@@ -32,7 +32,7 @@ export function buildDailyCoach(prospects: SoniaProspect[], userName = "Sonia"):
 
   return {
     greeting: `Salut ${userName} 👋`,
-    coachLine: "Aujourd’hui, on va aller chercher du concret.",
+    coachLine: "Aujourd’hui, ton objectif est simple : faire avancer ta prospection et obtenir un rendez-vous vendeur.",
     objective: {
       callsToMake: battlePlan.callsToMake.length,
       radarProspects: battlePlan.radarProspectsToCall.length,
