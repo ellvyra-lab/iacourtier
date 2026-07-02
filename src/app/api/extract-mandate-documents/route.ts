@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createRequire } from "node:module";
 
-import { generateWithOpenAI } from "@/lib/openai";
+import { generateWithOpenAI, getOpenAIErrorPayload } from "@/lib/openai";
 import {
   mandateDocumentExtractionSystemPrompt,
   normalizeExtractedMandateFields,
@@ -108,6 +108,11 @@ export async function POST(request: Request) {
       extractedTextPreview: extractedText.slice(0, 4000),
     });
   } catch (error) {
+    const openAIError = getOpenAIErrorPayload(error);
+    if (openAIError) {
+      return NextResponse.json(openAIError.body, { status: openAIError.status });
+    }
+
     const message = error instanceof Error ? error.message : "Une erreur inattendue est survenue.";
     return NextResponse.json({ error: message }, { status: 500 });
   }

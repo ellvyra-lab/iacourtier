@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createRequire } from "node:module";
 
-import { generateWithOpenAI } from "@/lib/openai";
+import { generateWithOpenAI, getOpenAIErrorPayload } from "@/lib/openai";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -210,6 +210,11 @@ export async function POST(request: Request) {
       extractedText: limitedText,
     });
   } catch (error) {
+    const openAIError = getOpenAIErrorPayload(error);
+    if (openAIError) {
+      return NextResponse.json(openAIError.body, { status: openAIError.status });
+    }
+
     const message = error instanceof Error ? error.message : "Une erreur inattendue est survenue.";
     return NextResponse.json({ error: message }, { status: 500 });
   }

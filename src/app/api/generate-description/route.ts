@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { generateWithOpenAI } from "@/lib/openai";
+import { generateWithOpenAI, getOpenAIErrorPayload } from "@/lib/openai";
 import { buildUserPrompt, type PropertyDescriptionForm } from "@/lib/property-description";
 import { propertyDescriptionSystemPrompt } from "@/lib/server-prompt";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -67,6 +67,11 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ text, id, saved });
   } catch (error) {
+    const openAIError = getOpenAIErrorPayload(error);
+    if (openAIError) {
+      return NextResponse.json(openAIError.body, { status: openAIError.status });
+    }
+
     const message = error instanceof Error ? error.message : "Une erreur inattendue est survenue.";
     return NextResponse.json({ error: message }, { status: 500 });
   }

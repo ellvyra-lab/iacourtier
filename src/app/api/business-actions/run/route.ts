@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { getAssistantConfig } from "@/data/assistantsConfig";
 import { buildBusinessActionPrompt, getBusinessAction, type BusinessActionRunInput } from "@/lib/business-actions";
-import { generateWithOpenAI } from "@/lib/openai";
+import { generateWithOpenAI, getOpenAIErrorPayload } from "@/lib/openai";
 
 export const runtime = "nodejs";
 
@@ -12,12 +12,12 @@ export async function POST(request: Request) {
     const action = getBusinessAction(body.actionId);
 
     if (!action) {
-      return NextResponse.json({ ok: false, error: "Action métier introuvable." }, { status: 404 });
+      return NextResponse.json({ ok: false, error: "Action metier introuvable." }, { status: 404 });
     }
 
     const serviceSlugs = action.serviceSlugs?.length ? action.serviceSlugs : action.assistantSlug ? [action.assistantSlug] : [];
     if (!serviceSlugs.length) {
-      return NextResponse.json({ ok: false, error: "Aucun service IA n'est associé à cette action." }, { status: 400 });
+      return NextResponse.json({ ok: false, error: "Aucun service IA n'est associe a cette action." }, { status: 400 });
     }
 
     const prompt = buildBusinessActionPrompt(action, body.context);
@@ -28,7 +28,7 @@ export async function POST(request: Request) {
       if (!assistant) continue;
 
       const output = await generateWithOpenAI({
-        systemPrompt: `${assistant.systemPrompt}\n\nTu es appelé comme service interne d'une action métier IACourtier. Ne parle pas d'assistant IA. Produis uniquement la partie utile pour l'action métier.`,
+        systemPrompt: `${assistant.systemPrompt}\n\nTu es appele comme service interne d'une action metier IACourtier. Ne parle pas d'assistant IA. Produis uniquement la partie utile pour l'action metier.`,
         userPrompt: prompt,
         maxTokens: 1200,
         temperature: 0.65,
@@ -43,7 +43,12 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ ok: true, action, results });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "L'action métier n'a pas pu être exécutée.";
+    const openAIError = getOpenAIErrorPayload(error);
+    if (openAIError) {
+      return NextResponse.json({ ok: false, ...openAIError.body }, { status: openAIError.status });
+    }
+
+    const message = error instanceof Error ? error.message : "L'action metier n'a pas pu etre executee.";
     return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
 }
