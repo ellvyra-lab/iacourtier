@@ -45,6 +45,14 @@ type ProspectingMission = {
   currentIndex: number;
   startedAt: string;
   lastFeedback?: string;
+  lastOutcome?: {
+    prospectId: string;
+    result: CallResult;
+    title: string;
+    feedback: string;
+    preparedText: string;
+    nextStep: string;
+  };
 };
 
 const todayKey = () => new Date().toISOString().slice(0, 10);
@@ -142,12 +150,14 @@ export function DailyCoachDashboard() {
 
   const saveCallOutcome = useCallback(
     (result: CallResult) => {
-      if (!callProspectId) return;
-      const updated = recordCallResult(callProspectId, result, callNote);
+      const activeProspectId = callProspectId || mission?.prospectIds[mission.currentIndex];
+      if (!activeProspectId) return;
+
+      const updated = recordCallResult(activeProspectId, result, callNote);
       if (!updated) return;
 
-      const feedback = buildMissionFeedback(updated, result);
-      const nextMission = advanceMission(mission, result);
+      const outcome = buildMissionOutcome(updated, result);
+      const nextMission = updateMissionOutcome(mission, updated.id, result, outcome);
       saveMission(nextMission);
       setMission(nextMission);
       setCallProspectId(null);
@@ -155,7 +165,7 @@ export function DailyCoachDashboard() {
       setProspects(getSoniaProspects());
       appendCoachMessage({
         tone: result === "rendez_vous_obtenu" ? "win" : "reaction",
-        text: feedback,
+        text: outcome.feedback,
         actionLabel: result === "rendez_vous_obtenu" ? "Preparer le rendez-vous" : "Continuer la mission",
         actionHref:
           result === "rendez_vous_obtenu"
@@ -167,6 +177,7 @@ export function DailyCoachDashboard() {
   );
 
   const skipProspect = useCallback(() => {
+    const nextIndex = Math.min((mission?.currentIndex || 0) + 1, Math.max((mission?.prospectIds.length || 1) - 1, 0));
     const nextMission = {
       ...(mission || {
         active: true,
@@ -175,10 +186,14 @@ export function DailyCoachDashboard() {
         currentIndex: 0,
         startedAt: new Date().toISOString(),
       }),
-      currentIndex: Math.min((mission?.currentIndex || 0) + 1, Math.max((mission?.prospectIds.length || 1) - 1, 0)),
+      currentIndex: nextIndex,
+      lastOutcome: undefined,
+      lastFeedback: "Prospect suivant charge.",
     };
     saveMission(nextMission);
     setMission(nextMission);
+    setCallProspectId(null);
+    setCallNote("");
     appendCoachMessage({
       tone: "next-step",
       text: "Correct. On passe au prochain prospect. Garde ton rythme : une conversation vaut mieux que dix hesitations.",
@@ -366,18 +381,15 @@ function ProspectingMissionPanel({
         <p className="text-sm font-semibold text-electric-500">{mission.title}</p>
         <h2 className="mt-2 text-2xl font-semibold">Mission terminee pour le moment.</h2>
         <p className="mt-3 text-sm leading-6 text-muted">
-          Tu as passe a travers les prospects disponibles. Retourne au Radar pour en debloquer d&apos;autres ou reviens plus tard.
+          Tu as passe a travers les prospects disponibles pour cette mission. Reviens au Coach plus tard ou relance une nouvelle mission quand tu veux reprendre le bloc d&apos;appels.
         </p>
-        <Link href="/tableau-de-bord/radar-prospection" className="mt-5 inline-flex items-center gap-2 rounded-2xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white dark:bg-white dark:text-slate-950">
-          Ouvrir le Radar
-          <ArrowRight className="h-4 w-4" />
-        </Link>
       </section>
     );
   }
 
   const isCalling = callProspectId === prospect.id;
   const script = buildCallScript(prospect);
+  const visibleOutcome = mission.lastOutcome?.prospectId === prospect.id ? mission.lastOutcome : null;
 
   return (
     <section className="rounded-2xl border border-electric-500/25 bg-surface p-6 shadow-sm">
@@ -425,7 +437,7 @@ function ProspectingMissionPanel({
             </p>
           </div>
 
-          <div className="grid gap-3 md:grid-cols-3">
+          <div className="grid gap-3 md:grid-cols-4">
             <button
               type="button"
               onClick={() => onStartCall(prospect)}
@@ -434,12 +446,24 @@ function ProspectingMissionPanel({
               <PhoneCall className="h-4 w-4" />
               Appeler avec IACourtier
             </button>
+            <button type="button" onClick={() => onSaveOutcome("pas_repondu")} className="rounded-2xl border border-subtle bg-surface px-4 py-3 text-sm font-semibold hover:border-electric-500/40">
+              Pas repondu
+            </button>
+            <button type="button" onClick={() => onSaveOutcome("interesse")} className="rounded-2xl border border-subtle bg-surface px-4 py-3 text-sm font-semibold hover:border-electric-500/40">
+              Interesse
+            </button>
+            <button type="button" onClick={() => onSaveOutcome("rendez_vous_obtenu")} className="rounded-2xl border border-electric-500/30 bg-electric-500/10 px-4 py-3 text-sm font-semibold text-electric-500 hover:border-electric-500">
+              Rendez-vous obtenu
+            </button>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-2">
             <Link
               href={`/tableau-de-bord/actions/prepare-first-seller-call?name=${encodeURIComponent(prospect.name)}&address=${encodeURIComponent(prospect.address)}&city=${encodeURIComponent(prospect.city)}&channel=sms&context=prospect`}
               className="inline-flex items-center justify-center gap-2 rounded-2xl border border-subtle bg-surface px-4 py-3 text-sm font-semibold hover:border-electric-500/40"
             >
               <Send className="h-4 w-4" />
-              Preparer texto
+              Preparer texto si pas de reponse
             </Link>
             <button
               type="button"
@@ -450,6 +474,21 @@ function ProspectingMissionPanel({
               Passer au prochain
             </button>
           </div>
+
+          {visibleOutcome ? (
+            <div className="rounded-2xl border border-electric-500/20 bg-electric-500/5 p-5">
+              <p className="text-sm font-semibold text-electric-500">{visibleOutcome.title}</p>
+              <p className="mt-3 text-sm leading-6">{visibleOutcome.feedback}</p>
+              <div className="mt-4 rounded-2xl border border-subtle bg-surface p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted">Message prepare</p>
+                <p className="mt-2 text-sm leading-6">{visibleOutcome.preparedText}</p>
+              </div>
+              <div className="mt-4 rounded-2xl border border-subtle bg-surface p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted">Prochaine action</p>
+                <p className="mt-2 text-sm leading-6">{visibleOutcome.nextStep}</p>
+              </div>
+            </div>
+          ) : null}
 
           {isCalling ? (
             <div className="rounded-2xl border border-subtle bg-surface p-5">
@@ -717,19 +756,22 @@ function getMissionProspect(mission: ProspectingMission | null, prospects: Sonia
   return prospects.find((prospect) => prospect.id === id) || null;
 }
 
-function advanceMission(mission: ProspectingMission | null, result: CallResult): ProspectingMission | null {
+function updateMissionOutcome(
+  mission: ProspectingMission | null,
+  prospectId: string,
+  result: CallResult,
+  outcome: ReturnType<typeof buildMissionOutcome>,
+): ProspectingMission | null {
   if (!mission) return null;
-  if (result === "rendez_vous_obtenu") {
-    return {
-      ...mission,
-      lastFeedback: "Rendez-vous obtenu. La mission change : on prepare l'analyse de marche avant la rencontre.",
-    };
-  }
 
   return {
     ...mission,
-    currentIndex: Math.min(mission.currentIndex + 1, Math.max(mission.prospectIds.length - 1, 0)),
-    lastFeedback: "Resultat note. On garde le rythme et on passe au prochain prospect.",
+    lastFeedback: outcome.feedback,
+    lastOutcome: {
+      prospectId,
+      result,
+      ...outcome,
+    },
   };
 }
 
@@ -737,26 +779,61 @@ function buildCallScript(prospect: SoniaProspect) {
   return `Bonjour ${prospect.name}, ici Sonia Bernier, courtiere immobiliere. Je suis active dans votre secteur en ce moment et je voulais simplement vous poser une petite question : est-ce que vendre votre propriete cette annee fait partie de vos reflexions, ou pas du tout?`;
 }
 
-function buildMissionFeedback(prospect: SoniaProspect, result: CallResult) {
+function buildMissionOutcome(prospect: SoniaProspect, result: CallResult) {
   if (result === "pas_repondu") {
-    return `Pas de reponse avec ${prospect.name}. C'est normal. Prochaine action : texto court et relance dans 2 jours. Ne t'arrete pas la, on passe au prochain.`;
+    return {
+      title: "Pas repondu",
+      feedback: `Pas de reponse avec ${prospect.name}. C'est normal. Le jeu, c'est le suivi. Tu envoies un texto court, tu planifies une relance dans 2 jours, puis tu passes au prochain prospect.`,
+      preparedText: `Bonjour ${prospect.name}, ici Sonia Bernier, courtiere immobiliere. Je viens de tenter de vous joindre rapidement. Je suis active dans votre secteur et je voulais simplement vous poser une petite question au sujet de votre propriete. Est-ce que je peux vous rappeler plus tard aujourd'hui ou demain?`,
+      nextStep: "Relance dans 2 jours. En attendant, passe au prochain prospect pour garder ton rythme d'appels.",
+    };
   }
   if (result === "interesse") {
-    return `${prospect.name} montre de l'ouverture. Ta prochaine meilleure question : "Qu'est-ce qui vous ferait bouger si le timing etait bon?" Ensuite, propose une courte rencontre d'evaluation.`;
+    return {
+      title: "Interesse",
+      feedback: `${prospect.name} montre de l'ouverture. Ne saute pas trop vite dans la vente de tes services. Pose une question de decouverte, puis propose une rencontre courte et utile.`,
+      preparedText: `Ma prochaine question serait simple : qu'est-ce qui vous ferait bouger si le timing etait bon? Ensuite, je vous proposerais une courte rencontre d'evaluation pour vous donner un portrait clair, sans pression.`,
+      nextStep: "Proposer un rendez-vous vendeur et preparer les questions de decouverte.",
+    };
   }
   if (result === "rendez_vous_obtenu") {
-    return `Excellent. Rendez-vous vendeur obtenu avec ${prospect.name}. Maintenant, on prepare l'analyse de marche, les questions de decouverte et les arguments vendeur avant la rencontre.`;
+    return {
+      title: "Rendez-vous obtenu",
+      feedback: `Excellent. Rendez-vous vendeur obtenu avec ${prospect.name}. Maintenant, le Coach change de mission : on prepare l'analyse de marche avant la rencontre, pas apres le mandat.`,
+      preparedText: "Analyse de marche a preparer : comparables, positionnement, questions vendeur, objections probables et strategie de presentation.",
+      nextStep: "Preparer l'analyse de marche, les arguments vendeur et le script de rendez-vous.",
+    };
   }
   if (result === "a_rappeler") {
-    return `${prospect.name} accepte une relance. Bon signe. Mets la relance au calendrier et garde ton prochain message simple, humain et precis.`;
+    return {
+      title: "A rappeler",
+      feedback: `${prospect.name} accepte une relance. Bon signe. Mets la relance au calendrier et garde ton prochain message simple, humain et precis.`,
+      preparedText: `Parfait, je vous recontacte au moment convenu. L'objectif sera simplement de voir si une evaluation de votre propriete pourrait vous aider a prendre une meilleure decision.`,
+      nextStep: "Planifier la relance et passer au prochain prospect.",
+    };
   }
   if (result === "pas_interesse") {
-    return `${prospect.name} n'avance pas maintenant. Reste professionnelle, laisse une bonne impression et garde une relance long terme si c'est pertinent.`;
+    return {
+      title: "Pas interesse",
+      feedback: `${prospect.name} n'avance pas maintenant. Reste professionnelle, laisse une bonne impression et garde une relance long terme si c'est pertinent.`,
+      preparedText: "Je comprends parfaitement. Je vous souhaite une excellente journee. Si jamais vous voulez un portrait de valeur plus tard, ca me fera plaisir de vous aider.",
+      nextStep: "Relance long terme ou exclusion de la prospection active selon le contexte.",
+    };
   }
   if (result === "deja_avec_courtier") {
-    return `${prospect.name} est deja accompagne. On respecte ca, on l'exclut de la prospection active et on garde ton energie pour les prochains prospects.`;
+    return {
+      title: "Deja avec courtier",
+      feedback: `${prospect.name} est deja accompagne. On respecte ca, on l'exclut de la prospection active et on garde ton energie pour les prochains prospects.`,
+      preparedText: "Parfait, je respecte ca. Je vous souhaite une excellente continuation avec votre courtier.",
+      nextStep: "Exclure de la prospection active et passer au prochain prospect.",
+    };
   }
-  return `Resultat note pour ${prospect.name}. On garde le fil et on avance vers la prochaine action.`;
+  return {
+    title: "Resultat note",
+    feedback: `Resultat note pour ${prospect.name}. On garde le fil et on avance vers la prochaine action.`,
+    preparedText: "Prochaine communication a personnaliser selon la note d'appel.",
+    nextStep: "Continuer la mission.",
+  };
 }
 
 function extractNoteValue(notes: string, label: string) {
