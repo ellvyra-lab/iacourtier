@@ -10,13 +10,24 @@ import {
   FileWarning,
   MessageCircle,
   Phone,
+  PhoneCall,
   Radar,
   RefreshCw,
+  Send,
+  SkipForward,
   Sparkles,
 } from "lucide-react";
 
 import { buildDailyCoach, type DailyCoachPlan } from "@/lib/coach/daily-coach";
-import { getSoniaProspects, type SoniaHistoryEvent, type SoniaProspect } from "@/lib/sonia-beta";
+import { manualProspects } from "@/lib/prospecting/manual-provider";
+import {
+  createSellerProspectFromRadar,
+  getSoniaProspects,
+  recordCallResult,
+  type CallResult,
+  type SoniaHistoryEvent,
+  type SoniaProspect,
+} from "@/lib/sonia-beta";
 
 type CoachMessage = {
   id: string;
@@ -27,12 +38,25 @@ type CoachMessage = {
   actionHref?: string;
 };
 
+type ProspectingMission = {
+  active: boolean;
+  title: string;
+  prospectIds: string[];
+  currentIndex: number;
+  startedAt: string;
+  lastFeedback?: string;
+};
+
 const todayKey = () => new Date().toISOString().slice(0, 10);
 const conversationKey = () => `iacourtier_coach_conversation_${todayKey()}`;
+const missionKey = () => `iacourtier_coach_mission_${todayKey()}`;
 
 export function DailyCoachDashboard() {
   const [prospects, setProspects] = useState<SoniaProspect[]>([]);
   const [messages, setMessages] = useState<CoachMessage[]>([]);
+  const [mission, setMission] = useState<ProspectingMission | null>(null);
+  const [callProspectId, setCallProspectId] = useState<string | null>(null);
+  const [callNote, setCallNote] = useState("");
 
   const coach = useMemo(() => buildDailyCoach(prospects, "Sonia"), [prospects]);
 
@@ -47,6 +71,7 @@ export function DailyCoachDashboard() {
 
   useEffect(() => {
     setMessages(loadConversation());
+    setMission(loadMission());
   }, []);
 
   useEffect(() => {
@@ -58,6 +83,107 @@ export function DailyCoachDashboard() {
   }, [coach, prospects]);
 
   const visibleMessages = messages.slice(-8);
+  const missionProspect = getMissionProspect(mission, prospects);
+
+  const appendCoachMessage = useCallback((message: Omit<CoachMessage, "id" | "createdAt">) => {
+    setMessages((current) => {
+      const next = [
+        ...current,
+        {
+          ...message,
+          id: `coach-${Date.now()}`,
+          createdAt: new Date().toISOString(),
+        },
+      ].slice(-30);
+      saveConversation(next);
+      return next;
+    });
+  }, []);
+
+  const startProspectingMission = useCallback(() => {
+    const storedProspects = getSoniaProspects().filter((prospect) => !prospect.id.startsWith("sonia-demo-"));
+    const radarProspects = storedProspects.filter((prospect) => prospect.source === "Radar");
+    const missionProspects = radarProspects.length
+      ? radarProspects
+      : manualProspects.slice(0, 5).map((opportunity) => createSellerProspectFromRadar(opportunity));
+
+    const nextMission: ProspectingMission = {
+      active: true,
+      title: "Mission : Trouver un rendez-vous vendeur",
+      prospectIds: missionProspects.map((prospect) => prospect.id),
+      currentIndex: 0,
+      startedAt: new Date().toISOString(),
+    };
+
+    saveMission(nextMission);
+    setMission(nextMission);
+    setProspects(getSoniaProspects());
+    appendCoachMessage({
+      tone: "next-step",
+      text: "Mission lancee. Je te donne un prospect a la fois. Tu appelles, tu notes le resultat, puis on passe au prochain. L'objectif : obtenir un rendez-vous vendeur.",
+      actionLabel: "Voir le prospect recommande",
+    });
+  }, [appendCoachMessage]);
+
+  const startCall = useCallback(
+    (prospect: SoniaProspect) => {
+      setCallProspectId(prospect.id);
+      appendCoachMessage({
+        tone: "reaction",
+        text: `Appel lance pour ${prospect.name}. Reste simple : une question ouverte, un ton humain, puis une proposition de rencontre si la porte s'ouvre.`,
+      });
+
+      if (typeof window !== "undefined" && prospect.phone) {
+        window.location.href = `tel:${prospect.phone}`;
+      }
+    },
+    [appendCoachMessage],
+  );
+
+  const saveCallOutcome = useCallback(
+    (result: CallResult) => {
+      if (!callProspectId) return;
+      const updated = recordCallResult(callProspectId, result, callNote);
+      if (!updated) return;
+
+      const feedback = buildMissionFeedback(updated, result);
+      const nextMission = advanceMission(mission, result);
+      saveMission(nextMission);
+      setMission(nextMission);
+      setCallProspectId(null);
+      setCallNote("");
+      setProspects(getSoniaProspects());
+      appendCoachMessage({
+        tone: result === "rendez_vous_obtenu" ? "win" : "reaction",
+        text: feedback,
+        actionLabel: result === "rendez_vous_obtenu" ? "Preparer le rendez-vous" : "Continuer la mission",
+        actionHref:
+          result === "rendez_vous_obtenu"
+            ? `/tableau-de-bord/actions/prepare-market-analysis?name=${encodeURIComponent(updated.name)}&address=${encodeURIComponent(updated.address)}&city=${encodeURIComponent(updated.city)}&context=prospect`
+            : undefined,
+      });
+    },
+    [appendCoachMessage, callNote, callProspectId, mission],
+  );
+
+  const skipProspect = useCallback(() => {
+    const nextMission = {
+      ...(mission || {
+        active: true,
+        title: "Mission : Trouver un rendez-vous vendeur",
+        prospectIds: [],
+        currentIndex: 0,
+        startedAt: new Date().toISOString(),
+      }),
+      currentIndex: Math.min((mission?.currentIndex || 0) + 1, Math.max((mission?.prospectIds.length || 1) - 1, 0)),
+    };
+    saveMission(nextMission);
+    setMission(nextMission);
+    appendCoachMessage({
+      tone: "next-step",
+      text: "Correct. On passe au prochain prospect. Garde ton rythme : une conversation vaut mieux que dix hesitations.",
+    });
+  }, [appendCoachMessage, mission]);
 
   return (
     <div className="space-y-7">
@@ -82,9 +208,22 @@ export function DailyCoachDashboard() {
       </section>
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_390px]">
-        <CoachConversation messages={visibleMessages} fallbackAction={coach.firstAction} />
-        <NextStepCard coach={coach} />
+        <CoachConversation messages={visibleMessages} fallbackAction={coach.firstAction} onStartMission={startProspectingMission} />
+        <NextStepCard coach={coach} onStartMission={startProspectingMission} />
       </div>
+
+      {mission?.active ? (
+        <ProspectingMissionPanel
+          mission={mission}
+          prospect={missionProspect}
+          callProspectId={callProspectId}
+          callNote={callNote}
+          onCallNoteChange={setCallNote}
+          onStartCall={startCall}
+          onSaveOutcome={saveCallOutcome}
+          onSkipProspect={skipProspect}
+        />
+      ) : null}
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
         <Metric icon={Phone} label="Appels a faire" value={coach.objective.callsToMake} />
@@ -125,9 +264,11 @@ export function DailyCoachDashboard() {
 function CoachConversation({
   messages,
   fallbackAction,
+  onStartMission,
 }: {
   messages: CoachMessage[];
   fallbackAction: DailyCoachPlan["firstAction"];
+  onStartMission: () => void;
 }) {
   return (
     <section className="rounded-2xl border border-subtle bg-surface p-5">
@@ -164,18 +305,19 @@ function CoachConversation({
         ))}
       </div>
 
-      <Link
-        href={fallbackAction.href}
+      <button
+        type="button"
+        onClick={onStartMission}
         className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-subtle bg-background px-5 py-3 text-sm font-semibold hover:border-electric-500/40"
       >
-        Continuer avec la prochaine action
+        {fallbackAction.href.includes("radar-prospection") ? "Commencer ma prospection" : "Lancer la mission Coach"}
         <ArrowRight className="h-4 w-4" />
-      </Link>
+      </button>
     </section>
   );
 }
 
-function NextStepCard({ coach }: { coach: DailyCoachPlan }) {
+function NextStepCard({ coach, onStartMission }: { coach: DailyCoachPlan; onStartMission: () => void }) {
   return (
     <aside className="rounded-2xl border border-subtle bg-slate-950 p-5 text-white dark:bg-white dark:text-slate-950">
       <p className="flex items-center gap-2 text-sm font-semibold text-white/75 dark:text-slate-600">
@@ -184,17 +326,158 @@ function NextStepCard({ coach }: { coach: DailyCoachPlan }) {
       </p>
       <h2 className="mt-4 text-2xl font-semibold leading-tight">{coach.firstAction.label}</h2>
       <p className="mt-3 text-sm leading-6 text-white/70 dark:text-slate-600">{coach.firstAction.description}</p>
-      <Link
-        href={coach.firstAction.href}
+      <button
+        type="button"
+        onClick={onStartMission}
         className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-white px-5 py-3 text-sm font-semibold text-slate-950 dark:bg-slate-950 dark:text-white"
       >
-        Commencer maintenant
+        Commencer ma prospection
         <ArrowRight className="h-4 w-4" />
-      </Link>
+      </button>
       <div className="mt-6 rounded-2xl border border-white/15 bg-white/10 p-4 text-sm leading-6 text-white/75 dark:border-slate-200 dark:bg-slate-100 dark:text-slate-600">
         {coach.focus}
       </div>
     </aside>
+  );
+}
+
+function ProspectingMissionPanel({
+  mission,
+  prospect,
+  callProspectId,
+  callNote,
+  onCallNoteChange,
+  onStartCall,
+  onSaveOutcome,
+  onSkipProspect,
+}: {
+  mission: ProspectingMission;
+  prospect: SoniaProspect | null;
+  callProspectId: string | null;
+  callNote: string;
+  onCallNoteChange: (value: string) => void;
+  onStartCall: (prospect: SoniaProspect) => void;
+  onSaveOutcome: (result: CallResult) => void;
+  onSkipProspect: () => void;
+}) {
+  if (!prospect) {
+    return (
+      <section className="rounded-2xl border border-subtle bg-surface p-6">
+        <p className="text-sm font-semibold text-electric-500">{mission.title}</p>
+        <h2 className="mt-2 text-2xl font-semibold">Mission terminee pour le moment.</h2>
+        <p className="mt-3 text-sm leading-6 text-muted">
+          Tu as passe a travers les prospects disponibles. Retourne au Radar pour en debloquer d&apos;autres ou reviens plus tard.
+        </p>
+        <Link href="/tableau-de-bord/radar-prospection" className="mt-5 inline-flex items-center gap-2 rounded-2xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white dark:bg-white dark:text-slate-950">
+          Ouvrir le Radar
+          <ArrowRight className="h-4 w-4" />
+        </Link>
+      </section>
+    );
+  }
+
+  const isCalling = callProspectId === prospect.id;
+  const script = buildCallScript(prospect);
+
+  return (
+    <section className="rounded-2xl border border-electric-500/25 bg-surface p-6 shadow-sm">
+      <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <p className="text-sm font-semibold text-electric-500">{mission.title}</p>
+          <h2 className="mt-2 text-2xl font-semibold">Premier prospect recommande</h2>
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-muted">
+            On y va un prospect a la fois. Ton objectif n&apos;est pas de vendre au telephone : c&apos;est d&apos;ouvrir une conversation et d&apos;obtenir une rencontre.
+          </p>
+        </div>
+        <div className="rounded-2xl border border-subtle bg-surface-soft px-4 py-3 text-sm font-semibold">
+          {mission.currentIndex + 1} / {mission.prospectIds.length}
+        </div>
+      </div>
+
+      <div className="mt-6 grid gap-5 xl:grid-cols-[360px_minmax(0,1fr)]">
+        <div className="rounded-2xl border border-subtle bg-surface-soft p-5">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted">Prospect selectionne</p>
+          <h3 className="mt-3 text-xl font-semibold">{prospect.name}</h3>
+          <p className="mt-2 text-sm leading-6 text-muted">
+            {prospect.address}
+            <br />
+            {prospect.city}
+          </p>
+          <div className="mt-4 space-y-2 text-sm">
+            <p>
+              <span className="font-semibold">Priorite :</span> {extractNoteValue(prospect.notes, "Priorite") || "Elevee"}
+            </p>
+            <p>
+              <span className="font-semibold">Pourquoi lui :</span> {extractNoteValue(prospect.notes, "Pourquoi ce prospect") || "Bonne opportunite de conversation vendeur."}
+            </p>
+            <p>
+              <span className="font-semibold">Prochaine action :</span> {prospect.nextAction}
+            </p>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <div className="rounded-2xl border border-subtle bg-surface-soft p-5">
+            <p className="text-sm font-semibold text-electric-500">Quoi dire au telephone</p>
+            <p className="mt-3 text-base leading-7">{script}</p>
+            <p className="mt-4 text-sm leading-6 text-muted">
+              Ne parle pas de Radar, de score ou de donnees. Tu es simplement une courtiere active dans le secteur qui ouvre une vraie conversation.
+            </p>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-3">
+            <button
+              type="button"
+              onClick={() => onStartCall(prospect)}
+              className="inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white dark:bg-white dark:text-slate-950"
+            >
+              <PhoneCall className="h-4 w-4" />
+              Appeler avec IACourtier
+            </button>
+            <Link
+              href={`/tableau-de-bord/actions/prepare-first-seller-call?name=${encodeURIComponent(prospect.name)}&address=${encodeURIComponent(prospect.address)}&city=${encodeURIComponent(prospect.city)}&channel=sms&context=prospect`}
+              className="inline-flex items-center justify-center gap-2 rounded-2xl border border-subtle bg-surface px-4 py-3 text-sm font-semibold hover:border-electric-500/40"
+            >
+              <Send className="h-4 w-4" />
+              Preparer texto
+            </Link>
+            <button
+              type="button"
+              onClick={onSkipProspect}
+              className="inline-flex items-center justify-center gap-2 rounded-2xl border border-subtle bg-surface px-4 py-3 text-sm font-semibold hover:border-electric-500/40"
+            >
+              <SkipForward className="h-4 w-4" />
+              Passer au prochain
+            </button>
+          </div>
+
+          {isCalling ? (
+            <div className="rounded-2xl border border-subtle bg-surface p-5">
+              <p className="text-sm font-semibold text-electric-500">Resultat de l&apos;appel</p>
+              <textarea
+                value={callNote}
+                onChange={(event) => onCallNoteChange(event.target.value)}
+                rows={3}
+                placeholder="Note rapide : ce qu'il a dit, objection, niveau d'interet, prochaine disponibilite..."
+                className="mt-3 w-full rounded-2xl border border-subtle bg-surface-soft px-4 py-3 text-sm outline-none focus:border-electric-500"
+              />
+              <div className="mt-4 grid gap-2 md:grid-cols-3">
+                {callOutcomes.map((outcome) => (
+                  <button
+                    key={outcome.value}
+                    type="button"
+                    onClick={() => onSaveOutcome(outcome.value)}
+                    className="rounded-xl border border-subtle bg-surface-soft px-3 py-2 text-sm font-semibold hover:border-electric-500/40"
+                  >
+                    {outcome.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -398,6 +681,27 @@ function saveConversation(messages: CoachMessage[]) {
   window.localStorage.setItem(conversationKey(), JSON.stringify(messages.slice(-30)));
 }
 
+function loadMission(): ProspectingMission | null {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const raw = window.localStorage.getItem(missionKey());
+    if (!raw) return null;
+    return JSON.parse(raw) as ProspectingMission;
+  } catch {
+    return null;
+  }
+}
+
+function saveMission(mission: ProspectingMission | null) {
+  if (typeof window === "undefined") return;
+  if (!mission) {
+    window.localStorage.removeItem(missionKey());
+    return;
+  }
+  window.localStorage.setItem(missionKey(), JSON.stringify(mission));
+}
+
 function mergeMessages(current: CoachMessage[], incoming: CoachMessage[]) {
   const byId = new Map<string, CoachMessage>();
   [...current, ...incoming].forEach((message) => byId.set(message.id, message));
@@ -406,3 +710,67 @@ function mergeMessages(current: CoachMessage[], incoming: CoachMessage[]) {
     .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
     .slice(-30);
 }
+
+function getMissionProspect(mission: ProspectingMission | null, prospects: SoniaProspect[]) {
+  if (!mission?.active) return null;
+  const id = mission.prospectIds[mission.currentIndex];
+  return prospects.find((prospect) => prospect.id === id) || null;
+}
+
+function advanceMission(mission: ProspectingMission | null, result: CallResult): ProspectingMission | null {
+  if (!mission) return null;
+  if (result === "rendez_vous_obtenu") {
+    return {
+      ...mission,
+      lastFeedback: "Rendez-vous obtenu. La mission change : on prepare l'analyse de marche avant la rencontre.",
+    };
+  }
+
+  return {
+    ...mission,
+    currentIndex: Math.min(mission.currentIndex + 1, Math.max(mission.prospectIds.length - 1, 0)),
+    lastFeedback: "Resultat note. On garde le rythme et on passe au prochain prospect.",
+  };
+}
+
+function buildCallScript(prospect: SoniaProspect) {
+  return `Bonjour ${prospect.name}, ici Sonia Bernier, courtiere immobiliere. Je suis active dans votre secteur en ce moment et je voulais simplement vous poser une petite question : est-ce que vendre votre propriete cette annee fait partie de vos reflexions, ou pas du tout?`;
+}
+
+function buildMissionFeedback(prospect: SoniaProspect, result: CallResult) {
+  if (result === "pas_repondu") {
+    return `Pas de reponse avec ${prospect.name}. C'est normal. Prochaine action : texto court et relance dans 2 jours. Ne t'arrete pas la, on passe au prochain.`;
+  }
+  if (result === "interesse") {
+    return `${prospect.name} montre de l'ouverture. Ta prochaine meilleure question : "Qu'est-ce qui vous ferait bouger si le timing etait bon?" Ensuite, propose une courte rencontre d'evaluation.`;
+  }
+  if (result === "rendez_vous_obtenu") {
+    return `Excellent. Rendez-vous vendeur obtenu avec ${prospect.name}. Maintenant, on prepare l'analyse de marche, les questions de decouverte et les arguments vendeur avant la rencontre.`;
+  }
+  if (result === "a_rappeler") {
+    return `${prospect.name} accepte une relance. Bon signe. Mets la relance au calendrier et garde ton prochain message simple, humain et precis.`;
+  }
+  if (result === "pas_interesse") {
+    return `${prospect.name} n'avance pas maintenant. Reste professionnelle, laisse une bonne impression et garde une relance long terme si c'est pertinent.`;
+  }
+  if (result === "deja_avec_courtier") {
+    return `${prospect.name} est deja accompagne. On respecte ca, on l'exclut de la prospection active et on garde ton energie pour les prochains prospects.`;
+  }
+  return `Resultat note pour ${prospect.name}. On garde le fil et on avance vers la prochaine action.`;
+}
+
+function extractNoteValue(notes: string, label: string) {
+  const line = notes
+    .split("\n")
+    .find((item) => item.toLowerCase().startsWith(label.toLowerCase()));
+  return line?.split(":").slice(1).join(":").trim();
+}
+
+const callOutcomes: { label: string; value: CallResult }[] = [
+  { label: "Pas repondu", value: "pas_repondu" },
+  { label: "Interesse", value: "interesse" },
+  { label: "Rendez-vous obtenu", value: "rendez_vous_obtenu" },
+  { label: "A rappeler", value: "a_rappeler" },
+  { label: "Pas interesse", value: "pas_interesse" },
+  { label: "Deja avec courtier", value: "deja_avec_courtier" },
+];
