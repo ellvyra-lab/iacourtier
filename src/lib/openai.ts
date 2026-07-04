@@ -130,8 +130,9 @@ function readOpenAIKey() {
     throw new AIUnavailableError({
       diagnostic: "missing_api_key",
       message: "OPENAI_API_KEY is missing from process.env",
-      publicMessage: "La variable OPENAI_API_KEY est absente de l'environnement serveur.",
-      publicDetail: "Ajoutez OPENAI_API_KEY dans Vercel pour l'environnement utilise, puis redeployez.",
+      publicMessage: "La configuration OpenAI n'est pas disponible pour cette fonction serveur.",
+      publicDetail:
+        "Diagnostic serveur: process.env.OPENAI_API_KEY est undefined dans la fonction API qui a traite la demande. Verifiez que la variable est ajoutee au bon projet Vercel, au bon environnement (Production/Preview/Development), puis redeployez.",
       statusCode: 500,
     });
   }
@@ -142,8 +143,9 @@ function readOpenAIKey() {
     throw new AIUnavailableError({
       diagnostic: "empty_api_key",
       message: "OPENAI_API_KEY is present but empty",
-      publicMessage: "La variable OPENAI_API_KEY est presente, mais vide.",
-      publicDetail: "Remplissez OPENAI_API_KEY dans Vercel, puis redeployez.",
+      publicMessage: "La configuration OpenAI n'est pas disponible pour cette fonction serveur.",
+      publicDetail:
+        "Diagnostic serveur: process.env.OPENAI_API_KEY existe, mais sa valeur est vide apres trim(). Remplissez la variable dans Vercel, puis redeployez.",
       statusCode: 500,
     });
   }
