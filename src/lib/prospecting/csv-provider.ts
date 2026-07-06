@@ -8,7 +8,7 @@ const csvHeaderAliases: Record<string, string[]> = {
   city: ["ville", "city"],
   province: ["province", "etat", "state"],
   postalCode: ["codepostal", "code postal", "postalcode", "postal code", "zip", "zipcode"],
-  ownerName: ["nomproprietaire", "nom proprietaire", "proprietaire", "propriétaire", "ownername", "owner name"],
+  ownerName: ["nomproprietaire", "nom proprietaire", "proprietaire", "propriétaire", "ownername", "owner name", "owner", "nom"],
   source: ["source", "origine"],
   contactName: ["nom", "name", "propriétaire", "proprietaire"],
   phone: ["téléphone", "telephone", "tel", "phone"],
@@ -30,7 +30,7 @@ export function parseProspectsCsv(csvText: string, fileName = "import.csv"): Pro
       const province = readCsvValue(row, "province");
       const postalCode = readCsvValue(row, "postalCode");
       const ownerName = readCsvValue(row, "ownerName");
-      const source = readCsvValue(row, "source") || "CSV";
+      const source = readCsvValue(row, "source") || "CSV import";
       const contactName = readCsvValue(row, "contactName");
       const phone = readCsvValue(row, "phone");
       const email = readCsvValue(row, "email");
@@ -111,12 +111,12 @@ function validateRequiredColumns(rows: CsvRow[]) {
     throw new Error("Le CSV est vide.");
   }
 
-  const requiredFields: Array<keyof typeof csvHeaderAliases> = ["address", "city", "province", "postalCode", "ownerName", "source"];
+  const requiredFields: Array<keyof typeof csvHeaderAliases> = ["address", "city"];
   const firstRow = rows[0];
   const missing = requiredFields.filter((field) => !csvHeaderAliases[field].some((alias) => firstRow[normalizeHeader(alias)] !== undefined));
 
   if (missing.length) {
-    throw new Error("Colonnes minimales requises: adresse, ville, province, codePostal, nomProprietaire, source.");
+    throw new Error("Colonnes minimales manquantes: adresse et ville (ou address et city).");
   }
 }
 

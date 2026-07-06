@@ -122,6 +122,7 @@ export function ProspectionRadar() {
   const [isImportingRoleXml, setIsImportingRoleXml] = useState(false);
   const [quotaState, setQuotaState] = useState<RadarQuotaState | null>(null);
   const [unlockStatus, setUnlockStatus] = useState("");
+  const [reachabilityProspectId, setReachabilityProspectId] = useState("");
 
   useEffect(() => {
     setQuotaState(getRadarQuotaState(radarUserId));
@@ -162,7 +163,17 @@ export function ProspectionRadar() {
   const maskedRadarOpportunities = useMemo(() => (quotaState ? getMaskedAvailableOpportunities(radarUserId, filtered, quotaState).slice(0, 8) : []), [filtered, quotaState, radarUserId]);
   const radarQuota = quotaState ? canUnlockRadarOpportunity(radarUserId) : null;
   const isUnlimitedRadar = quotaState ? isUnlimitedRadarUser(quotaState.subscription) : false;
-  const selectedUnlocked = unlockedRadarOpportunities.find((item) => item.id === selectedId) || unlockedRadarOpportunities[0];
+  const visibleRadarOpportunities = useMemo(() => {
+    if (isUnlimitedRadar) return filtered;
+
+    const merged = new Map<string, ProspectRecord>();
+    filtered.filter((item) => item.source === "csv").forEach((item) => merged.set(item.id, item));
+    unlockedRadarOpportunities.forEach((item) => merged.set(item.id, item));
+
+    return Array.from(merged.values()).sort((a, b) => b.opportunityScore - a.opportunityScore);
+  }, [filtered, isUnlimitedRadar, unlockedRadarOpportunities]);
+  const selectedVisible = visibleRadarOpportunities.find((item) => item.id === selectedId) || visibleRadarOpportunities[0];
+  const selectedReachabilityProspect = opportunities.find((item) => item.id === reachabilityProspectId) || selectedVisible;
   const unlockedAverageScore = Math.round(unlockedRadarOpportunities.reduce((total, item) => total + item.opportunityScore, 0) / Math.max(unlockedRadarOpportunities.length, 1));
   const unlockedHighPriorityCount = unlockedRadarOpportunities.filter((item) => String(item.priority).toLowerCase().includes("lev")).length;
 
@@ -303,14 +314,15 @@ export function ProspectionRadar() {
     try {
       const text = await file.text();
       const prospects = parseProspectsCsv(text, file.name);
-      setCsvProspects((current) => [...prospects, ...current]);
+      setCsvProspects((current) => dedupeProspects([...prospects, ...current]));
       setSelectedId(prospects[0]?.id || selectedId);
+      if (prospects[0]?.id) setReachabilityProspectId(prospects[0].id);
       setImportStatus(`${prospects.length} prospect${prospects.length > 1 ? "s" : ""} importé${prospects.length > 1 ? "s" : ""} depuis ${file.name}.`);
     } catch (error) {
       setImportStatus(
         error instanceof Error
           ? error.message
-          : "Le CSV n'a pas pu être lu. Colonnes minimales requises : adresse, ville, province, codePostal, nomProprietaire, source.",
+          : "Le CSV n'a pas pu être lu. Colonnes minimales requises : adresse et ville.",
       );
     }
   }
@@ -342,6 +354,18 @@ export function ProspectionRadar() {
     } finally {
       setIsImportingRoleXml(false);
     }
+  }
+
+  function openReachabilityPanel(prospectId: string) {
+    setReachabilityProspectId(prospectId);
+    setSelectedId(prospectId);
+  }
+
+  function updateProspectLocal(prospectId: string, patch: Partial<ProspectRecord>) {
+    const update = (items: ProspectRecord[]) => items.map((item) => (item.id === prospectId ? { ...item, ...patch } : item));
+    setCsvProspects((current) => update(current));
+    setRoleEvaluationProspects((current) => update(current));
+    setSyncedProspects((current) => update(current));
   }
 
   return (
@@ -545,7 +569,7 @@ export function ProspectionRadar() {
               Import manuel CSV
             </div>
             <p className="mt-1 text-sm leading-6 text-teal-900/75 dark:text-teal-100/75">
-              Gardez cette option pour les listes privées ou ponctuelles. Colonnes minimales : adresse, ville, province, codePostal, nomProprietaire, source.
+              Gardez cette option pour les listes privées ou ponctuelles. Colonnes minimales : adresse et ville. Les colonnes propriétaire, code postal, téléphone et courriel sont reconnues automatiquement avec plusieurs variantes.
             </p>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -600,19 +624,25 @@ export function ProspectionRadar() {
         </div>
       </section>
 
-      <RadarMap opportunities={unlockedRadarOpportunities} selectedId={selectedUnlocked?.id || ""} onSelect={setSelectedId} />
+      <RadarMap opportunities={visibleRadarOpportunities} selectedId={selectedVisible?.id || ""} onSelect={setSelectedId} />
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
         <section className="space-y-4">
           <div className="flex items-center gap-2 text-sm font-medium text-slate-500 dark:text-slate-400">
             <SlidersHorizontal className="h-4 w-4" />
-            {filtered.length} opportunité{filtered.length > 1 ? "s" : ""} détectée{filtered.length > 1 ? "s" : ""}
+            {visibleRadarOpportunities.length} opportunité{visibleRadarOpportunities.length > 1 ? "s" : ""} affichée{visibleRadarOpportunities.length > 1 ? "s" : ""}
           </div>
 
-          {unlockedRadarOpportunities.length ? (
+          {visibleRadarOpportunities.length ? (
             <div className="grid gap-4 lg:grid-cols-2">
-              {unlockedRadarOpportunities.map((opportunity) => (
-                <OpportunityCard key={opportunity.id} opportunity={opportunity} active={selectedUnlocked?.id === opportunity.id} onSelect={() => setSelectedId(opportunity.id)} />
+              {visibleRadarOpportunities.map((opportunity) => (
+                <OpportunityCard
+                  key={opportunity.id}
+                  opportunity={opportunity}
+                  active={selectedVisible?.id === opportunity.id}
+                  onSelect={() => setSelectedId(opportunity.id)}
+                  onFindReachability={openReachabilityPanel}
+                />
               ))}
             </div>
           ) : (
@@ -639,8 +669,10 @@ export function ProspectionRadar() {
           </div> : null}
         </section>
 
-        {selectedUnlocked ? <ActionsPanel opportunity={selectedUnlocked} style={communicationStyle} onStyleChange={setCommunicationStyle} copied={copied} onCopy={copyAction} /> : <LockedActionsPanel />}
+        {selectedVisible ? <ActionsPanel opportunity={selectedVisible} style={communicationStyle} onStyleChange={setCommunicationStyle} copied={copied} onCopy={copyAction} /> : <LockedActionsPanel />}
       </div>
+
+      {selectedReachabilityProspect ? <ReachabilityPanel prospect={selectedReachabilityProspect} onUpdate={updateProspectLocal} /> : null}
     </div>
   );
 }
@@ -829,10 +861,19 @@ function RadarMap({ opportunities, selectedId, onSelect }: { opportunities: Pros
   );
 }
 
-function OpportunityCard({ opportunity, active, onSelect }: { opportunity: ProspectRecord; active: boolean; onSelect: () => void }) {
+function OpportunityCard({
+  opportunity,
+  active,
+  onSelect,
+  onFindReachability,
+}: {
+  opportunity: ProspectRecord;
+  active: boolean;
+  onSelect: () => void;
+  onFindReachability: (prospectId: string) => void;
+}) {
   const router = useRouter();
   const [callStatus, setCallStatus] = useState("");
-  const [reachabilityStatus, setReachabilityStatus] = useState("");
 
   function createSellerProspect() {
     const prospect = createSellerProspectFromRadar(opportunity);
@@ -865,10 +906,6 @@ function OpportunityCard({ opportunity, active, onSelect }: { opportunity: Prosp
     });
     const payload = (await response.json()) as { message?: string; error?: string };
     setCallStatus(payload.error || payload.message || "Appel lancé.");
-  }
-
-  function findHowToReach() {
-    setReachabilityStatus(buildReachabilityHint(opportunity));
   }
 
   return (
@@ -934,13 +971,12 @@ function OpportunityCard({ opportunity, active, onSelect }: { opportunity: Prosp
       </button>
       <button
         type="button"
-        onClick={findHowToReach}
+        onClick={() => onFindReachability(opportunity.id)}
         className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm font-semibold text-indigo-800 transition hover:bg-indigo-100 dark:border-indigo-900 dark:bg-indigo-950/30 dark:text-indigo-100 dark:hover:bg-indigo-950/50"
       >
         <Search className="h-4 w-4" />
         Trouver comment le joindre
       </button>
-      {reachabilityStatus ? <p className="mt-2 whitespace-pre-wrap text-xs leading-5 text-slate-500 dark:text-slate-400">{reachabilityStatus}</p> : null}
       <button
         type="button"
         onClick={startCall}
@@ -1007,21 +1043,135 @@ function buildRadarActionContext(opportunity: ProspectRecord, channel: string) {
   };
 }
 
-function buildReachabilityHint(opportunity: ProspectRecord) {
-  const channels: string[] = [];
-  if (opportunity.phone) channels.push(`Téléphone: ${opportunity.phone}`);
-  if (opportunity.email) channels.push(`Courriel: ${opportunity.email}`);
-  if (opportunity.facebookUrl) channels.push(`Facebook: ${opportunity.facebookUrl}`);
+function ReachabilityPanel({ prospect, onUpdate }: { prospect: ProspectRecord; onUpdate: (prospectId: string, patch: Partial<ProspectRecord>) => void }) {
+  const [phoneValue, setPhoneValue] = useState("");
+  const [emailValue, setEmailValue] = useState("");
+  const [letter, setLetter] = useState("");
+  const [status, setStatus] = useState("");
 
-  if (!channels.length) {
-    return "Aucune coordonnée directe détectée dans ce prospect. Action manuelle recommandée: compléter téléphone, courriel ou lien Facebook dans votre base avant d'automatiser quoi que ce soit.";
+  useEffect(() => {
+    setPhoneValue(prospect.phone || "");
+    setEmailValue(prospect.email || "");
+    setStatus("");
+    setLetter("");
+  }, [prospect.id, prospect.phone, prospect.email]);
+
+  function openGoogleSearch() {
+    const base = prospect.ownerName || prospect.contactName ? `${prospect.ownerName || prospect.contactName} ${prospect.address} ${prospect.city}` : `${prospect.address} ${prospect.city}`;
+    const url = `https://www.google.com/search?q=${encodeURIComponent(base)}`;
+    window.open(url, "_blank", "noopener,noreferrer");
   }
 
-  return [
-    "Canaux disponibles pour joindre ce prospect:",
-    ...channels,
-    "Aucune automatisation Google/Facebook/téléphone n'est activée dans ce sprint.",
-  ].join("\n");
+  function openFacebookSearch() {
+    const base = prospect.ownerName || prospect.contactName ? `${prospect.ownerName || prospect.contactName} ${prospect.city}` : `${prospect.address} ${prospect.city}`;
+    const url = `https://www.facebook.com/search/top?q=${encodeURIComponent(base)}`;
+    window.open(url, "_blank", "noopener,noreferrer");
+  }
+
+  function openMaps() {
+    const fullAddress = [prospect.address, prospect.city, prospect.province || "", prospect.postalCode || ""].filter(Boolean).join(", ");
+    const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(fullAddress)}`;
+    window.open(url, "_blank", "noopener,noreferrer");
+  }
+
+  function addPhone() {
+    const value = phoneValue.trim();
+    if (!value) {
+      setStatus("Entrez un téléphone avant de sauvegarder.");
+      return;
+    }
+    onUpdate(prospect.id, { phone: value });
+    setStatus("Téléphone ajouté localement.");
+  }
+
+  function addEmail() {
+    const value = emailValue.trim();
+    if (!value) {
+      setStatus("Entrez un courriel avant de sauvegarder.");
+      return;
+    }
+    onUpdate(prospect.id, { email: value });
+    setStatus("Courriel ajouté localement.");
+  }
+
+  function prepareLetter() {
+    const owner = prospect.ownerName || prospect.contactName || "Madame, Monsieur";
+    const generated =
+      `Objet : Information immobilière pour ${prospect.address}\n\n` +
+      `${owner},\n\n` +
+      `Je me permets de vous écrire concernant la propriété située au ${prospect.address}, ${prospect.city}. ` +
+      `Je peux vous fournir un court portrait du marché local et de la valeur actuelle, sans engagement.\n\n` +
+      `Si cela vous convient, je peux vous proposer un court échange cette semaine.\n\n` +
+      `Cordialement,\nVotre courtier`;
+    setLetter(generated);
+    setStatus("Lettre préparée.");
+  }
+
+  return (
+    <section className="rounded-lg border border-indigo-200 bg-indigo-50/50 p-5 shadow-sm dark:border-indigo-900 dark:bg-indigo-950/25">
+      <h2 className="text-lg font-semibold tracking-tight text-indigo-950 dark:text-indigo-100">Trouver comment le joindre</h2>
+      <div className="mt-3 grid gap-2 text-sm text-indigo-950/85 dark:text-indigo-100/85 sm:grid-cols-2 lg:grid-cols-4">
+        <p><span className="font-semibold">Prospect :</span> {prospect.ownerName || prospect.contactName || "Non renseigné"}</p>
+        <p><span className="font-semibold">Adresse :</span> {prospect.address}</p>
+        <p><span className="font-semibold">Ville :</span> {prospect.city}</p>
+        <p><span className="font-semibold">Statut :</span> {reachabilityStatusLabel(prospect)}</p>
+      </div>
+
+      <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        <button type="button" onClick={openGoogleSearch} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100">
+          Chercher sur Google
+        </button>
+        <button type="button" onClick={openFacebookSearch} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100">
+          Chercher sur Facebook
+        </button>
+        <button type="button" onClick={openMaps} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100">
+          Ouvrir Google Maps
+        </button>
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <div className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-950/45">
+          <label className="text-sm font-semibold">Ajouter téléphone</label>
+          <input
+            value={phoneValue}
+            onChange={(event) => setPhoneValue(event.target.value)}
+            placeholder="514-000-0000"
+            className="mt-2 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-700 dark:bg-slate-950"
+          />
+          <button type="button" onClick={addPhone} className="mt-2 rounded-lg bg-slate-950 px-3 py-2 text-sm font-semibold text-white dark:bg-white dark:text-slate-950">
+            Ajouter téléphone
+          </button>
+        </div>
+        <div className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-950/45">
+          <label className="text-sm font-semibold">Ajouter courriel</label>
+          <input
+            value={emailValue}
+            onChange={(event) => setEmailValue(event.target.value)}
+            placeholder="nom@exemple.com"
+            className="mt-2 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-700 dark:bg-slate-950"
+          />
+          <button type="button" onClick={addEmail} className="mt-2 rounded-lg bg-slate-950 px-3 py-2 text-sm font-semibold text-white dark:bg-white dark:text-slate-950">
+            Ajouter courriel
+          </button>
+        </div>
+      </div>
+
+      <div className="mt-4 rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-950/45">
+        <button type="button" onClick={prepareLetter} className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm font-semibold text-indigo-800 hover:bg-indigo-100 dark:border-indigo-900 dark:bg-indigo-950/40 dark:text-indigo-100">
+          Préparer une lettre
+        </button>
+        {letter ? <textarea value={letter} readOnly className="mt-3 min-h-40 w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm leading-6 text-slate-700 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200" /> : null}
+      </div>
+
+      {status ? <p className="mt-3 text-sm font-medium text-indigo-900 dark:text-indigo-100">{status}</p> : null}
+    </section>
+  );
+}
+
+function reachabilityStatusLabel(prospect: ProspectRecord) {
+  if (prospect.phone && prospect.email) return "prêt à contacter";
+  if (prospect.phone || prospect.email || prospect.facebookUrl) return "partiel";
+  return "coordonnées à trouver";
 }
 
 function ScoreRing({ score }: { score: number }) {
