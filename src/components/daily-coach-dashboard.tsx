@@ -28,6 +28,8 @@ import {
   type SoniaHistoryEvent,
   type SoniaProspect,
 } from "@/lib/sonia-beta";
+import type { CoachDataResponse } from "@/app/api/coach/route";
+import { Loader2 } from "lucide-react";
 
 type CoachMessage = {
   id: string;
@@ -65,17 +67,54 @@ export function DailyCoachDashboard() {
   const [mission, setMission] = useState<ProspectingMission | null>(null);
   const [callProspectId, setCallProspectId] = useState<string | null>(null);
   const [callNote, setCallNote] = useState("");
+  const [coachData, setCoachData] = useState<CoachDataResponse | null>(null);
+  const [isLoadingCoach, setIsLoadingCoach] = useState(false);
+  const [coachError, setCoachError] = useState<string | null>(null);
 
   const coach = useMemo(() => buildDailyCoach(prospects, "Sonia"), [prospects]);
 
+  // Fetch coach data from API
+  const fetchCoachData = useCallback(async (battlePlan: typeof coach.battlePlan) => {
+    setIsLoadingCoach(true);
+    setCoachError(null);
+    try {
+      const res = await fetch("/api/coach", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userName: "Sonia",
+          battlePlan,
+        }),
+      });
+
+      if (!res.ok) {
+        throw new Error(`HTTP error! status: ${res.status}`);
+      }
+
+      const data = (await res.json()) as CoachDataResponse;
+      console.log("[DailyCoach] Coach data received:", data);
+      setCoachData(data);
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : "Erreur lors du chargement du Coach";
+      setCoachError(errorMsg);
+      console.error("[DailyCoach] Coach fetch error:", errorMsg, err);
+    } finally {
+      console.log("[DailyCoach] Loading finished");
+      setIsLoadingCoach(false);
+    }
+  }, []);
+
   const refreshCoach = useCallback(() => {
+    console.log("[DailyCoach] Refresh clicked, fetching coach data");
+    fetchCoachData(coach.battlePlan);
+  }, [coach, fetchCoachData]);
+
+  // Load prospects on mount only
+  useEffect(() => {
+    console.log("[DailyCoach] Component mounted, loading prospects");
     const freshProspects = getSoniaProspects();
     setProspects(freshProspects);
   }, []);
-
-  useEffect(() => {
-    refreshCoach();
-  }, [refreshCoach]);
 
   useEffect(() => {
     setMessages(loadConversation());
@@ -92,6 +131,14 @@ export function DailyCoachDashboard() {
 
   const visibleMessages = messages.slice(-8);
   const missionProspect = getMissionProspect(mission, prospects);
+
+  // Use OpenAI coach data if available, otherwise use defaults
+  const displayCoach = {
+    ...coach,
+    message: coachData?.message || `${coach.greeting}\n\n${coach.coachLine}`,
+    focus: coachData?.focus || coach.focus,
+    nextAction: coachData?.nextAction || coach.encouragement,
+  };
 
   const appendCoachMessage = useCallback((message: Omit<CoachMessage, "id" | "createdAt">) => {
     setMessages((current) => {
@@ -205,26 +252,41 @@ export function DailyCoachDashboard() {
       <section className="rounded-2xl border border-subtle bg-surface-soft p-6 sm:p-7">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
           <div>
-            <p className="text-sm font-semibold text-electric-500">{coach.greeting}</p>
+            <p className="text-sm font-semibold text-electric-500">Ton Coach IA</p>
             <h1 className="mt-2 max-w-3xl text-3xl font-semibold tracking-tight sm:text-4xl">
               Ton Coach IA est avec toi pour faire avancer la journée.
             </h1>
-            <p className="mt-4 max-w-2xl text-base leading-7 text-muted">{coach.coachLine}</p>
+            <p className="mt-4 max-w-2xl text-base leading-7 text-muted whitespace-pre-line">{displayCoach.message}</p>
           </div>
           <button
             type="button"
             onClick={refreshCoach}
-            className="inline-flex items-center justify-center gap-2 rounded-2xl border border-subtle bg-surface px-4 py-3 text-sm font-semibold hover:border-electric-500/40"
+            disabled={isLoadingCoach}
+            className="inline-flex items-center justify-center gap-2 rounded-2xl border border-subtle bg-surface px-4 py-3 text-sm font-semibold hover:border-electric-500/40 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <RefreshCw className="h-4 w-4" />
-            Actualiser le Coach
+            {isLoadingCoach ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Chargement...
+              </>
+            ) : (
+              <>
+                <RefreshCw className="h-4 w-4" />
+                Actualiser le Coach
+              </>
+            )}
           </button>
         </div>
+        {coachError && (
+          <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-900 dark:border-red-900 dark:bg-red-950/30 dark:text-red-100">
+            ⚠️ {coachError}
+          </div>
+        )}
       </section>
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_390px]">
         <CoachConversation messages={visibleMessages} fallbackAction={coach.firstAction} onStartMission={startProspectingMission} />
-        <NextStepCard coach={coach} onStartMission={startProspectingMission} />
+        <NextStepCard coach={displayCoach} onStartMission={startProspectingMission} />
       </div>
 
       {mission?.active ? (

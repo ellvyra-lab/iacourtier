@@ -1,14 +1,20 @@
 import { calculateOpportunityScore, normalizeCategory, priorityFromScore } from "./score";
-import type { ProspectRecord } from "./types";
+import type { Prospect, ProspectRecord } from "./types";
 
 type CsvRow = Record<string, string>;
 
 const csvHeaderAliases: Record<string, string[]> = {
   address: ["adresse", "address"],
   city: ["ville", "city"],
+  province: ["province", "etat", "state"],
+  postalCode: ["codepostal", "code postal", "postalcode", "postal code", "zip", "zipcode"],
+  ownerName: ["nomproprietaire", "nom proprietaire", "proprietaire", "propriétaire", "ownername", "owner name"],
+  source: ["source", "origine"],
   contactName: ["nom", "name", "propriétaire", "proprietaire"],
   phone: ["téléphone", "telephone", "tel", "phone"],
   email: ["courriel", "email", "e-mail"],
+  facebookUrl: ["facebookurl", "facebook url", "facebook", "facebook_profile", "facebook profile"],
+  contactStatus: ["statutcontact", "statut contact", "contactstatus", "contact status", "statut"],
   category: ["catégorie", "categorie", "category"],
   notes: ["notes", "note", "commentaires", "comments"],
 };
@@ -16,37 +22,68 @@ const csvHeaderAliases: Record<string, string[]> = {
 export function parseProspectsCsv(csvText: string, fileName = "import.csv"): ProspectRecord[] {
   const rows = parseCsv(csvText);
   const now = new Date().toISOString();
+  validateRequiredColumns(rows);
 
   const prospects = rows.map<ProspectRecord | null>((row, index) => {
       const address = readCsvValue(row, "address");
       const city = readCsvValue(row, "city");
+      const province = readCsvValue(row, "province");
+      const postalCode = readCsvValue(row, "postalCode");
+      const ownerName = readCsvValue(row, "ownerName");
+      const source = readCsvValue(row, "source") || "CSV";
       const contactName = readCsvValue(row, "contactName");
       const phone = readCsvValue(row, "phone");
       const email = readCsvValue(row, "email");
+      const facebookUrl = readCsvValue(row, "facebookUrl");
+      const contactStatus = normalizeContactStatus(readCsvValue(row, "contactStatus"));
       const rawCategory = readCsvValue(row, "category");
       const notes = readCsvValue(row, "notes");
       const category = normalizeCategory(rawCategory || notes);
       const propertyType = inferPropertyType(rawCategory, notes);
       const opportunityScore = calculateOpportunityScore({ category, propertyType, notes });
 
-      if (!address && !city && !contactName) return null;
+      if (!address && !city && !ownerName && !contactName) return null;
+
+      const prospect: Prospect = {
+        id: `csv-${slugify(fileName)}-${index + 1}-${slugify(address || ownerName || contactName || city)}`,
+        nomProprietaire: ownerName || contactName || undefined,
+        adresse: address || "Adresse non précisée",
+        ville: city || "Ville non précisée",
+        province: province || "QC",
+        codePostal: postalCode || "Non précisé",
+        source,
+        score: opportunityScore,
+        raisonDuScore: buildCsvReason({ category, notes, contactName: ownerName || contactName }),
+        telephone: phone || undefined,
+        courriel: email || undefined,
+        facebookUrl: facebookUrl || undefined,
+        statutContact: contactStatus,
+      };
 
       return {
-        id: `csv-${slugify(fileName)}-${index + 1}-${slugify(address || contactName || city)}`,
-        address: address || "Adresse non précisée",
-        city: city || "Ville non précisée",
+        id: prospect.id,
+        address: prospect.adresse,
+        city: prospect.ville,
+        province: prospect.province,
+        postalCode: prospect.codePostal,
         propertyType,
         category,
-        reason: buildCsvReason({ category, notes, contactName }),
-        opportunityScore,
-        priority: priorityFromScore(opportunityScore),
+        reason: prospect.raisonDuScore,
+        opportunityScore: prospect.score,
+        priority: priorityFromScore(prospect.score),
         source: "csv",
         url: null,
         lastUpdated: now,
-        contactName: contactName || undefined,
-        phone: phone || undefined,
-        email: email || undefined,
+        ownerName: prospect.nomProprietaire,
+        contactName: contactName || prospect.nomProprietaire,
+        phone: prospect.telephone,
+        email: prospect.courriel,
+        facebookUrl: prospect.facebookUrl,
+        contactStatus: prospect.statutContact,
         notes: notes || undefined,
+        rawData: {
+          csvSource: prospect.source,
+        },
       } satisfies ProspectRecord;
     });
 
@@ -69,11 +106,26 @@ function parseCsv(csvText: string): CsvRow[] {
   );
 }
 
+function validateRequiredColumns(rows: CsvRow[]) {
+  if (!rows.length) {
+    throw new Error("Le CSV est vide.");
+  }
+
+  const requiredFields: Array<keyof typeof csvHeaderAliases> = ["address", "city", "province", "postalCode", "ownerName", "source"];
+  const firstRow = rows[0];
+  const missing = requiredFields.filter((field) => !csvHeaderAliases[field].some((alias) => firstRow[normalizeHeader(alias)] !== undefined));
+
+  if (missing.length) {
+    throw new Error("Colonnes minimales requises: adresse, ville, province, codePostal, nomProprietaire, source.");
+  }
+}
+
 function parseCsvRecords(value: string) {
   const records: string[][] = [];
   let record: string[] = [];
   let field = "";
   let inQuotes = false;
+  const delimiter = detectDelimiter(value);
 
   for (let index = 0; index < value.length; index += 1) {
     const char = value[index];
@@ -90,7 +142,7 @@ function parseCsvRecords(value: string) {
       continue;
     }
 
-    if (char === "," && !inQuotes) {
+    if (char === delimiter && !inQuotes) {
       record.push(field);
       field = "";
       continue;
@@ -110,6 +162,17 @@ function parseCsvRecords(value: string) {
   record.push(field);
   records.push(record);
   return records;
+}
+
+function detectDelimiter(value: string) {
+  const firstLine = value.split("\n", 1)[0] || "";
+  const commaCount = (firstLine.match(/,/g) || []).length;
+  const semicolonCount = (firstLine.match(/;/g) || []).length;
+  const tabCount = (firstLine.match(/\t/g) || []).length;
+
+  if (semicolonCount > commaCount && semicolonCount >= tabCount) return ";";
+  if (tabCount > commaCount && tabCount > semicolonCount) return "\t";
+  return ",";
 }
 
 function readCsvValue(row: CsvRow, field: keyof typeof csvHeaderAliases) {
@@ -143,6 +206,17 @@ function inferPropertyType(category: string, notes: string) {
 function buildCsvReason({ category, notes, contactName }: { category: string; notes: string; contactName: string }) {
   const base = notes ? notes : "Prospect importé par CSV. Le score est calculé selon la catégorie et les signaux présents dans les notes.";
   return contactName ? `${base} Contact identifié : ${contactName}. Catégorie : ${category}.` : `${base} Catégorie : ${category}.`;
+}
+
+function normalizeContactStatus(value: string): Prospect["statutContact"] {
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return "nouveau";
+  if (normalized.includes("relanc")) return "a_relancer";
+  if (normalized.includes("qualif")) return "qualifie";
+  if (normalized.includes("cours") || normalized.includes("en cours")) return "en_cours";
+  if (normalized.includes("contact") || normalized.includes("joint")) return "contacte";
+  if (normalized.includes("a contacter") || normalized.includes("à contacter")) return "a_contacter";
+  return "nouveau";
 }
 
 function slugify(value: string) {

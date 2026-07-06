@@ -306,8 +306,12 @@ export function ProspectionRadar() {
       setCsvProspects((current) => [...prospects, ...current]);
       setSelectedId(prospects[0]?.id || selectedId);
       setImportStatus(`${prospects.length} prospect${prospects.length > 1 ? "s" : ""} importé${prospects.length > 1 ? "s" : ""} depuis ${file.name}.`);
-    } catch {
-      setImportStatus("Le CSV n'a pas pu être lu. Vérifiez les colonnes Adresse, Ville, Nom, Téléphone, Courriel, Catégorie et Notes.");
+    } catch (error) {
+      setImportStatus(
+        error instanceof Error
+          ? error.message
+          : "Le CSV n'a pas pu être lu. Colonnes minimales requises : adresse, ville, province, codePostal, nomProprietaire, source.",
+      );
     }
   }
 
@@ -541,7 +545,7 @@ export function ProspectionRadar() {
               Import manuel CSV
             </div>
             <p className="mt-1 text-sm leading-6 text-teal-900/75 dark:text-teal-100/75">
-              Gardez cette option pour les listes privées ou ponctuelles. Colonnes acceptées : Adresse, Ville, Nom, Téléphone, Courriel, Catégorie, Notes.
+              Gardez cette option pour les listes privées ou ponctuelles. Colonnes minimales : adresse, ville, province, codePostal, nomProprietaire, source.
             </p>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -828,6 +832,7 @@ function RadarMap({ opportunities, selectedId, onSelect }: { opportunities: Pros
 function OpportunityCard({ opportunity, active, onSelect }: { opportunity: ProspectRecord; active: boolean; onSelect: () => void }) {
   const router = useRouter();
   const [callStatus, setCallStatus] = useState("");
+  const [reachabilityStatus, setReachabilityStatus] = useState("");
 
   function createSellerProspect() {
     const prospect = createSellerProspectFromRadar(opportunity);
@@ -860,6 +865,10 @@ function OpportunityCard({ opportunity, active, onSelect }: { opportunity: Prosp
     });
     const payload = (await response.json()) as { message?: string; error?: string };
     setCallStatus(payload.error || payload.message || "Appel lancé.");
+  }
+
+  function findHowToReach() {
+    setReachabilityStatus(buildReachabilityHint(opportunity));
   }
 
   return (
@@ -925,6 +934,15 @@ function OpportunityCard({ opportunity, active, onSelect }: { opportunity: Prosp
       </button>
       <button
         type="button"
+        onClick={findHowToReach}
+        className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm font-semibold text-indigo-800 transition hover:bg-indigo-100 dark:border-indigo-900 dark:bg-indigo-950/30 dark:text-indigo-100 dark:hover:bg-indigo-950/50"
+      >
+        <Search className="h-4 w-4" />
+        Trouver comment le joindre
+      </button>
+      {reachabilityStatus ? <p className="mt-2 whitespace-pre-wrap text-xs leading-5 text-slate-500 dark:text-slate-400">{reachabilityStatus}</p> : null}
+      <button
+        type="button"
         onClick={startCall}
         className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-teal-200 bg-teal-50 px-4 py-3 text-sm font-semibold text-teal-800 transition hover:bg-teal-100 dark:border-teal-900 dark:bg-teal-950/30 dark:text-teal-100 dark:hover:bg-teal-950/50"
       >
@@ -987,6 +1005,23 @@ function buildRadarActionContext(opportunity: ProspectRecord, channel: string) {
     email: opportunity.email || "",
     name: opportunity.contactName || opportunity.ownerName || "",
   };
+}
+
+function buildReachabilityHint(opportunity: ProspectRecord) {
+  const channels: string[] = [];
+  if (opportunity.phone) channels.push(`Téléphone: ${opportunity.phone}`);
+  if (opportunity.email) channels.push(`Courriel: ${opportunity.email}`);
+  if (opportunity.facebookUrl) channels.push(`Facebook: ${opportunity.facebookUrl}`);
+
+  if (!channels.length) {
+    return "Aucune coordonnée directe détectée dans ce prospect. Action manuelle recommandée: compléter téléphone, courriel ou lien Facebook dans votre base avant d'automatiser quoi que ce soit.";
+  }
+
+  return [
+    "Canaux disponibles pour joindre ce prospect:",
+    ...channels,
+    "Aucune automatisation Google/Facebook/téléphone n'est activée dans ce sprint.",
+  ].join("\n");
 }
 
 function ScoreRing({ score }: { score: number }) {

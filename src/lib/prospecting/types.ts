@@ -17,10 +17,30 @@ export type ProspectingCategory =
 
 export type ProspectingSource = "manual" | "csv" | "expired" | "judicial" | "municipal" | "government" | "role_evaluation";
 
+export type ProspectContactStatus = "nouveau" | "a_contacter" | "en_cours" | "contacte" | "a_relancer" | "qualifie";
+
+export type Prospect = {
+  id: string;
+  nomProprietaire?: string;
+  adresse: string;
+  ville: string;
+  province: string;
+  codePostal: string;
+  source: string;
+  score: number;
+  raisonDuScore: string;
+  telephone?: string;
+  courriel?: string;
+  facebookUrl?: string;
+  statutContact: ProspectContactStatus;
+};
+
 export type ProspectRecord = {
   id: string;
   address: string;
   city: string;
+  province?: string;
+  postalCode?: string;
   propertyType: string;
   category: ProspectingCategory;
   reason: string;
@@ -34,6 +54,8 @@ export type ProspectRecord = {
   contactName?: string;
   phone?: string;
   email?: string;
+  facebookUrl?: string;
+  contactStatus?: ProspectContactStatus;
   notes?: string;
   leadHash?: string;
   assignedTo?: string;
