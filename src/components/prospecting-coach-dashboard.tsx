@@ -4,7 +4,6 @@ import { useMemo, useState } from "react";
 import { BarChart3, BookOpen, CheckCircle2, MessageCircle, Mic, Target, Trophy, Users } from "lucide-react";
 
 import {
-  analyzeProspectingResponse,
   coachMetrics,
   coachObjectionLibrary,
   coachScenarios,
@@ -20,11 +19,34 @@ export function ProspectingCoachDashboard({ initialScenario }: { initialScenario
   const [scenarioId, setScenarioId] = useState<CoachScenarioId>(getCoachScenario(initialScenario).id);
   const [response, setResponse] = useState("");
   const [feedback, setFeedback] = useState<CoachFeedback | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const scenario = getCoachScenario(scenarioId);
   const objections = useMemo(() => coachObjectionLibrary(), []);
 
-  function analyze() {
-    setFeedback(analyzeProspectingResponse(response, scenario.id));
+  async function analyze() {
+    setIsAnalyzing(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/coach/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ response: response.trim(), scenarioId: scenario.id }),
+      });
+
+      if (!res.ok) {
+        const data = (await res.json()) as { error?: string };
+        throw new Error(data.error || `HTTP ${res.status}`);
+      }
+
+      const data = (await res.json()) as { feedback: CoachFeedback };
+      setFeedback(data.feedback);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Une erreur est survenue");
+      console.error("Coach analysis error:", err);
+    } finally {
+      setIsAnalyzing(false);
+    }
   }
 
   function appendTranscript(transcript: string) {
@@ -74,6 +96,7 @@ export function ProspectingCoachDashboard({ initialScenario }: { initialScenario
                   setScenarioId(item.id);
                   setResponse("");
                   setFeedback(null);
+                  setError(null);
                 }}
                 className={cn(
                   "rounded-lg border p-3 text-left text-sm font-semibold transition",
@@ -109,12 +132,18 @@ export function ProspectingCoachDashboard({ initialScenario }: { initialScenario
           <button
             type="button"
             onClick={analyze}
-            disabled={!response.trim()}
+            disabled={!response.trim() || isAnalyzing}
             className="mt-4 inline-flex items-center gap-2 rounded-lg bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200"
           >
             <Trophy className="h-4 w-4" />
-            Obtenir le feedback Coach
+            {isAnalyzing ? "Analyse en cours..." : "Obtenir le feedback Coach"}
           </button>
+
+          {error && (
+            <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-900 dark:border-red-900 dark:bg-red-950/30 dark:text-red-100">
+              {error}
+            </div>
+          )}
 
           {feedback ? <FeedbackCard feedback={feedback} /> : null}
         </section>
