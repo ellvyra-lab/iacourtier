@@ -6,16 +6,26 @@ import Link from "next/link";
 import { ArrowRight, BarChart3, CalendarCheck, FileText, Megaphone, Phone, Radar, RotateCcw, Sparkles, Target } from "lucide-react";
 
 import { buildSoniaBattlePlan, getSoniaProspects, type SoniaProspect } from "@/lib/sonia-beta";
+import type { CoachMessageResponse } from "@/app/api/coach/message/route";
 
-const focusLines = [
+const fallbackFocusLines = [
   "Prospection avant perfection.",
   "Un appel vaut mieux que dix idées.",
   "Ton prochain mandat commence probablement par un suivi.",
   "Commence pendant que ton énergie est haute.",
 ];
 
+const fallbackCoachMessage: CoachMessageResponse = {
+  greeting: "Bonjour Sonia 👋",
+  mainMessage: "Aujourd'hui, on va avancer. Je t'ai préparé ton plan de bataille.",
+  focus: fallbackFocusLines[new Date().getDay() % fallbackFocusLines.length],
+  recommendation: "On garde ça simple : appels, relances, rendez-vous vendeurs, analyses de marché avant la rencontre, puis documents et mise en marché quand le mandat est signé.",
+};
+
 export function BattlePlanDashboard() {
   const [prospects, setProspects] = useState<SoniaProspect[]>([]);
+  const [coachMessage, setCoachMessage] = useState<CoachMessageResponse>(fallbackCoachMessage);
+  const [isLoadingMessage, setIsLoadingMessage] = useState(false);
 
   useEffect(() => {
     setProspects(getSoniaProspects());
@@ -24,6 +34,45 @@ export function BattlePlanDashboard() {
   const realProspects = useMemo(() => prospects.filter((prospect) => !prospect.id.startsWith("sonia-demo-")), [prospects]);
   const workingProspects = useMemo(() => (realProspects.length ? prospects : []), [prospects, realProspects.length]);
   const plan = useMemo(() => buildSoniaBattlePlan(workingProspects), [workingProspects]);
+  
+  // Generate coach message from OpenAI
+  useEffect(() => {
+    async function fetchCoachMessage() {
+      setIsLoadingMessage(true);
+      try {
+        const res = await fetch("/api/coach/message", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            userName: "Sonia",
+            plan: {
+              callsToMake: plan.callsToMake.length,
+              radarProspectsToCall: plan.radarProspectsToCall.length,
+              followupsDue: plan.followupsDue.length,
+              sellerAppointmentsToPrepare: plan.sellerAppointmentsToPrepare.length,
+              marketAnalysesToPrepare: plan.marketAnalysesToPrepare.length,
+              mandatesWithMissingDocuments: plan.mandatesWithMissingDocuments.length,
+              marketingActionsToGenerate: plan.marketingActionsToGenerate.length,
+            },
+          }),
+        });
+
+        if (res.ok) {
+          const data = (await res.json()) as CoachMessageResponse;
+          setCoachMessage(data);
+        } else {
+          console.error("Failed to fetch coach message:", res.status);
+        }
+      } catch (err) {
+        console.error("Error fetching coach message:", err);
+      } finally {
+        setIsLoadingMessage(false);
+      }
+    }
+
+    fetchCoachMessage();
+  }, [plan]);
+  
   const firstAction = getFirstPriorityAction(plan);
   const recommendations = buildCoachRecommendations(plan);
   const isEmpty = workingProspects.length === 0;
@@ -34,12 +83,12 @@ export function BattlePlanDashboard() {
         <div className="grid gap-6 p-6 lg:grid-cols-[minmax(0,1fr)_360px] lg:p-8">
           <div>
             <p className="text-sm font-semibold text-teal-700 dark:text-teal-300">Coach IA</p>
-            <h1 className="mt-2 text-4xl font-semibold tracking-tight sm:text-5xl">Bonjour Sonia 👋</h1>
+            <h1 className="mt-2 text-4xl font-semibold tracking-tight sm:text-5xl">{coachMessage.greeting}</h1>
             <p className="mt-4 max-w-3xl text-lg leading-8 text-slate-700 dark:text-slate-200">
-              Aujourd&apos;hui, on va avancer. Je t&apos;ai préparé ton plan de bataille.
+              {coachMessage.mainMessage}
             </p>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-500 dark:text-slate-400">
-              On garde ça simple : appels, relances, rendez-vous vendeurs, analyses de marché avant la rencontre, puis documents et mise en marché quand le mandat est signé.
+              {coachMessage.recommendation}
             </p>
             <div className="mt-7 flex flex-col gap-3 sm:flex-row">
               <Link href={firstAction.href} className="inline-flex items-center justify-center gap-2 rounded-lg bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 dark:bg-white dark:text-slate-950">
@@ -57,7 +106,7 @@ export function BattlePlanDashboard() {
               <Target className="h-4 w-4" />
               Aujourd&apos;hui, ton focus
             </p>
-            <p className="mt-3 text-2xl font-semibold tracking-tight text-teal-950 dark:text-teal-50">{focusLines[new Date().getDay() % focusLines.length]}</p>
+            <p className="mt-3 text-2xl font-semibold tracking-tight text-teal-950 dark:text-teal-50">{coachMessage.focus}</p>
             <p className="mt-3 text-sm leading-6 text-teal-900/75 dark:text-teal-100/75">
               Fais les actions qui créent du mouvement avant d&apos;ouvrir les détails qui peuvent attendre.
             </p>
