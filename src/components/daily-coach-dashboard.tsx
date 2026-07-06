@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 
 import { buildDailyCoach, type DailyCoachPlan } from "@/lib/coach/daily-coach";
+import { CoachTaskEngine } from "@/components/coach-task-engine";
 import { manualProspects } from "@/lib/prospecting/manual-provider";
 import {
   createSellerProspectFromRadar,
@@ -286,7 +287,7 @@ export function DailyCoachDashboard() {
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_390px]">
         <CoachConversation messages={visibleMessages} fallbackAction={coach.firstAction} onStartMission={startProspectingMission} />
-        <NextStepCard coach={displayCoach} onStartMission={startProspectingMission} />
+        <CoachTaskEngine battlePlan={displayCoach.battlePlan} />
       </div>
 
       {mission?.active ? (
@@ -391,30 +392,6 @@ function CoachConversation({
         <ArrowRight className="h-4 w-4" />
       </button>
     </section>
-  );
-}
-
-function NextStepCard({ coach, onStartMission }: { coach: DailyCoachPlan; onStartMission: () => void }) {
-  return (
-    <aside className="rounded-2xl border border-subtle bg-slate-950 p-5 text-white dark:bg-white dark:text-slate-950">
-      <p className="flex items-center gap-2 text-sm font-semibold text-white/75 dark:text-slate-600">
-        <Sparkles className="h-4 w-4" />
-        Prochaine meilleure action
-      </p>
-      <h2 className="mt-4 text-2xl font-semibold leading-tight">{coach.firstAction.label}</h2>
-      <p className="mt-3 text-sm leading-6 text-white/70 dark:text-slate-600">{coach.firstAction.description}</p>
-      <button
-        type="button"
-        onClick={onStartMission}
-        className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-white px-5 py-3 text-sm font-semibold text-slate-950 dark:bg-slate-950 dark:text-white"
-      >
-        Commencer ma prospection
-        <ArrowRight className="h-4 w-4" />
-      </button>
-      <div className="mt-6 rounded-2xl border border-white/15 bg-white/10 p-4 text-sm leading-6 text-white/75 dark:border-slate-200 dark:bg-slate-100 dark:text-slate-600">
-        {coach.focus}
-      </div>
-    </aside>
   );
 }
 
