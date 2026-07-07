@@ -86,6 +86,8 @@ export function createSellerProspectFromRadar(opportunity: ProspectRecord) {
 
 export type InformationRequestChannel = "Facebook" | "Messenger" | "Centris" | "Courriel" | "Téléphone";
 
+export const INFORMATION_REQUEST_NEXT_ACTION = "Préparer le premier appel";
+
 export function createProspectFromInformationRequest(input: {
   name: string;
   phone?: string;
@@ -106,7 +108,7 @@ export function createProspectFromInformationRequest(input: {
     source: "Manuel",
     status: officialBuyerWorkflow[0],
     notes: [`Source : ${input.channel}`, input.message ? `Message reçu : ${input.message}` : ""].filter(Boolean).join("\n"),
-    nextAction: "Préparer le premier appel",
+    nextAction: INFORMATION_REQUEST_NEXT_ACTION,
     nextActionDate: today(),
     createdAt: now,
     updatedAt: now,

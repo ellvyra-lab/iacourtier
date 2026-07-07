@@ -5,8 +5,68 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowRight, BarChart3, CalendarCheck, FileText, Megaphone, Phone, Radar, RotateCcw, Sparkles, Target } from "lucide-react";
 
-import { buildSoniaBattlePlan, getSoniaProspects, type SoniaProspect } from "@/lib/sonia-beta";
+import { buildSoniaBattlePlan, getSoniaProspects, type SoniaBattlePlan, type SoniaProspect } from "@/lib/sonia-beta";
+import { INFORMATION_REQUEST_NEXT_ACTION } from "@/lib/sonia-beta/storage";
 import type { CoachMessageResponse } from "@/app/api/coach/message/route";
+
+type TodayPriority = {
+  icon: string;
+  title: string;
+  description: string;
+  buttonLabel: string;
+  href: string;
+};
+
+function buildTodayPriority(prospects: SoniaProspect[], plan: SoniaBattlePlan): TodayPriority {
+  const informationRequest = prospects.find((prospect) => prospect.nextAction === INFORMATION_REQUEST_NEXT_ACTION);
+  if (informationRequest) {
+    return {
+      icon: "📩",
+      title: "Nouvelle demande d'information",
+      description: `${informationRequest.name} attend un premier contact.`,
+      buttonLabel: "Préparer le premier appel",
+      href: `/tableau-de-bord/actions/prepare-first-seller-call?name=${encodeURIComponent(informationRequest.name)}&address=${encodeURIComponent(informationRequest.address)}&context=prospect`,
+    };
+  }
+
+  if (plan.sellerAppointmentsToPrepare.length) {
+    return {
+      icon: "🏠",
+      title: "Rendez-vous vendeur prévu",
+      description: "Un rendez-vous vendeur est prévu. Prépare l'évaluation avant la rencontre.",
+      buttonLabel: "Préparer le rendez-vous",
+      href: "/tableau-de-bord/actions/prepare-market-analysis",
+    };
+  }
+
+  if (plan.followupsDue.length) {
+    return {
+      icon: "📞",
+      title: "Suivis dus",
+      description: "Des suivis sont dus aujourd'hui. Ne laisse pas refroidir tes prospects.",
+      buttonLabel: "Faire les suivis",
+      href: "/tableau-de-bord/prospects",
+    };
+  }
+
+  if (plan.marketAnalysesToPrepare.length) {
+    return {
+      icon: "📊",
+      title: "Analyse de marché à terminer",
+      description: "Termine l'analyse de marché avant le prochain rendez-vous.",
+      buttonLabel: "Préparer l'analyse",
+      href: "/tableau-de-bord/actions/prepare-market-analysis",
+    };
+  }
+
+  return {
+    icon: "🎯",
+    title: "Prospecter",
+    description: "Aucune urgence en attente. Trouve de nouveaux prospects.",
+    buttonLabel: "Ouvrir le Radar",
+    href: "/tableau-de-bord/radar-prospection",
+  };
+}
 
 const fallbackFocusLines = [
   "Prospection avant perfection.",
@@ -76,6 +136,7 @@ export function BattlePlanDashboard() {
   
   const recommendations = buildCoachRecommendations(plan);
   const isEmpty = workingProspects.length === 0;
+  const todayPriority = useMemo(() => buildTodayPriority(workingProspects, plan), [workingProspects, plan]);
 
   const showMission = () => {
     setIsMissionVisible(true);
@@ -115,7 +176,7 @@ export function BattlePlanDashboard() {
         </div>
       </section>
 
-      {isMissionVisible ? <MissionDuJourSection /> : null}
+      {isMissionVisible ? <MissionDuJourSection priority={todayPriority} /> : null}
 
       {isEmpty ? <EmptyCoachState /> : null}
 
@@ -156,59 +217,25 @@ export function BattlePlanDashboard() {
   );
 }
 
-function MissionDuJourSection() {
-  const items = [
-    {
-      icon: "📅",
-      title: "Vérifier l'agenda et les rendez-vous",
-      buttonLabel: "Ouvrir l'agenda",
-      href: "/tableau-de-bord/actions/prepare-market-analysis",
-    },
-    {
-      icon: "🏠",
-      title: "Préparer les rendez-vous d'évaluation",
-      buttonLabel: "Préparer",
-      href: "/tableau-de-bord/actions/prepare-market-analysis",
-    },
-    {
-      icon: "📩",
-      title: "Répondre aux demandes d'information",
-      buttonLabel: "Répondre",
-      href: "/tableau-de-bord/pipeline",
-    },
-    {
-      icon: "📞",
-      title: "Faire les suivis dus",
-      buttonLabel: "Commencer",
-      href: "/tableau-de-bord/prospects",
-    },
-    {
-      icon: "🎯",
-      title: "Prospecter seulement si les suivis sont faits",
-      buttonLabel: "Ouvrir le Radar",
-      href: "/tableau-de-bord/radar-prospection",
-    },
-  ];
-
+function MissionDuJourSection({ priority }: { priority: TodayPriority }) {
   return (
     <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900/72">
       <p className="text-sm font-semibold text-teal-700 dark:text-teal-300">Mission du jour</p>
-      <div className="mt-5 space-y-3">
-        {items.map((item) => (
-          <div key={item.title} className="rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/50">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                <span className="mr-2" aria-hidden="true">
-                  {item.icon}
-                </span>
-                {item.title}
-              </p>
-              <Link href={item.href} className="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800">
-                {item.buttonLabel}
-              </Link>
-            </div>
+      <div className="mt-5 rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/50">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+              <span className="mr-2" aria-hidden="true">
+                {priority.icon}
+              </span>
+              {priority.title}
+            </p>
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{priority.description}</p>
           </div>
-        ))}
+          <Link href={priority.href} className="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800">
+            {priority.buttonLabel}
+          </Link>
+        </div>
       </div>
     </section>
   );
