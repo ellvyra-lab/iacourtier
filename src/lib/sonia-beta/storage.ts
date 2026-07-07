@@ -1,6 +1,6 @@
 import type { ProspectRecord } from "@/lib/prospecting";
 import type { PipelineStatus } from "@/lib/pipeline-intelligence";
-import { officialSellerWorkflow } from "@/lib/business-rules";
+import { officialBuyerWorkflow, officialSellerWorkflow } from "@/lib/business-rules";
 
 import type { CallResult, SoniaBattlePlan, SoniaHistoryEvent, SoniaProspect } from "./types";
 
@@ -76,6 +76,46 @@ export function createSellerProspectFromRadar(opportunity: ProspectRecord) {
         date: now,
         title: "Prospect créé depuis le Radar",
         description: `${opportunity.address}, ${opportunity.city}. Type : ${opportunity.propertyType}. Priorité : ${opportunity.priority}. Prochaine action : appeler.`,
+        type: "status",
+      },
+    ],
+  };
+
+  return upsertSoniaProspect(prospect);
+}
+
+export type InformationRequestChannel = "Facebook" | "Messenger" | "Centris" | "Courriel" | "Téléphone";
+
+export function createProspectFromInformationRequest(input: {
+  name: string;
+  phone?: string;
+  email?: string;
+  address: string;
+  message?: string;
+  channel: InformationRequestChannel;
+}) {
+  const now = new Date().toISOString();
+  const prospect: SoniaProspect = {
+    id: `manuel-${slugify(input.name)}-${Date.now()}`,
+    name: input.name,
+    phone: input.phone || undefined,
+    email: input.email || undefined,
+    address: input.address,
+    city: "",
+    clientType: "buyer",
+    source: "Manuel",
+    status: officialBuyerWorkflow[0],
+    notes: [`Source : ${input.channel}`, input.message ? `Message reçu : ${input.message}` : ""].filter(Boolean).join("\n"),
+    nextAction: "Préparer le premier appel",
+    nextActionDate: today(),
+    createdAt: now,
+    updatedAt: now,
+    history: [
+      {
+        id: `history-${Date.now()}`,
+        date: now,
+        title: "Nouvelle demande d'information",
+        description: `Reçue via ${input.channel}.${input.message ? ` Message : ${input.message}` : ""}`,
         type: "status",
       },
     ],
