@@ -20,6 +20,7 @@ import {
 
 import { buildDailyCoach, type DailyCoachPlan } from "@/lib/coach/daily-coach";
 import { CoachTaskEngine } from "@/components/coach-task-engine";
+import { DirectorChatPanel } from "@/components/director-chat-panel";
 import { manualProspects } from "@/lib/prospecting/manual-provider";
 import {
   createSellerProspectFromRadar,
@@ -289,6 +290,8 @@ export function DailyCoachDashboard() {
         <CoachConversation messages={visibleMessages} fallbackAction={coach.firstAction} onStartMission={startProspectingMission} />
         <CoachTaskEngine battlePlan={displayCoach.battlePlan} />
       </div>
+
+      <DirectorChatPanel prospects={prospects} plan={displayCoach.battlePlan} />
 
       {mission?.active ? (
         <ProspectingMissionPanel

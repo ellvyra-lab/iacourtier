@@ -7,6 +7,7 @@ import { ArrowRight, BarChart3, CalendarCheck, FileText, Megaphone, Phone, Radar
 
 import { buildSoniaBattlePlan, getSoniaProspects, type SoniaBattlePlan, type SoniaProspect } from "@/lib/sonia-beta";
 import { INFORMATION_REQUEST_NEXT_ACTION } from "@/lib/sonia-beta/storage";
+import { DirectorChatPanel } from "@/components/director-chat-panel";
 import type { CoachMessageResponse } from "@/app/api/coach/message/route";
 
 type TodayPriority = {
@@ -175,6 +176,8 @@ export function BattlePlanDashboard() {
           </div>
         </div>
       </section>
+
+      <DirectorChatPanel prospects={workingProspects} plan={plan} />
 
       {isMissionVisible ? <MissionDuJourSection priority={todayPriority} /> : null}
 

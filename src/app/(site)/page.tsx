@@ -199,7 +199,7 @@ function FeaturesSection() {
   return (
     <section className="py-20">
       <Container>
-        <SectionIntro eyebrow="Fonctionnalités" title="Tout le quotidien vendeur dans un seul parcours." text="IACourtier relie les modules déjà essentiels : Radar, appels, Coach, analyse, documents, mandat et marketing." />
+        <SectionIntro eyebrow="Fonctionnalités" title="Tout le quotidien immobilier dans un seul parcours." text="IACourtier relie les modules déjà essentiels : Radar, appels, Coach, analyse, documents, mandat et marketing." />
         <div className="mt-10 grid gap-5 md:grid-cols-2 lg:grid-cols-3">
           {features.map(({ icon: Icon, title, text }) => (
             <article key={title} className="rounded-2xl border border-subtle bg-surface-soft p-6">

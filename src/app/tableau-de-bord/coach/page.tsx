@@ -1,5 +1,5 @@
-import { DailyCoachDashboard } from "@/components/daily-coach-dashboard";
+import { redirect } from "next/navigation";
 
 export default function CoachPage() {
-  return <DailyCoachDashboard />;
+  redirect("/tableau-de-bord");
 }
