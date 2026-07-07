@@ -26,6 +26,7 @@ export function BattlePlanDashboard() {
   const [prospects, setProspects] = useState<SoniaProspect[]>([]);
   const [coachMessage, setCoachMessage] = useState<CoachMessageResponse>(fallbackCoachMessage);
   const [isLoadingMessage, setIsLoadingMessage] = useState(false);
+  const [isMissionVisible, setIsMissionVisible] = useState(false);
 
   useEffect(() => {
     setProspects(getSoniaProspects());
@@ -73,9 +74,12 @@ export function BattlePlanDashboard() {
     fetchCoachMessage();
   }, [plan]);
   
-  const firstAction = getFirstPriorityAction(plan);
   const recommendations = buildCoachRecommendations(plan);
   const isEmpty = workingProspects.length === 0;
+
+  const showMission = () => {
+    setIsMissionVisible(true);
+  };
 
   return (
     <div className="space-y-7">
@@ -91,13 +95,10 @@ export function BattlePlanDashboard() {
               {coachMessage.recommendation}
             </p>
             <div className="mt-7 flex flex-col gap-3 sm:flex-row">
-              <Link href={firstAction.href} className="inline-flex items-center justify-center gap-2 rounded-lg bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 dark:bg-white dark:text-slate-950">
+              <button type="button" onClick={showMission} className="inline-flex items-center justify-center gap-2 rounded-lg bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 dark:bg-white dark:text-slate-950">
                 Commencer ma journée
                 <ArrowRight className="h-4 w-4" />
-              </Link>
-              <Link href="/tableau-de-bord/radar-prospection" className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-950">
-                Ouvrir le Radar
-              </Link>
+              </button>
             </div>
           </div>
 
@@ -113,6 +114,8 @@ export function BattlePlanDashboard() {
           </div>
         </div>
       </section>
+
+      {isMissionVisible ? <MissionDuJourSection /> : null}
 
       {isEmpty ? <EmptyCoachState /> : null}
 
@@ -150,6 +153,64 @@ export function BattlePlanDashboard() {
         </div>
       </section>
     </div>
+  );
+}
+
+function MissionDuJourSection() {
+  const items = [
+    {
+      icon: "📅",
+      title: "Vérifier l'agenda et les rendez-vous",
+      buttonLabel: "Ouvrir l'agenda",
+      href: "/tableau-de-bord/coach",
+    },
+    {
+      icon: "🏠",
+      title: "Préparer les rendez-vous d'évaluation",
+      buttonLabel: "Préparer",
+      href: "/tableau-de-bord/mandats",
+    },
+    {
+      icon: "📩",
+      title: "Répondre aux demandes d'information",
+      buttonLabel: "Répondre",
+      href: "/tableau-de-bord/prospects",
+    },
+    {
+      icon: "📞",
+      title: "Faire les suivis dus",
+      buttonLabel: "Commencer",
+      href: "/tableau-de-bord/historique",
+    },
+    {
+      icon: "🎯",
+      title: "Prospecter seulement si les suivis sont faits",
+      buttonLabel: "Ouvrir le Radar",
+      href: "/tableau-de-bord/radar-prospection",
+    },
+  ];
+
+  return (
+    <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900/72">
+      <p className="text-sm font-semibold text-teal-700 dark:text-teal-300">Mission du jour</p>
+      <div className="mt-5 space-y-3">
+        {items.map((item) => (
+          <div key={item.title} className="rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/50">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                <span className="mr-2" aria-hidden="true">
+                  {item.icon}
+                </span>
+                {item.title}
+              </p>
+              <Link href={item.href} className="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800">
+                {item.buttonLabel}
+              </Link>
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -203,19 +264,6 @@ function BattleStep({ index, icon: Icon, title, items, empty }: { index: number;
       </div>
     </div>
   );
-}
-
-function getFirstPriorityAction(plan: ReturnType<typeof buildSoniaBattlePlan>) {
-  const firstProspect = plan.radarProspectsToCall[0] || plan.callsToMake[0];
-  if (firstProspect) return { href: `/tableau-de-bord/prospects/${firstProspect.id}` };
-
-  const firstFollowup = plan.followupsDue[0];
-  if (firstFollowup) return { href: `/tableau-de-bord/prospects/${firstFollowup.id}` };
-
-  const firstAppointment = plan.sellerAppointmentsToPrepare[0] || plan.marketAnalysesToPrepare[0];
-  if (firstAppointment) return { href: `/tableau-de-bord/prospects/${firstAppointment.id}` };
-
-  return { href: "/tableau-de-bord/radar-prospection" };
 }
 
 function buildCoachRecommendations(plan: ReturnType<typeof buildSoniaBattlePlan>) {
