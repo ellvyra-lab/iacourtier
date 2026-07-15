@@ -94,6 +94,24 @@ const defaultSmartFilters: SmartFilters = {
   minScore: "",
 };
 
+const RADAR_CSV_STORAGE_KEY = "iacourtier_radar_csv_prospects";
+
+function loadStoredCsvProspects(): ProspectRecord[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(RADAR_CSV_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveStoredCsvProspects(prospects: ProspectRecord[]) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(RADAR_CSV_STORAGE_KEY, JSON.stringify(prospects));
+}
+
 export function ProspectionRadar() {
   const csvInputRef = useRef<HTMLInputElement>(null);
   const roleXmlInputRef = useRef<HTMLInputElement>(null);
@@ -126,6 +144,7 @@ export function ProspectionRadar() {
 
   useEffect(() => {
     setQuotaState(getRadarQuotaState(radarUserId));
+    setCsvProspects(loadStoredCsvProspects());
     void refreshRadarData();
   }, [radarUserId]);
 
@@ -314,7 +333,9 @@ export function ProspectionRadar() {
     try {
       const text = await file.text();
       const prospects = parseProspectsCsv(text, file.name);
-      setCsvProspects((current) => dedupeProspects([...prospects, ...current]));
+      const nextCsvProspects = dedupeProspects([...prospects, ...csvProspects]);
+      setCsvProspects(nextCsvProspects);
+      saveStoredCsvProspects(nextCsvProspects);
       setSelectedId(prospects[0]?.id || selectedId);
       if (prospects[0]?.id) setReachabilityProspectId(prospects[0].id);
       setImportStatus(`${prospects.length} prospect${prospects.length > 1 ? "s" : ""} importé${prospects.length > 1 ? "s" : ""} depuis ${file.name}.`);
@@ -363,7 +384,9 @@ export function ProspectionRadar() {
 
   function updateProspectLocal(prospectId: string, patch: Partial<ProspectRecord>) {
     const update = (items: ProspectRecord[]) => items.map((item) => (item.id === prospectId ? { ...item, ...patch } : item));
-    setCsvProspects((current) => update(current));
+    const nextCsvProspects = update(csvProspects);
+    setCsvProspects(nextCsvProspects);
+    saveStoredCsvProspects(nextCsvProspects);
     setRoleEvaluationProspects((current) => update(current));
     setSyncedProspects((current) => update(current));
   }
@@ -933,7 +956,14 @@ function OpportunityCard({
       <p className="mt-4 text-sm leading-6 text-slate-600 dark:text-slate-300">{opportunity.reason}</p>
 
       <div className="mt-4 flex flex-wrap gap-2">
-        {[`Source : ${sourceLabel(opportunity.source)}`, opportunity.lastUpdated ? `MAJ : ${formatDate(opportunity.lastUpdated)}` : "", opportunity.contactName ? `Contact : ${opportunity.contactName}` : "", opportunity.email || opportunity.phone || ""].filter(Boolean).map((signal) => (
+        {[
+          `Source : ${sourceLabel(opportunity.source)}`,
+          opportunity.lastUpdated ? `MAJ : ${formatDate(opportunity.lastUpdated)}` : "",
+          opportunity.contactName || opportunity.ownerName ? `Contact : ${opportunity.contactName || opportunity.ownerName}` : "",
+          opportunity.phone ? `Tél : ${opportunity.phone}` : "",
+          opportunity.email ? `Courriel : ${opportunity.email}` : "",
+          opportunity.contactStatus ? `Statut : ${opportunity.contactStatus.replace(/_/g, " ")}` : "",
+        ].filter(Boolean).map((signal) => (
           <span key={signal} className="rounded-full border border-slate-200 px-2.5 py-1 text-xs text-slate-600 dark:border-slate-700 dark:text-slate-300">
             {signal}
           </span>
@@ -957,7 +987,7 @@ function OpportunityCard({
       </button>
       <div className="mt-2 grid grid-cols-2 gap-2">
         <RadarActionLink opportunity={opportunity} channel="Appel téléphonique" label="Préparer appel" icon={Phone} />
-        <RadarActionLink opportunity={opportunity} channel="Message texte" label="Préparer texto" icon={MessageCircle} />
+        <RadarActionLink opportunity={opportunity} channel="Message texte" label="Envoyer un message" icon={MessageCircle} />
         <RadarActionLink opportunity={opportunity} channel="Courriel" label="Préparer courriel" icon={Mail} />
         <RadarActionLink opportunity={opportunity} channel="Message Facebook" label="Message Facebook" icon={MessageCircle} />
       </div>
@@ -966,7 +996,7 @@ function OpportunityCard({
         onClick={createSellerProspect}
         className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-800 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:hover:bg-slate-900"
       >
-        Créer prospect vendeur
+        Ouvrir la fiche
         <ArrowUpRight className="h-4 w-4" />
       </button>
       <button
@@ -983,7 +1013,7 @@ function OpportunityCard({
         className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-teal-200 bg-teal-50 px-4 py-3 text-sm font-semibold text-teal-800 transition hover:bg-teal-100 dark:border-teal-900 dark:bg-teal-950/30 dark:text-teal-100 dark:hover:bg-teal-950/50"
       >
         <Phone className="h-4 w-4" />
-        Appeler avec IACourtier
+        Appeler
       </button>
       {callStatus ? <p className="mt-2 text-xs leading-5 text-slate-500 dark:text-slate-400">{callStatus}</p> : null}
       <Link

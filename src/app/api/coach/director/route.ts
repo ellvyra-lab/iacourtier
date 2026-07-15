@@ -24,7 +24,29 @@ export type DirectorChatRequest = {
   context: DirectorChatContext;
 };
 
-export type DirectorChatResponse = { reply: string };
+export type DirectorAction = { label: string; href: string };
+
+export type DirectorChatResponse = { reply: string; action: DirectorAction; secondaryActions: DirectorAction[] };
+
+const ACTIONS = {
+  respond: { label: "Répondre", href: "/tableau-de-bord/prospects/nouvelle-demande" },
+  prepare: { label: "Préparer", href: "/tableau-de-bord/actions/prepare-market-analysis" },
+  followUps: { label: "Faire les suivis", href: "/tableau-de-bord/prospects" },
+  prospect: { label: "Prospecter", href: "/tableau-de-bord/radar-prospection" },
+} as const satisfies Record<string, DirectorAction>;
+
+// Ordre de priorité officiel de l'agence : une seule action principale, toujours calculée
+// à partir des données réelles (jamais devinée dans le texte généré par OpenAI).
+function buildPrimaryAction(context: DirectorChatContext): DirectorAction {
+  if (context.informationRequests > 0) return ACTIONS.respond;
+  if (context.sellerAppointmentsToPrepare > 0 || context.marketAnalysesToPrepare > 0) return ACTIONS.prepare;
+  if (context.followupsDue > 0) return ACTIONS.followUps;
+  return ACTIONS.prospect;
+}
+
+function buildSecondaryActions(primary: DirectorAction): DirectorAction[] {
+  return Object.values(ACTIONS).filter((action) => action.href !== primary.href);
+}
 
 export async function POST(request: Request) {
   try {
@@ -39,7 +61,9 @@ export async function POST(request: Request) {
     }
 
     const reply = await generateDirectorReply(message, body.history || [], body.context);
-    return Response.json({ reply } satisfies DirectorChatResponse);
+    const action = buildPrimaryAction(body.context);
+    const secondaryActions = buildSecondaryActions(action);
+    return Response.json({ reply, action, secondaryActions } satisfies DirectorChatResponse);
   } catch (error) {
     const openAIError = getOpenAIErrorPayload(error);
     if (openAIError) {
