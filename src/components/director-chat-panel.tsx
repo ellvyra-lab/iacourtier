@@ -70,6 +70,14 @@ function formatDayLabel(iso: string): string {
   return date.toLocaleDateString("fr-CA", { day: "numeric", month: "long" });
 }
 
+function localDateKey(value: string | Date) {
+  const date = value instanceof Date ? value : new Date(value);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 export function DirectorChatPanel({
   prospects,
   plan,
@@ -174,6 +182,21 @@ export function DirectorChatPanel({
     try {
       const realProspects = prospects.filter((prospect) => !prospect.id.startsWith("sonia-demo-"));
       const informationRequests = realProspects.filter((prospect) => prospect.nextAction === INFORMATION_REQUEST_NEXT_ACTION);
+      const today = localDateKey(new Date());
+      const tomorrowDate = new Date();
+      tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+      const tomorrow = localDateKey(tomorrowDate);
+      const prospectsCreatedToday = realProspects.filter((prospect) => localDateKey(prospect.createdAt) === today).length;
+      const callsCompletedToday = realProspects.reduce(
+        (total, prospect) => total + prospect.history.filter((event) => event.type === "call" && localDateKey(event.date) === today).length,
+        0,
+      );
+      const overdueFollowups = plan.followupsDue.filter((prospect) => prospect.nextActionDate && prospect.nextActionDate < today).length;
+      const appointmentsToday = plan.sellerAppointmentsToPrepare.filter((prospect) => prospect.nextActionDate === today).length;
+      const appointmentsTomorrow = plan.sellerAppointmentsToPrepare.filter((prospect) => prospect.nextActionDate === tomorrow).length;
+      const newContacts = realProspects.filter((prospect) =>
+        prospect.history.some((event) => event.title === "Nouvelle demande d'information" && localDateKey(event.date) === today),
+      ).length;
 
       const res = await fetch("/api/coach/director", {
         method: "POST",
@@ -195,6 +218,15 @@ export function DirectorChatPanel({
             mandatesWithMissingDocuments: plan.mandatesWithMissingDocuments.length,
             marketingActionsToGenerate: plan.marketingActionsToGenerate.length,
             totalProspects: realProspects.length,
+            prospectsCreatedToday,
+            callsCompletedToday,
+            overdueFollowups,
+            appointmentsToday,
+            appointmentsTomorrow,
+            pendingMarketAnalyses: plan.marketAnalysesToPrepare.length,
+            newContacts,
+            buyerPipeline: realProspects.filter((prospect) => prospect.clientType === "buyer").length,
+            sellerPipeline: realProspects.filter((prospect) => prospect.clientType === "seller").length,
           },
         }),
       });
