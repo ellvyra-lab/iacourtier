@@ -33,6 +33,39 @@ const QUICK_SUGGESTIONS = [
   "Prépare mon rendez-vous.",
 ] as const;
 
+type SpeechRecognitionResultLike = {
+  isFinal: boolean;
+  0: { transcript: string };
+};
+
+type SpeechRecognitionEventLike = {
+  resultIndex: number;
+  results: ArrayLike<SpeechRecognitionResultLike>;
+};
+
+type SpeechRecognitionErrorEventLike = {
+  error: string;
+};
+
+type SpeechRecognitionLike = {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  start: () => void;
+  stop: () => void;
+  abort: () => void;
+  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
+  onerror: ((event: SpeechRecognitionErrorEventLike) => void) | null;
+  onend: (() => void) | null;
+};
+
+type SpeechRecognitionConstructor = new () => SpeechRecognitionLike;
+
+type SpeechRecognitionWindow = Window & {
+  SpeechRecognition?: SpeechRecognitionConstructor;
+  webkitSpeechRecognition?: SpeechRecognitionConstructor;
+};
+
 function loadConversations(): DirectorConversation[] {
   if (typeof window === "undefined") return [];
   try {
@@ -101,8 +134,14 @@ export function DirectorChatPanel({
   const [input, setInput] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showVoiceHint, setShowVoiceHint] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const [voiceStatus, setVoiceStatus] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const dictationBaseRef = useRef("");
+  const finalTranscriptRef = useRef("");
+  const stoppedManuallyRef = useRef(false);
+  const voiceStatusRef = useRef<string | null>(null);
 
   useEffect(() => {
     const loadedConversations = loadConversations();
@@ -119,6 +158,10 @@ export function DirectorChatPanel({
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
   }, [turns]);
+
+  useEffect(() => {
+    return () => recognitionRef.current?.abort();
+  }, []);
 
   const groupedConversations = useMemo(() => {
     const sorted = [...conversations].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -261,6 +304,90 @@ export function DirectorChatPanel({
     }
   }
 
+  function updateVoiceStatus(status: string | null) {
+    voiceStatusRef.current = status;
+    setVoiceStatus(status);
+  }
+
+  function stopDictation() {
+    if (!recognitionRef.current || !isListening) return;
+    stoppedManuallyRef.current = true;
+    recognitionRef.current.stop();
+    setIsListening(false);
+    updateVoiceStatus("Dictée arrêtée");
+  }
+
+  function startDictation() {
+    const recognitionWindow = window as SpeechRecognitionWindow;
+    const Recognition = recognitionWindow.SpeechRecognition || recognitionWindow.webkitSpeechRecognition;
+
+    if (!Recognition) {
+      updateVoiceStatus("La dictée vocale n’est pas offerte dans ce navigateur");
+      return;
+    }
+
+    const recognition = new Recognition();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = "fr-CA";
+    recognitionRef.current = recognition;
+    dictationBaseRef.current = input.trimEnd();
+    finalTranscriptRef.current = "";
+    stoppedManuallyRef.current = false;
+
+    recognition.onresult = (event) => {
+      let interimTranscript = "";
+
+      for (let index = event.resultIndex; index < event.results.length; index += 1) {
+        const result = event.results[index];
+        const transcript = result[0]?.transcript || "";
+        if (result.isFinal) finalTranscriptRef.current += transcript;
+        else interimTranscript += transcript;
+      }
+
+      const dictatedText = `${finalTranscriptRef.current}${interimTranscript}`.trimStart();
+      const separator = dictationBaseRef.current && dictatedText ? " " : "";
+      setInput(`${dictationBaseRef.current}${separator}${dictatedText}`);
+    };
+
+    recognition.onerror = (event) => {
+      setIsListening(false);
+
+      if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+        updateVoiceStatus("Microphone non autorisé");
+      } else if (event.error === "no-speech") {
+        updateVoiceStatus("Aucune parole détectée");
+      } else if (event.error === "aborted" && stoppedManuallyRef.current) {
+        updateVoiceStatus("Dictée arrêtée");
+      } else {
+        updateVoiceStatus("Erreur de reconnaissance vocale");
+      }
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+      recognitionRef.current = null;
+      if (stoppedManuallyRef.current || voiceStatusRef.current === "J’écoute…") {
+        updateVoiceStatus("Dictée arrêtée");
+      }
+    };
+
+    try {
+      recognition.start();
+      setIsListening(true);
+      updateVoiceStatus("J’écoute…");
+    } catch {
+      recognitionRef.current = null;
+      setIsListening(false);
+      updateVoiceStatus("Impossible de démarrer la dictée vocale");
+    }
+  }
+
+  function toggleDictation() {
+    if (isListening) stopDictation();
+    else startDictation();
+  }
+
   return (
     <section className="rounded-2xl border border-subtle bg-surface p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -395,11 +522,17 @@ export function DirectorChatPanel({
         />
         <button
           type="button"
-          onClick={() => setShowVoiceHint(true)}
-          aria-label="Entrée vocale (bientôt disponible)"
-          className="inline-flex items-center justify-center gap-2 rounded-2xl border border-subtle bg-background px-4 py-3 text-sm transition hover:border-electric-500/40"
+          onClick={toggleDictation}
+          aria-label={isListening ? "Arrêter la dictée" : "Démarrer la dictée"}
+          aria-pressed={isListening}
+          className={`inline-flex items-center justify-center gap-2 rounded-2xl border px-4 py-3 text-sm font-semibold transition ${
+            isListening
+              ? "border-red-500 bg-red-50 text-red-700 shadow-sm dark:bg-red-950/30 dark:text-red-200"
+              : "border-subtle bg-background hover:border-electric-500/40"
+          }`}
         >
-          🎙️
+          <span aria-hidden="true">{isListening ? "⏹️" : "🎙️"}</span>
+          <span className="hidden sm:inline">{isListening ? "Arrêter" : "Dicter"}</span>
         </button>
         <button
           type="submit"
@@ -412,7 +545,11 @@ export function DirectorChatPanel({
         </button>
       </form>
 
-      {showVoiceHint ? <p className="mt-2 text-xs text-muted">Entrée vocale bientôt disponible.</p> : null}
+      {voiceStatus ? (
+        <p className={`mt-2 text-xs ${isListening ? "font-semibold text-red-600 dark:text-red-300" : "text-muted"}`} role="status" aria-live="polite">
+          {voiceStatus}
+        </p>
+      ) : null}
     </section>
   );
 }
