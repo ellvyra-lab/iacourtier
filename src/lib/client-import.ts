@@ -9,6 +9,7 @@ export type ImportField =
 
 export type ColumnMapping = Record<string, ImportField | "ignore">;
 export type DuplicateDecision = "merge" | "keep-both" | "ignore";
+export type ImportListMode = "replace" | "new-only" | "merge";
 
 export type ParsedClientRow = {
   rowNumber: number;
@@ -59,6 +60,11 @@ export type ImportReport = {
   errors: string[];
   readyForAutomation: number;
   contactsToComplete: number;
+  contactsBefore: number;
+  contactsAdded: number;
+  contactsMerged: number;
+  duplicatesIgnored: number;
+  contactsAfter: number;
 };
 
 export const IMPORT_FIELD_LABELS: Record<ImportField | "ignore", string> = {
@@ -254,22 +260,39 @@ export function importClientRows(
   rows: ParsedClientRow[],
   mapping: ColumnMapping,
   decisions: Record<number, DuplicateDecision>,
+  mode: ImportListMode = "merge",
 ): ImportReport {
-  let contacts = getSoniaProspects();
-  const duplicates = findDuplicates(rows, mapping, contacts);
+  const currentContacts = getSoniaProspects().filter((contact) => !contact.id.startsWith("sonia-demo-"));
+  let contacts = mode === "replace" ? [] : currentContacts;
+  const duplicates = findDuplicates(rows, mapping, mode === "replace" ? [] : currentContacts);
   const duplicateByRow = new Map(duplicates.map((duplicate) => [duplicate.rowNumber, duplicate]));
-  const report: ImportReport = { imported: 0, duplicates: duplicates.length, ignored: 0, errors: [], readyForAutomation: 0, contactsToComplete: 0 };
+  const report: ImportReport = {
+    imported: 0,
+    duplicates: duplicates.length,
+    ignored: 0,
+    errors: [],
+    readyForAutomation: 0,
+    contactsToComplete: 0,
+    contactsBefore: currentContacts.length,
+    contactsAdded: 0,
+    contactsMerged: 0,
+    duplicatesIgnored: 0,
+    contactsAfter: 0,
+  };
 
   for (const row of rows) {
     try {
       const duplicate = duplicateByRow.get(row.rowNumber);
-      const decision = duplicate ? decisions[row.rowNumber] : undefined;
+      const decision = duplicate
+        ? mode === "new-only" ? "ignore" : mode === "merge" || mode === "replace" ? "merge" : decisions[row.rowNumber]
+        : undefined;
       if (duplicate && !decision) {
         report.errors.push(`Ligne ${row.rowNumber} : choisissez quoi faire avec le doublon.`);
         continue;
       }
       if (decision === "ignore") {
         report.ignored += 1;
+        report.duplicatesIgnored += 1;
         continue;
       }
 
@@ -289,8 +312,10 @@ export function importClientRows(
           continue;
         }
         contacts = contacts.map((contact) => contact.id === targetId ? mergeWithoutOverwrite(contact, incoming) : contact);
+        report.contactsMerged += 1;
       } else {
         contacts = [incoming, ...contacts];
+        report.contactsAdded += 1;
       }
 
       report.imported += 1;
@@ -301,7 +326,13 @@ export function importClientRows(
     }
   }
 
+  if (mode === "replace" && typeof window !== "undefined") {
+    window.localStorage.removeItem("iacourtier_client_automations");
+    window.localStorage.removeItem("iacourtier_client_data_requests");
+    window.localStorage.removeItem("iacourtier_client_import_index");
+  }
   saveSoniaProspects(contacts);
+  report.contactsAfter = contacts.length;
   return report;
 }
 
@@ -339,6 +370,7 @@ function buildProspect(row: ParsedClientRow, mapping: ColumnMapping): SoniaProsp
     mortgageBroker: valueFor(row.values, mapping, "mortgageBroker") || undefined,
     lastContact: lastContact || undefined,
     communicationConsent: consent,
+    communicationConsentAnsweredAt: valueFor(row.values, mapping, "communicationConsent") ? now : undefined,
     automationEligible,
     missingInformation,
   };
