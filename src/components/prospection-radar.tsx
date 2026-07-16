@@ -136,6 +136,8 @@ export function ProspectionRadar() {
   const [copied, setCopied] = useState("");
   const [communicationStyle, setCommunicationStyle] = useState<ProspectingCommunicationStyle>("Québécois naturel");
   const [importStatus, setImportStatus] = useState("");
+  const [pendingCsv, setPendingCsv] = useState<{ text: string; fileName: string; totalRows: number } | null>(null);
+  const [listCity, setListCity] = useState("");
   const [roleImportStatus, setRoleImportStatus] = useState("");
   const [isImportingRoleXml, setIsImportingRoleXml] = useState(false);
   const [quotaState, setQuotaState] = useState<RadarQuotaState | null>(null);
@@ -330,22 +332,46 @@ export function ProspectionRadar() {
       return;
     }
 
+    const text = await file.text();
     try {
-      const text = await file.text();
-      const prospects = parseProspectsCsv(text, file.name);
-      const nextCsvProspects = dedupeProspects([...prospects, ...csvProspects]);
-      setCsvProspects(nextCsvProspects);
-      saveStoredCsvProspects(nextCsvProspects);
-      setSelectedId(prospects[0]?.id || selectedId);
-      if (prospects[0]?.id) setReachabilityProspectId(prospects[0].id);
-      setImportStatus(`${prospects.length} prospect${prospects.length > 1 ? "s" : ""} importé${prospects.length > 1 ? "s" : ""} depuis ${file.name}.`);
+      completeCsvImport(parseProspectsCsv(text, file.name), file.name);
     } catch (error) {
-      setImportStatus(
-        error instanceof Error
-          ? error.message
-          : "Le CSV n'a pas pu être lu. Colonnes minimales requises : adresse et ville.",
-      );
+      if (error instanceof Error && error.message === "CSV_CITY_REQUIRED") {
+        setPendingCsv({ text, fileName: file.name, totalRows: countCsvDataRows(text) });
+        setListCity("");
+        setImportStatus("");
+        return;
+      }
+      setImportStatus(error instanceof Error ? error.message : "Le CSV n'a pas pu être lu.");
     }
+  }
+
+  function continueCsvImport() {
+    if (!pendingCsv || !listCity.trim()) {
+      setImportStatus("La ville de la liste est obligatoire.");
+      return;
+    }
+
+    try {
+      completeCsvImport(parseProspectsCsv(pendingCsv.text, pendingCsv.fileName, listCity), pendingCsv.fileName);
+      setPendingCsv(null);
+      setListCity("");
+    } catch (error) {
+      setImportStatus(error instanceof Error ? error.message : "Le CSV n'a pas pu être importé.");
+    }
+  }
+
+  function completeCsvImport(result: ReturnType<typeof parseProspectsCsv>, fileName: string) {
+    const nextCsvProspects = dedupeProspects([...result.prospects, ...csvProspects]);
+    setCsvProspects(nextCsvProspects);
+    saveStoredCsvProspects(nextCsvProspects);
+    setSelectedId(result.prospects[0]?.id || selectedId);
+    if (result.prospects[0]?.id) setReachabilityProspectId(result.prospects[0].id);
+
+    const errorSummary = result.errors.length ? ` Erreurs : ${result.errors.join(" ")}` : " Erreurs : aucune.";
+    setImportStatus(
+      `Lignes détectées : ${result.totalRows}. Prospects importés : ${result.prospects.length}. Lignes ignorées : ${result.ignoredRows}.${errorSummary} Fichier : ${fileName}.`,
+    );
   }
 
   async function importRoleEvaluationXml(file: File) {
@@ -592,7 +618,7 @@ export function ProspectionRadar() {
               Import manuel CSV
             </div>
             <p className="mt-1 text-sm leading-6 text-teal-900/75 dark:text-teal-100/75">
-              Gardez cette option pour les listes privées ou ponctuelles. Colonnes minimales : adresse et ville. Les colonnes propriétaire, code postal, téléphone et courriel sont reconnues automatiquement avec plusieurs variantes.
+              Gardez cette option pour les listes privées ou ponctuelles. Seule l&apos;adresse est obligatoire; si la ville est absente, elle vous sera demandée. Le téléphone et le courriel peuvent être ajoutés plus tard.
             </p>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -608,6 +634,31 @@ export function ProspectionRadar() {
             {importStatus ? <span className="text-sm font-medium text-teal-800 dark:text-teal-100">{importStatus}</span> : null}
           </div>
         </div>
+        {pendingCsv ? (
+          <div className="mt-4 rounded-lg border border-teal-200 bg-white p-4 dark:border-teal-800 dark:bg-slate-950/70">
+            <p className="text-sm font-semibold text-teal-900 dark:text-teal-100">Quelle est la ville de cette liste?</p>
+            <p className="mt-1 text-xs text-teal-800/75 dark:text-teal-100/70">{pendingCsv.totalRows} ligne{pendingCsv.totalRows > 1 ? "s" : ""} détectée{pendingCsv.totalRows > 1 ? "s" : ""} dans {pendingCsv.fileName}.</p>
+            <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-end">
+              <label className="flex-1 text-sm font-medium text-slate-700 dark:text-slate-200">
+                Ville de la liste
+                <input
+                  required
+                  value={listCity}
+                  onChange={(event) => setListCity(event.target.value)}
+                  placeholder="Pointe-aux-Trembles"
+                  className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-teal-600 dark:border-slate-700 dark:bg-slate-900"
+                />
+              </label>
+              <button
+                type="button"
+                onClick={continueCsvImport}
+                className="inline-flex items-center justify-center rounded-lg bg-teal-700 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-teal-800"
+              >
+                Continuer l&apos;import
+              </button>
+            </div>
+          </div>
+        ) : null}
       </section>
 
       <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900/72">
@@ -1248,6 +1299,11 @@ function dedupeProspects(prospects: ProspectRecord[]) {
     seen.add(key);
     return true;
   });
+}
+
+function countCsvDataRows(csvText: string) {
+  const nonEmptyLines = csvText.replace(/^\uFEFF/, "").split(/\r?\n/).filter((line) => line.trim());
+  return Math.max(0, nonEmptyLines.length - 1);
 }
 
 function PropertyInsightCard({ opportunity }: { opportunity: ProspectRecord }) {
