@@ -17,8 +17,10 @@ import { cn } from "@/lib/utils";
 import {
   clearAllClientWorkspaceData,
   generateCollectionRequests,
+  getClientDatabaseHealth,
   getCollectionRequests,
   getCollectionSummary,
+  getWorkspaceDeletionSummary,
   type MissingDataField,
 } from "@/lib/client-data-collection";
 import {
@@ -54,7 +56,8 @@ import {
 export function IntelligentPipelineDashboard({ data }: { data: PipelineDashboardData }) {
   const [selectedId, setSelectedId] = useState(data.clients[0]?.id || "");
   const [isImportOpen, setIsImportOpen] = useState(false);
-  const [clearStep, setClearStep] = useState<0 | 1 | 2>(0);
+  const [isClearConfirmationOpen, setIsClearConfirmationOpen] = useState(false);
+  const [deletionSummary, setDeletionSummary] = useState({ clients: 0, automations: 0, followUps: 0 });
   const [storedContacts, setStoredContacts] = useState<SoniaProspect[]>([]);
 
   function refreshStoredContacts() {
@@ -95,7 +98,7 @@ export function IntelligentPipelineDashboard({ data }: { data: PipelineDashboard
       <div className="flex flex-wrap justify-end gap-3">
         <button
           type="button"
-          onClick={() => setClearStep(1)}
+          onClick={() => { setDeletionSummary(getWorkspaceDeletionSummary()); setIsClearConfirmationOpen(true); }}
           className="inline-flex items-center justify-center rounded-lg border border-red-300 px-4 py-2.5 text-sm font-semibold text-red-700 dark:border-red-900 dark:text-red-300"
         >
           Effacer toute la liste
@@ -110,26 +113,26 @@ export function IntelligentPipelineDashboard({ data }: { data: PipelineDashboard
         </button>
       </div>
 
-      {clearStep ? (
+      {isClearConfirmationOpen ? (
         <section className="rounded-lg border border-red-300 bg-red-50 p-5 dark:border-red-900 dark:bg-red-950/20">
-          <p className="font-semibold text-red-900 dark:text-red-100">
-            {clearStep === 1
-              ? `Cette action supprimera ${storedContacts.length.toLocaleString("fr-CA")} contacts. Souhaites-tu continuer?`
-              : "Deuxième confirmation : supprimer définitivement les contacts, automatisations et index locaux associés?"}
-          </p>
-          <p className="mt-2 text-sm text-red-700 dark:text-red-300">Les paramètres globaux de l’application seront conservés.</p>
+          <h2 className="text-lg font-semibold text-red-900 dark:text-red-100">Vous allez supprimer :</h2>
+          <ul className="mt-3 space-y-2 text-sm text-red-800 dark:text-red-200">
+            <li>• {deletionSummary.clients.toLocaleString("fr-CA")} clients</li>
+            <li>• {deletionSummary.automations.toLocaleString("fr-CA")} automatisations</li>
+            <li>• {deletionSummary.followUps.toLocaleString("fr-CA")} suivis associés</li>
+          </ul>
+          <p className="mt-4 font-semibold text-red-900 dark:text-red-100">Cette opération est irréversible.</p>
+          <p className="mt-2 text-sm text-red-700 dark:text-red-300">Les paramètres, préférences et configurations seront conservés.</p>
           <div className="mt-4 flex gap-3">
-            <button type="button" onClick={() => setClearStep(0)} className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold dark:bg-slate-950">Annuler</button>
-            {clearStep === 1 ? (
-              <button type="button" onClick={() => setClearStep(2)} className="rounded-lg bg-red-700 px-4 py-2 text-sm font-semibold text-white">Je comprends, continuer</button>
-            ) : (
-              <button type="button" onClick={() => { clearAllClientWorkspaceData(); refreshStoredContacts(); setClearStep(0); }} className="rounded-lg bg-red-700 px-4 py-2 text-sm font-semibold text-white">Confirmer la suppression</button>
-            )}
+            <button type="button" onClick={() => setIsClearConfirmationOpen(false)} className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold dark:bg-slate-950">Annuler</button>
+            <button type="button" onClick={() => { clearAllClientWorkspaceData(); refreshStoredContacts(); setIsClearConfirmationOpen(false); }} className="rounded-lg bg-red-700 px-4 py-2 text-sm font-semibold text-white">Confirmer</button>
           </div>
         </section>
       ) : null}
 
       {isImportOpen ? <ClientImportPanel onImported={refreshStoredContacts} /> : null}
+
+      <ClientDatabaseHealthSection contacts={storedContacts} />
 
       <MissingInformationSection contacts={storedContacts} />
 
@@ -332,10 +335,44 @@ function ClientImportPanel({ onImported }: { onImported: () => void }) {
   );
 }
 
+function ClientDatabaseHealthSection({ contacts }: { contacts: SoniaProspect[] }) {
+  const health = getClientDatabaseHealth(contacts);
+  const metrics = [
+    ["Base clients", health.metrics.complete],
+    ["Courriels", health.metrics.emails],
+    ["Téléphones", health.metrics.phones],
+    ["Consentements", health.metrics.consents],
+    ["Dates de renouvellement hypothécaire", health.metrics.mortgageRenewals],
+    ["Dates de naissance", health.metrics.birthDates],
+    ["Dates de transaction", health.metrics.transactionDates],
+  ];
+
+  return (
+    <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900/72">
+      <p className="text-sm font-semibold text-teal-700 dark:text-teal-300">Santé de la base</p>
+      <h2 className="mt-1 text-2xl font-semibold">Base clients · {health.total.toLocaleString("fr-CA")} fiches</h2>
+      <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {metrics.map(([label, value]) => (
+          <div key={label} className="rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/50">
+            <p className="text-3xl font-semibold">{value} %</p>
+            <p className="mt-1 text-sm font-medium">{label}</p>
+            <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800"><div className="h-full rounded-full bg-teal-600" style={{ width: `${value}%` }} /></div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function MissingInformationSection({ contacts }: { contacts: SoniaProspect[] }) {
-  const [requests, setRequests] = useState(() => getCollectionRequests());
+  const [requests, setRequests] = useState<ReturnType<typeof getCollectionRequests>>([]);
   const [copied, setCopied] = useState("");
   const summary = getCollectionSummary(contacts, requests);
+  const mortgageMissing = summary.find((item) => item.field === "mortgageRenewal")?.missing || 0;
+
+  useEffect(() => {
+    setRequests(getCollectionRequests());
+  }, []);
 
   function prepare(field: MissingDataField) {
     generateCollectionRequests(field, contacts);
@@ -351,18 +388,27 @@ function MissingInformationSection({ contacts }: { contacts: SoniaProspect[] }) 
     <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900/72">
       <p className="text-sm font-semibold text-teal-700 dark:text-teal-300">Coach IA</p>
       <h2 className="mt-1 text-2xl font-semibold">Informations à compléter</h2>
-      <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">Préparez des demandes sécurisées sans envoyer de courriel ni de texto. Les contacts explicitement exclus ne reçoivent aucune demande.</p>
-      <div className="mt-5 grid gap-4 lg:grid-cols-2">
+      <div className="mt-4 rounded-lg border border-teal-200 bg-teal-50 p-4 text-sm leading-6 text-teal-950 dark:border-teal-900 dark:bg-teal-950/30 dark:text-teal-100">
+        Aujourd’hui : {contacts.length.toLocaleString("fr-CA")} clients. {mortgageMissing.toLocaleString("fr-CA")} clients sans renouvellement hypothécaire. Je te recommande de préparer la campagne de mise à jour; elle alimentera automatiquement les futures automatisations.
+      </div>
+      <div className="mt-5 space-y-3">
         {summary.map((item) => (
-          <div key={item.field} className="rounded-lg border border-slate-200 p-4 dark:border-slate-800">
-            <div className="flex items-start justify-between gap-3"><div><p className="font-semibold">{item.label}</p><p className="mt-1 text-xs text-slate-500">{item.missing} client{item.missing > 1 ? "s" : ""} concerné{item.missing > 1 ? "s" : ""}</p></div><span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold dark:bg-slate-800">{item.prepared ? "préparée" : "à préparer"}</span></div>
-            <p className="mt-3 text-sm leading-6 text-slate-600 dark:text-slate-300">{item.latestMessage || "Le message sera rédigé par le moteur de communication client dans un ton rassurant et sans pression."}</p>
-            <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs"><div className="rounded-lg bg-slate-50 p-2 dark:bg-slate-950"><strong className="block text-lg">{item.responses}</strong>Réponses</div><div className="rounded-lg bg-slate-50 p-2 dark:bg-slate-950"><strong className="block text-lg">{item.updated}</strong>Fiches mises à jour</div><div className="rounded-lg bg-slate-50 p-2 dark:bg-slate-950"><strong className="block text-lg">{item.excluded}</strong>Exclus</div></div>
-            <div className="mt-4 flex flex-wrap gap-2">
-              <button type="button" disabled={!item.missing} onClick={() => prepare(item.field)} className="rounded-lg bg-teal-700 px-3 py-2 text-xs font-semibold text-white disabled:opacity-40">Générer les demandes</button>
-              {item.latestLink ? <><a href={item.latestLink} target="_blank" rel="noreferrer" className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold dark:border-slate-700">Ouvrir le formulaire</a><button type="button" onClick={() => copyLink(item.latestLink!, item.field)} className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold dark:border-slate-700">{copied === item.field ? "Lien copié" : "Copier le lien"}</button></> : null}
+          <details key={item.field} className="rounded-lg border border-slate-200 p-4 dark:border-slate-800">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
+              <span><span className="font-semibold">{item.missing.toLocaleString("fr-CA")} clients n’ont pas de {item.label.toLowerCase()}.</span><span className="mt-1 block text-xs text-slate-500">{item.responses} réponses · {item.updated} fiches mises à jour · {item.excluded} exclus</span></span>
+              <span className="rounded-lg bg-teal-700 px-3 py-2 text-xs font-semibold text-white">Préparer la campagne</span>
+            </summary>
+            <div className="mt-4 grid gap-3 text-sm">
+              <p><strong>Objet :</strong> {item.campaign.subject}</p>
+              <p><strong>Courriel :</strong> {item.campaign.email}</p>
+              <div><strong>Message :</strong><p className="mt-1 whitespace-pre-line rounded-lg bg-slate-50 p-3 dark:bg-slate-950">{item.latestMessage}</p></div>
+              <p><strong>Question :</strong> {item.campaign.question}</p>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" disabled={!item.missing} onClick={() => prepare(item.field)} className="rounded-lg bg-teal-700 px-3 py-2 text-xs font-semibold text-white disabled:opacity-40">Préparer la campagne</button>
+                {item.latestLink ? <><a href={item.latestLink} target="_blank" rel="noreferrer" className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold dark:border-slate-700">Ouvrir le formulaire sécurisé</a><button type="button" onClick={() => copyLink(item.latestLink!, item.field)} className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold dark:border-slate-700">{copied === item.field ? "Lien copié" : "Copier le lien"}</button></> : null}
+              </div>
             </div>
-          </div>
+          </details>
         ))}
       </div>
     </section>
@@ -429,7 +475,7 @@ function ClientAutomationsSection({ contacts }: { contacts: SoniaProspect[] }) {
           ["En retard", summary.overdue],
           ["Envoyées", summary.sent],
           ["Erreurs", summary.errors],
-          ["Contacts incomplets", summary.incompleteContacts + summary.blockedByConsent],
+          ["Interventions humaines", summary.humanInterventions],
         ].map(([label, value]) => (
           <div key={label} className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950/50">
             <p className="text-2xl font-semibold">{value}</p><p className="mt-1 text-xs text-slate-500">{label}</p>
