@@ -29,7 +29,7 @@ import {
   type ClientAutomation,
 } from "@/lib/client-automations";
 import { getSoniaProspects } from "@/lib/sonia-beta/storage";
-import type { ClientImportProfile, ClientRelationshipType, SoniaProspect } from "@/lib/sonia-beta/types";
+import type { ClientImportProfile, SoniaProspect } from "@/lib/sonia-beta/types";
 import {
   IMPORT_FIELD_LABELS,
   RELATIONSHIP_LABELS,
@@ -146,7 +146,8 @@ function toPipelineClient(contact: SoniaProspect): PipelineClient {
 
 function ClientImportPanel({ onImported }: { onImported: () => void }) {
   const [preview, setPreview] = useState<ImportPreview | null>(null);
-  const [decisions, setDecisions] = useState<Record<number, DuplicateDecision>>({});
+  const [bulkDecision, setBulkDecision] = useState<DuplicateDecision | "ambiguous" | "">("");
+  const [ambiguousDecisions, setAmbiguousDecisions] = useState<Record<number, DuplicateDecision>>({});
   const [report, setReport] = useState<ImportReport | null>(null);
   const [error, setError] = useState("");
 
@@ -155,7 +156,8 @@ function ClientImportPanel({ onImported }: { onImported: () => void }) {
     if (!file) return;
     setError("");
     setReport(null);
-    setDecisions({});
+    setBulkDecision("");
+    setAmbiguousDecisions({});
 
     try {
       setPreview(await parseClientFile(file));
@@ -171,22 +173,16 @@ function ClientImportPanel({ onImported }: { onImported: () => void }) {
       mapping: { ...current.mapping, [header]: field },
       uncertainHeaders: current.uncertainHeaders.filter((item) => item !== header),
     } : current);
-    setDecisions({});
+    setBulkDecision("");
+    setAmbiguousDecisions({});
     setReport(null);
-  }
-
-  function updateRelationship(rowNumber: number, relationshipType: ClientRelationshipType) {
-    setPreview((current) => current ? {
-      ...current,
-      rows: current.rows.map((row) => row.rowNumber === rowNumber ? { ...row, relationshipType } : row),
-    } : current);
   }
 
   if (!preview) {
     return (
       <section className="rounded-lg border border-teal-200 bg-teal-50/60 p-5 shadow-sm dark:border-teal-900 dark:bg-teal-950/20">
         <p className="text-sm font-semibold text-teal-800 dark:text-teal-200">Importer mes clients</p>
-        <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">Sélectionnez un fichier CSV, XLSX ou XLS. Le Coach IA repère la feuille, la ligne d’en-tête et les colonnes utiles sans exiger une structure précise. Aucun courriel ni texto ne sera envoyé.</p>
+        <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">Sélectionnez un fichier CSV, XLSX ou XLS. Le Coach IA repère la feuille, la ligne d’en-tête, les tags et les colonnes utiles sans exiger une structure précise.</p>
         <input type="file" accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" onChange={handleFile} className="mt-4 block w-full text-sm file:mr-4 file:rounded-lg file:border-0 file:bg-slate-950 file:px-4 file:py-2.5 file:font-semibold file:text-white dark:file:bg-white dark:file:text-slate-950" />
         {error ? <p className="mt-3 text-sm text-red-700 dark:text-red-300">{error}</p> : null}
       </section>
@@ -195,13 +191,31 @@ function ClientImportPanel({ onImported }: { onImported: () => void }) {
 
   const statistics = getImportStatistics(preview.rows, preview.mapping);
   const duplicates = findDuplicates(preview.rows, preview.mapping, getSoniaProspects());
-  const unresolvedDuplicates = duplicates.filter((duplicate) => !decisions[duplicate.rowNumber]);
+  const ambiguousDuplicates = duplicates.filter((duplicate) => duplicate.ambiguous);
+  const previewRows = preview.rows.slice(0, 20);
+
+  function chooseBulkDecision(decision: DuplicateDecision | "ambiguous") {
+    setBulkDecision(decision);
+    setAmbiguousDecisions({});
+    setError("");
+  }
 
   function confirmImport() {
-    if (unresolvedDuplicates.length) {
-      setError("Choisissez fusionner, conserver les deux ou ignorer pour chaque doublon.");
+    if (duplicates.length && !bulkDecision) {
+      setError("Choisissez une règle globale pour les doublons.");
       return;
     }
+    if (bulkDecision === "ambiguous" && ambiguousDuplicates.some((duplicate) => !ambiguousDecisions[duplicate.rowNumber])) {
+      setError("Choisissez une action uniquement pour les cas ambigus affichés.");
+      return;
+    }
+
+    const decisions = Object.fromEntries(duplicates.map((duplicate) => [
+      duplicate.rowNumber,
+      bulkDecision === "ambiguous"
+        ? duplicate.ambiguous ? ambiguousDecisions[duplicate.rowNumber] : "merge"
+        : bulkDecision,
+    ])) as Record<number, DuplicateDecision>;
     const result = importClientRows(preview.rows, preview.mapping, decisions);
     setReport(result);
     setError("");
@@ -212,7 +226,7 @@ function ClientImportPanel({ onImported }: { onImported: () => void }) {
     <section className="space-y-5 rounded-lg border border-teal-200 bg-white p-5 shadow-sm dark:border-teal-900 dark:bg-slate-900/72">
       <div>
         <p className="text-sm font-semibold text-teal-700 dark:text-teal-300">Assistant d’importation · Aperçu</p>
-        <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">Vérifiez les associations et le type de chaque contact avant de confirmer.</p>
+        <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">Les types sont préremplis à partir des tags et des catégories. Vous validez une règle globale, pas chacune des {preview.rows.length.toLocaleString("fr-CA")} lignes.</p>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
@@ -233,16 +247,12 @@ function ClientImportPanel({ onImported }: { onImported: () => void }) {
 
       <div>
         <h3 className="text-sm font-semibold">Association des colonnes</h3>
-        {preview.uncertainHeaders.length ? <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">Certaines colonnes demandent votre confirmation.</p> : null}
+        {preview.uncertainHeaders.length ? <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">Seules les associations incertaines demandent votre attention.</p> : <p className="mt-1 text-xs text-teal-700">Toutes les colonnes utiles ont été reconnues automatiquement.</p>}
         <div className="mt-3 grid gap-3 md:grid-cols-2 lg:grid-cols-3">
           {preview.headers.map((header) => (
             <label key={header} className="rounded-lg border border-slate-200 p-3 text-xs dark:border-slate-800">
               <span className="mb-2 block font-semibold">{header}</span>
-              <select
-                value={preview.mapping[header]}
-                onChange={(event) => updateMapping(header, event.target.value as ColumnMapping[string])}
-                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
-              >
+              <select value={preview.mapping[header]} onChange={(event) => updateMapping(header, event.target.value as ColumnMapping[string])} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950">
                 {Object.entries(IMPORT_FIELD_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
               </select>
             </label>
@@ -250,46 +260,58 @@ function ClientImportPanel({ onImported }: { onImported: () => void }) {
         </div>
       </div>
 
+      {duplicates.length ? (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950/20">
+          <h3 className="font-semibold text-amber-900 dark:text-amber-100">
+            {duplicates.length > 5 ? `${duplicates.length} doublons détectés — appliquez une seule règle` : `${duplicates.length} doublon${duplicates.length > 1 ? "s" : ""} détecté${duplicates.length > 1 ? "s" : ""}`}
+          </h3>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {[
+              ["merge", "Fusionner tous"],
+              ["keep-both", "Conserver tous"],
+              ["ignore", "Ignorer tous"],
+              ["ambiguous", "Examiner seulement les cas ambigus"],
+            ].map(([value, label]) => (
+              <button key={value} type="button" onClick={() => chooseBulkDecision(value as DuplicateDecision | "ambiguous")} className={`rounded-lg border px-3 py-2 text-sm font-semibold ${bulkDecision === value ? "border-teal-700 bg-teal-700 text-white" : "border-amber-300 bg-white text-slate-800 dark:bg-slate-950 dark:text-slate-100"}`}>
+                {label}
+              </button>
+            ))}
+          </div>
+          {bulkDecision === "ambiguous" ? (
+            <div className="mt-4 space-y-3">
+              {ambiguousDuplicates.length ? ambiguousDuplicates.map((duplicate) => (
+                <label key={duplicate.rowNumber} className="flex flex-col gap-2 rounded-lg border border-amber-200 bg-white p-3 text-sm dark:bg-slate-950 sm:flex-row sm:items-center sm:justify-between">
+                  <span>Ligne {duplicate.rowNumber} · {duplicate.existingName} · {duplicate.matchCount} correspondances ({duplicate.reasons.join(", ")})</span>
+                  <select value={ambiguousDecisions[duplicate.rowNumber] || ""} onChange={(event) => setAmbiguousDecisions((current) => ({ ...current, [duplicate.rowNumber]: event.target.value as DuplicateDecision }))} className="rounded-lg border border-amber-300 bg-white px-3 py-2 dark:bg-slate-900">
+                    <option value="">Choisir…</option>
+                    <option value="merge">Fusionner</option>
+                    <option value="keep-both">Conserver</option>
+                    <option value="ignore">Ignorer</option>
+                  </select>
+                </label>
+              )) : <p className="text-sm text-amber-800 dark:text-amber-200">Aucun cas ambigu : les doublons clairs seront fusionnés automatiquement.</p>}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
       <div className="overflow-x-auto">
-        <h3 className="text-sm font-semibold">Contacts à importer</h3>
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="text-sm font-semibold">Aperçu des contacts</h3>
+          <p className="text-xs text-slate-500">20 lignes maximum affichées sur {preview.rows.length.toLocaleString("fr-CA")}</p>
+        </div>
         <table className="mt-3 min-w-full text-left text-sm">
-          <thead className="text-xs uppercase text-slate-500">
-            <tr><th className="p-2">Ligne</th><th className="p-2">Aperçu</th><th className="p-2">Type</th><th className="p-2">Doublon</th></tr>
-          </thead>
+          <thead className="text-xs uppercase text-slate-500"><tr><th className="p-2">Ligne</th><th className="p-2">Aperçu</th><th className="p-2">Type détecté</th><th className="p-2">État</th></tr></thead>
           <tbody>
-            {preview.rows.map((row) => {
+            {previewRows.map((row) => {
               const duplicate = duplicates.find((item) => item.rowNumber === row.rowNumber);
               const values = Object.values(row.values).filter(Boolean).slice(0, 3).join(" · ");
               return (
                 <tr key={row.rowNumber} className="border-t border-slate-200 dark:border-slate-800">
                   <td className="p-2">{row.rowNumber}</td>
                   <td className="max-w-sm p-2">{values || "Ligne vide"}</td>
-                  <td className="p-2">
-                    <select
-                      value={row.relationshipType}
-                      onChange={(event) => updateRelationship(row.rowNumber, event.target.value as ClientRelationshipType)}
-                      className="rounded-lg border border-slate-200 bg-white px-2 py-2 dark:border-slate-700 dark:bg-slate-950"
-                    >
-                      {Object.entries(RELATIONSHIP_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-                    </select>
-                  </td>
-                  <td className="p-2">
-                    {duplicate ? (
-                      <div>
-                        <p className="mb-2 text-xs text-amber-700 dark:text-amber-300">{duplicate.existingName} · {duplicate.reasons.join(", ")}</p>
-                        <select
-                          value={decisions[row.rowNumber] || ""}
-                          onChange={(event) => setDecisions((current) => ({ ...current, [row.rowNumber]: event.target.value as DuplicateDecision }))}
-                          className="rounded-lg border border-amber-300 bg-white px-2 py-2 dark:bg-slate-950"
-                        >
-                          <option value="">Choisir…</option>
-                          <option value="merge">Fusionner sans écraser</option>
-                          <option value="keep-both">Conserver les deux</option>
-                          <option value="ignore">Ignorer</option>
-                        </select>
-                      </div>
-                    ) : <span className="text-xs text-slate-500">Aucun</span>}
-                  </td>
+                  <td className="p-2 capitalize">{RELATIONSHIP_LABELS[row.relationshipType]}</td>
+                  <td className="p-2 text-xs">{duplicate ? duplicate.ambiguous ? "Doublon ambigu" : "Doublon clair" : "Prêt"}</td>
                 </tr>
               );
             })}
@@ -298,10 +320,8 @@ function ClientImportPanel({ onImported }: { onImported: () => void }) {
       </div>
 
       {error ? <p className="text-sm text-red-700 dark:text-red-300">{error}</p> : null}
-
       <button type="button" onClick={confirmImport} className="inline-flex items-center justify-center gap-2 rounded-lg bg-teal-700 px-5 py-3 text-sm font-semibold text-white hover:bg-teal-800">
-        <Upload className="h-4 w-4" />
-        Confirmer l’import
+        <Upload className="h-4 w-4" /> Importer {preview.rows.length.toLocaleString("fr-CA")} contacts
       </button>
 
       {report ? (
