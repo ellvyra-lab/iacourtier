@@ -21,6 +21,7 @@ import {
   getCollectionRequests,
   getCollectionSummary,
   getWorkspaceDeletionSummary,
+  isClientDatabaseReset,
   type MissingDataField,
 } from "@/lib/client-data-collection";
 import {
@@ -56,8 +57,11 @@ import {
 export function IntelligentPipelineDashboard({ data }: { data: PipelineDashboardData }) {
   const [selectedId, setSelectedId] = useState(data.clients[0]?.id || "");
   const [isImportOpen, setIsImportOpen] = useState(false);
-  const [isClearConfirmationOpen, setIsClearConfirmationOpen] = useState(false);
-  const [deletionSummary, setDeletionSummary] = useState({ clients: 0, automations: 0, followUps: 0 });
+  const [clearStep, setClearStep] = useState<0 | 1 | 2>(0);
+  const [databaseWasReset, setDatabaseWasReset] = useState(false);
+  const [resetComplete, setResetComplete] = useState(false);
+  const [databaseVersion, setDatabaseVersion] = useState(0);
+  const [deletionSummary, setDeletionSummary] = useState({ clients: 0, automations: 0, followUps: 0, histories: 0, duplicates: 0, campaigns: 0 });
   const [storedContacts, setStoredContacts] = useState<SoniaProspect[]>([]);
 
   function refreshStoredContacts() {
@@ -65,14 +69,15 @@ export function IntelligentPipelineDashboard({ data }: { data: PipelineDashboard
   }
 
   useEffect(() => {
+    setDatabaseWasReset(isClientDatabaseReset());
     refreshStoredContacts();
   }, []);
 
   const importedClients = useMemo(() => storedContacts.map(toPipelineClient), [storedContacts]);
   const clients = useMemo(() => {
     const importedIds = new Set(importedClients.map((client) => client.id));
-    return [...importedClients, ...data.clients.filter((client) => !importedIds.has(client.id))];
-  }, [data.clients, importedClients]);
+    return [...importedClients, ...(databaseWasReset ? [] : data.clients.filter((client) => !importedIds.has(client.id)))];
+  }, [data.clients, databaseWasReset, importedClients]);
   const importedProfiles = useMemo(() => new Map(storedContacts.map((contact) => [contact.id, contact.importProfile])), [storedContacts]);
   const selected = clients.find((client) => client.id === selectedId) || clients[0];
   const sellerClients = clients.filter((client) => client.type === "seller");
@@ -91,17 +96,17 @@ export function IntelligentPipelineDashboard({ data }: { data: PipelineDashboard
             </p>
           </div>
 
-          <TodayCard data={data} />
+          <TodayCard data={data} empty={databaseWasReset && storedContacts.length === 0} />
         </div>
       </section>
 
       <div className="flex flex-wrap justify-end gap-3">
         <button
           type="button"
-          onClick={() => { setDeletionSummary(getWorkspaceDeletionSummary()); setIsClearConfirmationOpen(true); }}
+          onClick={() => { setDeletionSummary(getWorkspaceDeletionSummary()); setResetComplete(false); setClearStep(1); }}
           className="inline-flex items-center justify-center rounded-lg border border-red-300 px-4 py-2.5 text-sm font-semibold text-red-700 dark:border-red-900 dark:text-red-300"
         >
-          Effacer toute la liste
+          Réinitialiser complètement la base de données
         </button>
         <button
           type="button"
@@ -113,20 +118,46 @@ export function IntelligentPipelineDashboard({ data }: { data: PipelineDashboard
         </button>
       </div>
 
-      {isClearConfirmationOpen ? (
+      {clearStep ? (
         <section className="rounded-lg border border-red-300 bg-red-50 p-5 dark:border-red-900 dark:bg-red-950/20">
-          <h2 className="text-lg font-semibold text-red-900 dark:text-red-100">Vous allez supprimer :</h2>
-          <ul className="mt-3 space-y-2 text-sm text-red-800 dark:text-red-200">
-            <li>• {deletionSummary.clients.toLocaleString("fr-CA")} clients</li>
+          <h2 className="text-lg font-semibold text-red-900 dark:text-red-100">
+            {clearStep === 1 ? "Réinitialiser complètement la base de données?" : "Dernière confirmation"}
+          </h2>
+          <p className="mt-2 text-sm text-red-800 dark:text-red-200">Vous allez supprimer complètement :</p>
+          <ul className="mt-3 grid gap-2 text-sm text-red-800 dark:text-red-200 sm:grid-cols-2 lg:grid-cols-3">
+            <li>• {deletionSummary.clients.toLocaleString("fr-CA")} contacts et prospects</li>
             <li>• {deletionSummary.automations.toLocaleString("fr-CA")} automatisations</li>
+            <li>• {deletionSummary.histories.toLocaleString("fr-CA")} historiques</li>
             <li>• {deletionSummary.followUps.toLocaleString("fr-CA")} suivis associés</li>
+            <li>• {deletionSummary.duplicates.toLocaleString("fr-CA")} doublons indexés</li>
+            <li>• {deletionSummary.campaigns.toLocaleString("fr-CA")} campagnes</li>
           </ul>
-          <p className="mt-4 font-semibold text-red-900 dark:text-red-100">Cette opération est irréversible.</p>
-          <p className="mt-2 text-sm text-red-700 dark:text-red-300">Les paramètres, préférences et configurations seront conservés.</p>
+          <p className="mt-4 font-semibold text-red-900 dark:text-red-100">Cette opération est irréversible. Les paramètres, préférences et configurations seront conservés.</p>
+          {clearStep === 2 ? <p className="mt-3 rounded-lg bg-red-100 p-3 text-sm font-semibold text-red-950 dark:bg-red-950 dark:text-red-100">Confirmez une seconde fois pour vider définitivement toutes les données locales associées à la base clients.</p> : null}
           <div className="mt-4 flex gap-3">
-            <button type="button" onClick={() => setIsClearConfirmationOpen(false)} className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold dark:bg-slate-950">Annuler</button>
-            <button type="button" onClick={() => { clearAllClientWorkspaceData(); refreshStoredContacts(); setIsClearConfirmationOpen(false); }} className="rounded-lg bg-red-700 px-4 py-2 text-sm font-semibold text-white">Confirmer</button>
+            <button type="button" onClick={() => setClearStep(0)} className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold dark:bg-slate-950">Annuler</button>
+            {clearStep === 1 ? (
+              <button type="button" onClick={() => setClearStep(2)} className="rounded-lg bg-red-700 px-4 py-2 text-sm font-semibold text-white">Continuer</button>
+            ) : (
+              <button type="button" onClick={() => {
+                const emptySummary = clearAllClientWorkspaceData();
+                setDeletionSummary(emptySummary);
+                setDatabaseWasReset(true);
+                setResetComplete(true);
+                setIsImportOpen(false);
+                setDatabaseVersion((version) => version + 1);
+                refreshStoredContacts();
+                setClearStep(0);
+              }} className="rounded-lg bg-red-700 px-4 py-2 text-sm font-semibold text-white">Confirmer la réinitialisation complète</button>
+            )}
           </div>
+        </section>
+      ) : null}
+
+      {resetComplete ? (
+        <section className="rounded-lg border border-teal-200 bg-teal-50 p-4 dark:border-teal-900 dark:bg-teal-950/20">
+          <p className="font-semibold text-teal-900 dark:text-teal-100">Base de données réinitialisée</p>
+          <p className="mt-2 text-sm text-teal-800 dark:text-teal-200">0 contact · 0 automatisation · 0 historique · 0 doublon · 0 campagne</p>
         </section>
       ) : null}
 
@@ -134,9 +165,9 @@ export function IntelligentPipelineDashboard({ data }: { data: PipelineDashboard
 
       <ClientDatabaseHealthSection contacts={storedContacts} />
 
-      <MissingInformationSection contacts={storedContacts} />
+      <MissingInformationSection key={`missing-${databaseVersion}`} contacts={storedContacts} />
 
-      <ClientAutomationsSection contacts={storedContacts} />
+      <ClientAutomationsSection key={`automations-${databaseVersion}`} contacts={storedContacts} />
 
       <section className="grid gap-4 lg:grid-cols-5">
         {data.employees.map((employee) => (
@@ -548,14 +579,15 @@ function ClientAutomationsSection({ contacts }: { contacts: SoniaProspect[] }) {
   );
 }
 
-function TodayCard({ data }: { data: PipelineDashboardData }) {
+function TodayCard({ data, empty = false }: { data: PipelineDashboardData; empty?: boolean }) {
   const metrics = [
     ["Prospects", data.today.prospects],
     ["Évaluations", data.today.evaluations],
     ["Mandats", data.today.mandates],
     ["Notaire", data.today.notary],
     ["Suivis", data.today.followUps],
-  ];
+  ].map(([label, value]) => [label, empty ? 0 : value]);
+
 
   return (
     <div className="rounded-lg border border-slate-200 bg-slate-50 p-5 dark:border-slate-800 dark:bg-slate-950/50">
