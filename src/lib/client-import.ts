@@ -30,6 +30,26 @@ export type ImportPreview = {
   rows: ParsedClientRow[];
 };
 
+type SpreadsheetWorkbook = {
+  SheetNames: string[];
+  Sheets: Record<string, unknown>;
+};
+
+type SpreadsheetLibrary = {
+  read: (data: ArrayBuffer, options: { type: "array"; cellDates: boolean }) => SpreadsheetWorkbook;
+  utils: {
+    sheet_to_json: (sheet: unknown, options: { header: 1; raw: false; defval: string }) => unknown[][];
+  };
+};
+
+declare global {
+  interface Window {
+    XLSX?: SpreadsheetLibrary;
+  }
+}
+
+const SHEETJS_URL = "https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js";
+
 export type ImportReport = {
   imported: number;
   duplicates: number;
@@ -91,19 +111,44 @@ const FIELD_ALIASES: Record<ImportField, string[]> = {
   communicationConsent: ["consentement communication", "consentement", "communication consent", "marketing consent", "opt in", "opt-in"],
 };
 
-export function parseClientCsv(text: string): ImportPreview {
-  const matrix = parseCsv(text.replace(/^\uFEFF/, ""));
-  if (matrix.length < 2) throw new Error("Le fichier CSV ne contient aucune ligne de contact.");
+export async function parseClientFile(file: File): Promise<ImportPreview> {
+  const extension = file.name.toLowerCase().split(".").pop();
+  if (extension === "csv") return parseClientCsv(await file.text());
+  if (extension !== "xlsx" && extension !== "xls") throw new Error("Choisissez un fichier CSV, XLSX ou XLS.");
 
-  const headers = matrix[0].map((header, index) => header.trim() || `Colonne ${index + 1}`);
+  const spreadsheet = await loadSpreadsheetLibrary();
+  const workbook = spreadsheet.read(await file.arrayBuffer(), { type: "array", cellDates: true });
+  const sheets = workbook.SheetNames.map((name) => ({
+    name,
+    matrix: spreadsheet.utils.sheet_to_json(workbook.Sheets[name], { header: 1, raw: false, defval: "" })
+      .map((row) => row.map((value) => String(value ?? "").trim())),
+  })).filter((sheet) => sheet.matrix.some((row) => row.some(Boolean)));
+
+  if (!sheets.length) throw new Error("Le classeur ne contient aucune feuille exploitable.");
+  const bestSheet = sheets.sort((a, b) => sheetScore(b.matrix) - sheetScore(a.matrix))[0];
+  return previewFromMatrix(bestSheet.matrix);
+}
+
+export function parseClientCsv(text: string): ImportPreview {
+  return previewFromMatrix(parseCsv(text.replace(/^\uFEFF/, "")));
+}
+
+function previewFromMatrix(matrix: string[][]): ImportPreview {
+  const headerIndex = findHeaderRow(matrix);
+  if (headerIndex < 0 || matrix.length <= headerIndex + 1) throw new Error("Le fichier ne contient aucune ligne de contact.");
+
+  const headers = matrix[headerIndex].map((header, index) => header.trim() || `Colonne ${index + 1}`);
   const mapping = detectColumnMapping(headers);
-  const uncertainHeaders = headers.filter((header) => mapping[header] === "ignore");
-  const rows = matrix.slice(1)
+  const uncertainHeaders = headers.filter((header) => {
+    const match = bestFieldMatch(header);
+    return mapping[header] === "ignore" || match.score < 80;
+  });
+  const rows = matrix.slice(headerIndex + 1)
     .filter((row) => row.some((value) => value.trim()))
     .map((row, index) => {
       const values = Object.fromEntries(headers.map((header, column) => [header, row[column]?.trim() || ""]));
       return {
-        rowNumber: index + 2,
+        rowNumber: headerIndex + index + 2,
         values,
         relationshipType: inferRelationshipType(valueFor(values, mapping, "relationshipType")),
       };
@@ -115,14 +160,33 @@ export function parseClientCsv(text: string): ImportPreview {
 export function detectColumnMapping(headers: string[]): ColumnMapping {
   const used = new Set<ImportField>();
   return Object.fromEntries(headers.map((header) => {
-    const normalized = normalize(header);
-    const matches = (Object.entries(FIELD_ALIASES) as Array<[ImportField, string[]]>)
-      .filter(([, aliases]) => aliases.some((alias) => normalize(alias) === normalized));
-    const field = matches[0]?.[0];
-    if (!field || used.has(field)) return [header, "ignore"];
-    used.add(field);
-    return [header, field];
+    const match = bestFieldMatch(header);
+    if (!match.field || match.score < 45 || used.has(match.field)) return [header, "ignore"];
+    used.add(match.field);
+    return [header, match.field];
   }));
+}
+
+function bestFieldMatch(header: string): { field?: ImportField; score: number } {
+  const normalizedHeader = normalize(header);
+  const headerTokens = new Set(normalizedHeader.split(" ").filter(Boolean));
+  let best: { field?: ImportField; score: number } = { score: 0 };
+
+  (Object.entries(FIELD_ALIASES) as Array<[ImportField, string[]]>).forEach(([field, aliases]) => {
+    aliases.forEach((alias) => {
+      const normalizedAlias = normalize(alias);
+      const aliasTokens = normalizedAlias.split(" ").filter(Boolean);
+      const shared = aliasTokens.filter((token) => headerTokens.has(token)).length;
+      const score = normalizedHeader === normalizedAlias
+        ? 100
+        : normalizedHeader.includes(normalizedAlias) || normalizedAlias.includes(normalizedHeader)
+          ? 82
+          : aliasTokens.length ? Math.round((shared / Math.max(aliasTokens.length, headerTokens.size)) * 70) : 0;
+      if (score > best.score) best = { field, score };
+    });
+  });
+
+  return best;
 }
 
 export function getImportStatistics(rows: ParsedClientRow[], mapping: ColumnMapping) {
@@ -366,6 +430,50 @@ function normalizePhone(value: string) {
 
 function normalize(value: string) {
   return value.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function findHeaderRow(matrix: string[][]) {
+  let bestIndex = -1;
+  let bestScore = 0;
+  matrix.slice(0, 20).forEach((row, index) => {
+    const recognized = row.filter((cell) => bestFieldMatch(cell).score >= 45).length;
+    const populated = row.filter((cell) => cell.trim()).length;
+    const score = recognized * 10 + populated;
+    if (recognized > 0 && score > bestScore) {
+      bestIndex = index;
+      bestScore = score;
+    }
+  });
+  return bestIndex;
+}
+
+function sheetScore(matrix: string[][]) {
+  const headerIndex = findHeaderRow(matrix);
+  if (headerIndex < 0) return 0;
+  return matrix.slice(headerIndex + 1).filter((row) => row.some((cell) => cell.trim())).length * 100 + matrix[headerIndex].filter(Boolean).length;
+}
+
+async function loadSpreadsheetLibrary(): Promise<SpreadsheetLibrary> {
+  if (typeof window === "undefined") throw new Error("La lecture Excel doit être effectuée dans le navigateur.");
+  if (window.XLSX) return window.XLSX;
+
+  await new Promise<void>((resolve, reject) => {
+    const existing = document.querySelector<HTMLScriptElement>(`script[src="${SHEETJS_URL}"]`);
+    if (existing) {
+      existing.addEventListener("load", () => resolve(), { once: true });
+      existing.addEventListener("error", () => reject(new Error("Le lecteur Excel n’a pas pu être chargé.")), { once: true });
+      return;
+    }
+    const script = document.createElement("script");
+    script.src = SHEETJS_URL;
+    script.async = true;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error("Le lecteur Excel n’a pas pu être chargé. Vérifiez votre connexion et réessayez."));
+    document.head.appendChild(script);
+  });
+
+  if (!window.XLSX) throw new Error("Le format Excel n’est pas disponible pour le moment.");
+  return window.XLSX;
 }
 
 function parseCsv(text: string): string[][] {
