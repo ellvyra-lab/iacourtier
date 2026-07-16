@@ -36,7 +36,7 @@ import {
   findDuplicates,
   getImportStatistics,
   importClientRows,
-  parseClientCsv,
+  parseClientFile,
   type ColumnMapping,
   type DuplicateDecision,
   type ImportPreview,
@@ -157,14 +157,8 @@ function ClientImportPanel({ onImported }: { onImported: () => void }) {
     setReport(null);
     setDecisions({});
 
-    if (!file.name.toLowerCase().endsWith(".csv")) {
-      setPreview(null);
-      setError("Choisissez un fichier CSV ou un export CRM au format CSV.");
-      return;
-    }
-
     try {
-      setPreview(parseClientCsv(await file.text()));
+      setPreview(await parseClientFile(file));
     } catch (reason) {
       setPreview(null);
       setError(reason instanceof Error ? reason.message : "Impossible de lire ce fichier.");
@@ -192,8 +186,8 @@ function ClientImportPanel({ onImported }: { onImported: () => void }) {
     return (
       <section className="rounded-lg border border-teal-200 bg-teal-50/60 p-5 shadow-sm dark:border-teal-900 dark:bg-teal-950/20">
         <p className="text-sm font-semibold text-teal-800 dark:text-teal-200">Importer mes clients</p>
-        <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">Sélectionnez un CSV. Aucun courriel ni texto ne sera envoyé.</p>
-        <input type="file" accept=".csv,text/csv" onChange={handleFile} className="mt-4 block w-full text-sm file:mr-4 file:rounded-lg file:border-0 file:bg-slate-950 file:px-4 file:py-2.5 file:font-semibold file:text-white dark:file:bg-white dark:file:text-slate-950" />
+        <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">Sélectionnez un fichier CSV, XLSX ou XLS. Le Coach IA repère la feuille, la ligne d’en-tête et les colonnes utiles sans exiger une structure précise. Aucun courriel ni texto ne sera envoyé.</p>
+        <input type="file" accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" onChange={handleFile} className="mt-4 block w-full text-sm file:mr-4 file:rounded-lg file:border-0 file:bg-slate-950 file:px-4 file:py-2.5 file:font-semibold file:text-white dark:file:bg-white dark:file:text-slate-950" />
         {error ? <p className="mt-3 text-sm text-red-700 dark:text-red-300">{error}</p> : null}
       </section>
     );
@@ -217,7 +211,7 @@ function ClientImportPanel({ onImported }: { onImported: () => void }) {
   return (
     <section className="space-y-5 rounded-lg border border-teal-200 bg-white p-5 shadow-sm dark:border-teal-900 dark:bg-slate-900/72">
       <div>
-        <p className="text-sm font-semibold text-teal-700 dark:text-teal-300">Aperçu de l’import</p>
+        <p className="text-sm font-semibold text-teal-700 dark:text-teal-300">Assistant d’importation · Aperçu</p>
         <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">Vérifiez les associations et le type de chaque contact avant de confirmer.</p>
       </div>
 
