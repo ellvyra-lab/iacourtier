@@ -31,6 +31,10 @@ export type DirectorChatContext = {
   newContacts: number;
   buyerPipeline: number;
   sellerPipeline: number;
+  automationsReadyToday?: number;
+  automationsBlocked?: number;
+  mortgageRenewalsWithin90Days?: number;
+  automationHumanInterventions?: number;
 };
 
 export type DirectorChatRequest = {
@@ -103,7 +107,13 @@ function buildMentorBrief(context: DirectorChatContext, inspiration: string) {
 
   const activitySnapshot = `${context.userName || "Sonia"}, aujourd'hui tu as ${context.prospectsCreatedToday} prospect${context.prospectsCreatedToday > 1 ? "s" : ""} créé${context.prospectsCreatedToday > 1 ? "s" : ""}, ${context.callsCompletedToday} appel${context.callsCompletedToday > 1 ? "s" : ""} effectué${context.callsCompletedToday > 1 ? "s" : ""}, ${context.overdueFollowups} suivi${context.overdueFollowups > 1 ? "s" : ""} en retard, ${context.appointmentsToday} rendez-vous aujourd'hui et ${context.appointmentsTomorrow} demain. Le pipeline compte ${context.buyerPipeline} acheteur${context.buyerPipeline > 1 ? "s" : ""} et ${context.sellerPipeline} vendeur${context.sellerPipeline > 1 ? "s" : ""}.`;
 
-  if (context.appointmentsToday > 0 && context.pendingMarketAnalyses > 0) {
+  if ((context.automationsReadyToday || 0) > 0 || (context.mortgageRenewalsWithin90Days || 0) > 0) {
+    observation = `${activitySnapshot} Tu as ${context.automationsReadyToday || 0} communication${(context.automationsReadyToday || 0) > 1 ? "s" : ""} prête${(context.automationsReadyToday || 0) > 1 ? "s" : ""}, ${context.mortgageRenewalsWithin90Days || 0} renouvellement${(context.mortgageRenewalsWithin90Days || 0) > 1 ? "s" : ""} hypothécaire${(context.mortgageRenewalsWithin90Days || 0) > 1 ? "s" : ""} à moins de 90 jours et ${context.automationsBlocked || 0} contact${(context.automationsBlocked || 0) > 1 ? "s" : ""} bloqué${(context.automationsBlocked || 0) > 1 ? "s" : ""} par des données ou consentements manquants.`;
+    analysis = "Les suivis hypothécaires proches demandent une validation humaine rapide; les communications restent préparées dans l'application et aucun envoi externe n'est effectué.";
+    recommendation = (context.mortgageRenewalsWithin90Days || 0) > 0
+      ? "Valide d'abord les suivis hypothécaires à moins de 90 jours."
+      : "Ouvre les automatisations prêtes et valide la plus urgente.";
+  } else if (context.appointmentsToday > 0 && context.pendingMarketAnalyses > 0) {
     observation = `${activitySnapshot} ${context.pendingMarketAnalyses} analyse${context.pendingMarketAnalyses > 1 ? "s" : ""} de marché attend${context.pendingMarketAnalyses > 1 ? "ent" : ""} encore.`;
     analysis = "Un rendez-vous vendeur sans analyse finalisée réduit ta capacité à défendre le prix et à guider la décision pendant la rencontre.";
     recommendation = "Finalise maintenant l'analyse liée au prochain rendez-vous d'aujourd'hui.";
@@ -197,6 +207,10 @@ async function generateDirectorReply(message: string, history: DirectorChatTurn[
 - Nouveaux contacts aujourd'hui : ${context.newContacts}
 - Pipeline acheteurs : ${context.buyerPipeline}
 - Pipeline vendeurs : ${context.sellerPipeline}
+- Automatisations prêtes aujourd'hui : ${context.automationsReadyToday || 0}
+- Automatisations bloquées par données ou consentement : ${context.automationsBlocked || 0}
+- Renouvellements hypothécaires à moins de 90 jours : ${context.mortgageRenewalsWithin90Days || 0}
+- Interventions humaines requises pour les automatisations : ${context.automationHumanInterventions || 0}
   `.trim();
 
   const priorityRules = `Ordre de priorité officiel de l'agence, du plus urgent au moins urgent :
@@ -206,12 +220,12 @@ async function generateDirectorReply(message: string, history: DirectorChatTurn[
 4. Analyse de marché à terminer -> la finaliser avant le prochain rendez-vous.
 5. Sinon -> prospecter (Radar).`;
 
-  const systemPrompt = `Tu es le Directeur des opérations d'IACourtier, une agence immobilière au Québec. Tu n'es PAS un assistant généraliste et tu ne dois jamais répondre comme ChatGPT. Tu es le directeur d'agence de ${userName}, un courtier immobilier.
+  const systemPrompt = `Tu es le Coach IA des opérations d'IACourtier, une agence immobilière au Québec. Tu n'es PAS un assistant généraliste et tu ne dois jamais répondre comme ChatGPT. Tu es le coach d'agence de ${userName}, un courtier immobilier.
 
 Ton style :
 - Professionnel, direct, orienté action.
 - Toujours en français, jamais en anglais.
-- Jamais "en tant qu'IA" ni "je suis un assistant" : tu es un directeur d'agence.
+- Jamais "en tant qu'IA" ni "je suis un assistant" : tu es un coach d'agence.
 - Maximum 6 lignes, concret et actionnable.
 - Chaque réponse contient exactement quatre lignes, dans cet ordre : "Observation —", "Analyse —", "Recommandation —", "Inspiration —".
 - Observation décrit uniquement les chiffres et faits réels du contexte.
@@ -232,12 +246,12 @@ ${contextSummary}`;
 
   const historyText = history
     .slice(-8)
-    .map((turn) => `${turn.role === "user" ? userName : "Directeur"} : ${turn.content}`)
+    .map((turn) => `${turn.role === "user" ? userName : "Coach IA"} : ${turn.content}`)
     .join("\n");
 
   const userPrompt = `${historyText ? `Historique récent de la conversation :\n${historyText}\n\n` : ""}Nouveau message de ${userName} : "${message}"
 
-Réponds directement à ${userName}, comme le ferait un directeur d'agence immobilière expérimenté qui connaît son dossier. Respecte exactement les quatre lignes obligatoires et ne donne qu'une seule recommandation. Ne réponds jamais de façon générique.`;
+Réponds directement à ${userName}, comme le ferait un coach d'agence immobilière expérimenté qui connaît son dossier. Respecte exactement les quatre lignes obligatoires et ne donne qu'une seule recommandation. Ne réponds jamais de façon générique.`;
 
   const reply = await generateWithOpenAI({
     systemPrompt,
