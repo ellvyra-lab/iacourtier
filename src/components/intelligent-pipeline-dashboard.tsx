@@ -14,6 +14,20 @@ import {
 } from "@/lib/pipeline-intelligence";
 import { contextFromPipelineStatus, getContextualAiActions } from "@/lib/ai-actions";
 import { cn } from "@/lib/utils";
+import {
+  AUTOMATION_TYPE_LABELS,
+  getAutomationMode,
+  getAutomationSummary,
+  getClientAutomations,
+  getCommunicationBlockReason,
+  setAutomationMode,
+  syncClientAutomations,
+  updateClientAutomation,
+  type AutomationMode,
+  type AutomationStatus,
+  type AutomationType,
+  type ClientAutomation,
+} from "@/lib/client-automations";
 import { getSoniaProspects } from "@/lib/sonia-beta/storage";
 import type { ClientImportProfile, ClientRelationshipType, SoniaProspect } from "@/lib/sonia-beta/types";
 import {
@@ -81,6 +95,8 @@ export function IntelligentPipelineDashboard({ data }: { data: PipelineDashboard
       </div>
 
       {isImportOpen ? <ClientImportPanel onImported={refreshStoredContacts} /> : null}
+
+      <ClientAutomationsSection contacts={storedContacts} />
 
       <section className="grid gap-4 lg:grid-cols-5">
         {data.employees.map((employee) => (
@@ -300,6 +316,139 @@ function ClientImportPanel({ onImported }: { onImported: () => void }) {
           <p className="mt-2">Contacts importés : {report.imported} · Doublons : {report.duplicates} · Lignes ignorées : {report.ignored} · Erreurs : {report.errors.length}</p>
           <p className="mt-1">Prêts pour automatisation : {report.readyForAutomation} · Contacts à compléter : {report.contactsToComplete}</p>
           {report.errors.length ? <ul className="mt-2 list-disc pl-5">{report.errors.map((item) => <li key={item}>{item}</li>)}</ul> : null}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function ClientAutomationsSection({ contacts }: { contacts: SoniaProspect[] }) {
+  const [mode, setMode] = useState<AutomationMode>("approval");
+  const [automations, setAutomations] = useState<ClientAutomation[]>([]);
+  const [typeFilter, setTypeFilter] = useState<AutomationType | "all">("all");
+  const [statusFilter, setStatusFilter] = useState<AutomationStatus | "all">("all");
+  const [dateFilter, setDateFilter] = useState("");
+  const [selectedId, setSelectedId] = useState("");
+  const selected = automations.find((item) => item.id === selectedId);
+  const summary = getAutomationSummary(automations, contacts);
+  const today = new Date().toISOString().slice(0, 10);
+
+  useEffect(() => {
+    const savedMode = getAutomationMode();
+    setMode(savedMode);
+    setAutomations(syncClientAutomations(contacts, savedMode));
+  }, [contacts]);
+
+  function changeMode(nextMode: AutomationMode) {
+    setMode(nextMode);
+    setAutomationMode(nextMode);
+    setAutomations(syncClientAutomations(contacts, nextMode));
+  }
+
+  function applyUpdate(id: string, changes: Partial<Pick<ClientAutomation, "message" | "scheduledFor" | "status">>) {
+    updateClientAutomation(id, changes);
+    setAutomations(getClientAutomations());
+  }
+
+  const filtered = automations.filter((automation) =>
+    (typeFilter === "all" || automation.type === typeFilter) &&
+    (statusFilter === "all" || automation.status === statusFilter) &&
+    (!dateFilter || automation.scheduledFor.slice(0, 10) === dateFilter)
+  );
+  const incomplete = contacts.filter((contact) => getCommunicationBlockReason(contact) || contact.importProfile?.missingInformation.length);
+
+  return (
+    <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900/72">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <p className="text-sm font-semibold text-teal-700 dark:text-teal-300">Coach IA</p>
+          <h2 className="mt-1 text-2xl font-semibold tracking-tight">Automatisations clients</h2>
+          <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">Les employés IA préparent et planifient les communications. Aucun envoi externe n’est effectué.</p>
+        </div>
+        <label className="text-sm font-semibold">
+          Mode automatisation
+          <select value={mode} onChange={(event) => changeMode(event.target.value as AutomationMode)} className="mt-2 block rounded-lg border border-slate-200 bg-white px-3 py-2 font-normal dark:border-slate-700 dark:bg-slate-950">
+            <option value="disabled">Désactivé</option>
+            <option value="approval">Validation requise</option>
+            <option value="automatic">Automatique (planification seulement)</option>
+          </select>
+        </label>
+      </div>
+
+      <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
+        {[
+          ["À venir", summary.upcoming],
+          ["Prêtes", summary.ready],
+          ["En retard", summary.overdue],
+          ["Envoyées", summary.sent],
+          ["Erreurs", summary.errors],
+          ["Contacts incomplets", summary.incompleteContacts + summary.blockedByConsent],
+        ].map(([label, value]) => (
+          <div key={label} className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950/50">
+            <p className="text-2xl font-semibold">{value}</p><p className="mt-1 text-xs text-slate-500">{label}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-5 flex flex-wrap gap-3">
+        <select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value as AutomationType | "all")} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950">
+          <option value="all">Tous les types</option>
+          {Object.entries(AUTOMATION_TYPE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+        </select>
+        <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as AutomationStatus | "all")} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950">
+          <option value="all">Tous les statuts</option>
+          {["brouillon", "planifiée", "prête", "envoyée", "échouée", "annulée", "ignorée"].map((status) => <option key={status} value={status}>{status}</option>)}
+        </select>
+        <input type="date" value={dateFilter} onChange={(event) => setDateFilter(event.target.value)} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950" />
+        <button type="button" onClick={() => setAutomations(syncClientAutomations(contacts, mode))} className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold dark:border-slate-700">Analyser les fiches</button>
+      </div>
+
+      <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,1fr)_420px]">
+        <div className="max-h-[620px] space-y-3 overflow-y-auto pr-1">
+          {filtered.length ? filtered.map((automation) => {
+            const overdue = automation.scheduledFor.slice(0, 10) < today && !["envoyée", "annulée", "ignorée"].includes(automation.status);
+            return (
+              <button key={automation.id} type="button" onClick={() => setSelectedId(automation.id)} className={cn("w-full rounded-lg border p-4 text-left", selectedId === automation.id ? "border-teal-400 bg-teal-50 dark:bg-teal-950/30" : "border-slate-200 dark:border-slate-800")}>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="font-semibold">{automation.clientName} · {AUTOMATION_TYPE_LABELS[automation.type]}</p>
+                  <span className={cn("rounded-full px-2.5 py-1 text-xs font-semibold", overdue ? "bg-red-100 text-red-700" : "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200")}>{overdue ? "en retard" : automation.status}</span>
+                </div>
+                <p className="mt-2 text-xs text-slate-500">{automation.employee} · {automation.channel} · {new Date(automation.scheduledFor).toLocaleString("fr-CA")}</p>
+                <p className="mt-2 line-clamp-2 text-sm text-slate-600 dark:text-slate-300">{automation.reason}</p>
+              </button>
+            );
+          }) : <p className="rounded-lg border border-dashed border-slate-200 p-5 text-sm text-slate-500 dark:border-slate-800">Aucune automatisation pour ces filtres.</p>}
+        </div>
+
+        {selected ? (
+          <div className="rounded-lg border border-teal-200 bg-teal-50/50 p-4 dark:border-teal-900 dark:bg-teal-950/20">
+            <p className="text-xs font-semibold uppercase tracking-wide text-teal-700">Automatisation ouverte</p>
+            <h3 className="mt-1 font-semibold">{selected.clientName} · {AUTOMATION_TYPE_LABELS[selected.type]}</h3>
+            <p className="mt-2 text-xs text-slate-500">{selected.reason}</p>
+            <label className="mt-4 block text-xs font-semibold">Date prévue
+              <input type="datetime-local" value={selected.scheduledFor.slice(0, 16)} onChange={(event) => applyUpdate(selected.id, { scheduledFor: new Date(event.target.value).toISOString() })} className="mt-1 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950" />
+            </label>
+            <label className="mt-3 block text-xs font-semibold">Message préparé
+              <textarea rows={8} value={selected.message} onChange={(event) => applyUpdate(selected.id, { message: event.target.value })} className="mt-1 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm leading-6 dark:border-slate-700 dark:bg-slate-950" />
+            </label>
+            <p className="mt-3 text-xs"><span className="font-semibold">Prochaine action :</span> {selected.nextAction}</p>
+            <Link href={selected.clientHref} className="mt-3 inline-flex text-xs font-semibold text-teal-700 underline">Ouvrir la fiche client</Link>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button type="button" onClick={() => applyUpdate(selected.id, { status: "brouillon" })} className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold">Mettre en pause</button>
+              <button type="button" onClick={() => applyUpdate(selected.id, { status: "annulée" })} className="rounded-lg border border-red-300 px-3 py-2 text-xs font-semibold text-red-700">Annuler</button>
+              <button type="button" onClick={() => applyUpdate(selected.id, { status: "ignorée" })} className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold">Ignorer</button>
+              <button type="button" onClick={() => applyUpdate(selected.id, { status: selected.scheduledFor.slice(0, 10) <= today ? "prête" : "planifiée" })} className="rounded-lg bg-teal-700 px-3 py-2 text-xs font-semibold text-white">Réactiver</button>
+            </div>
+          </div>
+        ) : <div className="rounded-lg border border-dashed border-slate-200 p-5 text-sm text-slate-500 dark:border-slate-800">Ouvrez une automatisation pour modifier son message, sa date ou son statut.</div>}
+      </div>
+
+      {incomplete.length ? (
+        <div className="mt-5 rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950/20">
+          <p className="text-sm font-semibold text-amber-800 dark:text-amber-200">Contacts incomplets ou exclus</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {incomplete.map((contact) => <span key={contact.id} className="rounded-full bg-white px-3 py-1 text-xs ring-1 ring-amber-200 dark:bg-slate-950 dark:ring-amber-900">{contact.name} · {getCommunicationBlockReason(contact) || contact.importProfile?.missingInformation.join(", ")}</span>)}
+          </div>
         </div>
       ) : null}
     </section>
