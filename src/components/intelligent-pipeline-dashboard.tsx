@@ -147,7 +147,6 @@ function toPipelineClient(contact: SoniaProspect): PipelineClient {
 function ClientImportPanel({ onImported }: { onImported: () => void }) {
   const [preview, setPreview] = useState<ImportPreview | null>(null);
   const [bulkDecision, setBulkDecision] = useState<DuplicateDecision | "ambiguous" | "">("");
-  const [ambiguousDecisions, setAmbiguousDecisions] = useState<Record<number, DuplicateDecision>>({});
   const [report, setReport] = useState<ImportReport | null>(null);
   const [error, setError] = useState("");
 
@@ -157,7 +156,6 @@ function ClientImportPanel({ onImported }: { onImported: () => void }) {
     setError("");
     setReport(null);
     setBulkDecision("");
-    setAmbiguousDecisions({});
 
     try {
       setPreview(await parseClientFile(file));
@@ -174,7 +172,6 @@ function ClientImportPanel({ onImported }: { onImported: () => void }) {
       uncertainHeaders: current.uncertainHeaders.filter((item) => item !== header),
     } : current);
     setBulkDecision("");
-    setAmbiguousDecisions({});
     setReport(null);
   }
 
@@ -192,11 +189,14 @@ function ClientImportPanel({ onImported }: { onImported: () => void }) {
   const statistics = getImportStatistics(preview.rows, preview.mapping);
   const duplicates = findDuplicates(preview.rows, preview.mapping, getSoniaProspects());
   const ambiguousDuplicates = duplicates.filter((duplicate) => duplicate.ambiguous);
-  const previewRows = preview.rows.slice(0, 20);
+  const ambiguousRowNumbers = new Set(ambiguousDuplicates.map((duplicate) => duplicate.rowNumber));
+  const previewRows = (bulkDecision === "ambiguous"
+    ? preview.rows.filter((row) => ambiguousRowNumbers.has(row.rowNumber))
+    : preview.rows
+  ).slice(0, 20);
 
   function chooseBulkDecision(decision: DuplicateDecision | "ambiguous") {
     setBulkDecision(decision);
-    setAmbiguousDecisions({});
     setError("");
   }
 
@@ -205,15 +205,10 @@ function ClientImportPanel({ onImported }: { onImported: () => void }) {
       setError("Choisissez une règle globale pour les doublons.");
       return;
     }
-    if (bulkDecision === "ambiguous" && ambiguousDuplicates.some((duplicate) => !ambiguousDecisions[duplicate.rowNumber])) {
-      setError("Choisissez une action uniquement pour les cas ambigus affichés.");
-      return;
-    }
-
     const decisions = Object.fromEntries(duplicates.map((duplicate) => [
       duplicate.rowNumber,
       bulkDecision === "ambiguous"
-        ? duplicate.ambiguous ? ambiguousDecisions[duplicate.rowNumber] : "merge"
+        ? duplicate.ambiguous ? "keep-both" : "merge"
         : bulkDecision,
     ])) as Record<number, DuplicateDecision>;
     const result = importClientRows(preview.rows, preview.mapping, decisions);
@@ -261,44 +256,47 @@ function ClientImportPanel({ onImported }: { onImported: () => void }) {
       </div>
 
       {duplicates.length ? (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950/20">
-          <h3 className="font-semibold text-amber-900 dark:text-amber-100">
-            {duplicates.length > 5 ? `${duplicates.length} doublons détectés — appliquez une seule règle` : `${duplicates.length} doublon${duplicates.length > 1 ? "s" : ""} détecté${duplicates.length > 1 ? "s" : ""}`}
-          </h3>
-          <div className="mt-3 flex flex-wrap gap-2">
+        <fieldset className="rounded-lg border border-amber-200 bg-amber-50 p-5 dark:border-amber-900 dark:bg-amber-950/20">
+          <legend className="px-1 text-lg font-semibold text-amber-950 dark:text-amber-100">{duplicates.length} doublons détectés.</legend>
+          <p className="mt-1 font-semibold text-amber-900 dark:text-amber-100">Que souhaites-tu faire ?</p>
+          <div className="mt-4 space-y-3">
             {[
-              ["merge", "Fusionner tous"],
-              ["keep-both", "Conserver tous"],
-              ["ignore", "Ignorer tous"],
+              ["merge", "Fusionner automatiquement tous les doublons"],
+              ["keep-both", "Conserver automatiquement tous les doublons"],
+              ["ignore", "Ignorer automatiquement tous les doublons"],
               ["ambiguous", "Examiner seulement les cas ambigus"],
             ].map(([value, label]) => (
-              <button key={value} type="button" onClick={() => chooseBulkDecision(value as DuplicateDecision | "ambiguous")} className={`rounded-lg border px-3 py-2 text-sm font-semibold ${bulkDecision === value ? "border-teal-700 bg-teal-700 text-white" : "border-amber-300 bg-white text-slate-800 dark:bg-slate-950 dark:text-slate-100"}`}>
-                {label}
-              </button>
+              <label key={value} className="flex cursor-pointer items-start gap-3 rounded-lg border border-amber-200 bg-white p-3 text-sm font-medium dark:bg-slate-950">
+                <input
+                  type="radio"
+                  name="duplicate-strategy"
+                  value={value}
+                  checked={bulkDecision === value}
+                  onChange={() => chooseBulkDecision(value as DuplicateDecision | "ambiguous")}
+                  className="mt-0.5 h-4 w-4 accent-teal-700"
+                />
+                <span>{label}</span>
+              </label>
             ))}
           </div>
           {bulkDecision === "ambiguous" ? (
-            <div className="mt-4 space-y-3">
-              {ambiguousDuplicates.length ? ambiguousDuplicates.map((duplicate) => (
-                <label key={duplicate.rowNumber} className="flex flex-col gap-2 rounded-lg border border-amber-200 bg-white p-3 text-sm dark:bg-slate-950 sm:flex-row sm:items-center sm:justify-between">
-                  <span>Ligne {duplicate.rowNumber} · {duplicate.existingName} · {duplicate.matchCount} correspondances ({duplicate.reasons.join(", ")})</span>
-                  <select value={ambiguousDecisions[duplicate.rowNumber] || ""} onChange={(event) => setAmbiguousDecisions((current) => ({ ...current, [duplicate.rowNumber]: event.target.value as DuplicateDecision }))} className="rounded-lg border border-amber-300 bg-white px-3 py-2 dark:bg-slate-900">
-                    <option value="">Choisir…</option>
-                    <option value="merge">Fusionner</option>
-                    <option value="keep-both">Conserver</option>
-                    <option value="ignore">Ignorer</option>
-                  </select>
-                </label>
-              )) : <p className="text-sm text-amber-800 dark:text-amber-200">Aucun cas ambigu : les doublons clairs seront fusionnés automatiquement.</p>}
-            </div>
+            <p className="mt-4 text-sm text-amber-800 dark:text-amber-200">
+              {ambiguousDuplicates.length
+                ? `${ambiguousDuplicates.length} cas réellement ambigu${ambiguousDuplicates.length > 1 ? "s" : ""} affiché${ambiguousDuplicates.length > 1 ? "s" : ""} ci-dessous (maximum 20). Ils seront conservés séparément par sécurité; les doublons clairs seront fusionnés.`
+                : "Aucun cas réellement ambigu. Les doublons clairs seront fusionnés automatiquement."}
+            </p>
           ) : null}
-        </div>
+        </fieldset>
       ) : null}
 
       <div className="overflow-x-auto">
         <div className="flex items-center justify-between gap-3">
-          <h3 className="text-sm font-semibold">Aperçu des contacts</h3>
-          <p className="text-xs text-slate-500">20 lignes maximum affichées sur {preview.rows.length.toLocaleString("fr-CA")}</p>
+          <h3 className="text-sm font-semibold">{bulkDecision === "ambiguous" ? "Cas ambigus" : "Aperçu des contacts"}</h3>
+          <p className="text-xs text-slate-500">
+            {bulkDecision === "ambiguous"
+              ? `${Math.min(ambiguousDuplicates.length, 20)} affiché${Math.min(ambiguousDuplicates.length, 20) > 1 ? "s" : ""} sur ${ambiguousDuplicates.length} cas ambigu${ambiguousDuplicates.length > 1 ? "s" : ""}`
+              : `20 lignes maximum affichées sur ${preview.rows.length.toLocaleString("fr-CA")}`}
+          </p>
         </div>
         <table className="mt-3 min-w-full text-left text-sm">
           <thead className="text-xs uppercase text-slate-500"><tr><th className="p-2">Ligne</th><th className="p-2">Aperçu</th><th className="p-2">Type détecté</th><th className="p-2">État</th></tr></thead>
@@ -321,7 +319,7 @@ function ClientImportPanel({ onImported }: { onImported: () => void }) {
 
       {error ? <p className="text-sm text-red-700 dark:text-red-300">{error}</p> : null}
       <button type="button" onClick={confirmImport} className="inline-flex items-center justify-center gap-2 rounded-lg bg-teal-700 px-5 py-3 text-sm font-semibold text-white hover:bg-teal-800">
-        <Upload className="h-4 w-4" /> Importer {preview.rows.length.toLocaleString("fr-CA")} contacts
+        <Upload className="h-4 w-4" /> Importer
       </button>
 
       {report ? (
