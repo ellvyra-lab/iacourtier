@@ -17,6 +17,15 @@ export type DirectorChatContext = {
   mandatesWithMissingDocuments: number;
   marketingActionsToGenerate: number;
   totalProspects: number;
+  prospectsCreatedToday: number;
+  callsCompletedToday: number;
+  overdueFollowups: number;
+  appointmentsToday: number;
+  appointmentsTomorrow: number;
+  pendingMarketAnalyses: number;
+  newContacts: number;
+  buyerPipeline: number;
+  sellerPipeline: number;
 };
 
 export type DirectorChatRequest = {
@@ -84,33 +93,47 @@ function buildMentorBrief(context: DirectorChatContext, inspiration: string) {
   let analysis: string;
   let recommendation: string;
 
-  if (context.informationRequests > 0) {
+  const activitySnapshot = `${context.userName || "Sonia"}, aujourd'hui tu as ${context.prospectsCreatedToday} prospect${context.prospectsCreatedToday > 1 ? "s" : ""} créé${context.prospectsCreatedToday > 1 ? "s" : ""}, ${context.callsCompletedToday} appel${context.callsCompletedToday > 1 ? "s" : ""} effectué${context.callsCompletedToday > 1 ? "s" : ""}, ${context.overdueFollowups} suivi${context.overdueFollowups > 1 ? "s" : ""} en retard, ${context.appointmentsToday} rendez-vous aujourd'hui et ${context.appointmentsTomorrow} demain. Le pipeline compte ${context.buyerPipeline} acheteur${context.buyerPipeline > 1 ? "s" : ""} et ${context.sellerPipeline} vendeur${context.sellerPipeline > 1 ? "s" : ""}.`;
+
+  if (context.appointmentsToday > 0 && context.pendingMarketAnalyses > 0) {
+    observation = `${activitySnapshot} ${context.pendingMarketAnalyses} analyse${context.pendingMarketAnalyses > 1 ? "s" : ""} de marché attend${context.pendingMarketAnalyses > 1 ? "ent" : ""} encore.`;
+    analysis = "Un rendez-vous vendeur sans analyse finalisée réduit ta capacité à défendre le prix et à guider la décision pendant la rencontre.";
+    recommendation = "Finalise maintenant l'analyse liée au prochain rendez-vous d'aujourd'hui.";
+  } else if (context.appointmentsTomorrow > 0 && context.pendingMarketAnalyses > 0) {
+    observation = `${activitySnapshot} ${context.pendingMarketAnalyses} analyse${context.pendingMarketAnalyses > 1 ? "s" : ""} de marché reste${context.pendingMarketAnalyses > 1 ? "nt" : ""} à terminer.`;
+    analysis = "Préparer l'analyse la veille libère ton attention pour la stratégie de rencontre et évite une préparation précipitée demain.";
+    recommendation = "Termine d'abord l'analyse du premier rendez-vous vendeur de demain.";
+  } else if (context.overdueFollowups > 0) {
+    observation = activitySnapshot;
+    analysis = "Les suivis en retard concernent des relations déjà engagées; leur valeur commerciale décroît pendant que l'attente augmente.";
+    recommendation = "Rappelle maintenant le prospect dont le suivi est le plus ancien.";
+  } else if (context.informationRequests > 0) {
     const example = context.informationRequestExample;
     observation = `Tu as ${context.informationRequests} demande${context.informationRequests > 1 ? "s" : ""} d'information non traitée${context.informationRequests > 1 ? "s" : ""}${example ? `, dont celle de ${example.name} pour ${example.address}` : ""}.`;
     analysis = "Une demande entrante perd rapidement de sa valeur quand la première conversation tarde; elle est déjà plus engagée qu'un contact froid.";
     recommendation = example ? `Réponds maintenant à ${example.name} et termine par une question sur son projet et son échéancier.` : "Réponds maintenant à la demande la plus récente et termine par une question sur le projet et l'échéancier.";
   } else if (context.sellerAppointmentsToPrepare > 0) {
-    observation = `Tu as ${context.sellerAppointmentsToPrepare} rendez-vous vendeur${context.sellerAppointmentsToPrepare > 1 ? "s" : ""} à préparer et ${context.marketAnalysesToPrepare} analyse${context.marketAnalysesToPrepare > 1 ? "s" : ""} de marché à finaliser.`;
+    observation = `${activitySnapshot} Tu as ${context.sellerAppointmentsToPrepare} rendez-vous vendeur${context.sellerAppointmentsToPrepare > 1 ? "s" : ""} à préparer et ${context.marketAnalysesToPrepare} analyse${context.marketAnalysesToPrepare > 1 ? "s" : ""} de marché à finaliser.`;
     analysis = "La confiance du vendeur se gagne lorsque tes comparables mènent à une recommandation claire, pas lorsqu'ils restent une accumulation de données.";
     recommendation = "Prépare d'abord le prochain rendez-vous avec une fourchette défendable et une décision précise à faire prendre au vendeur.";
   } else if (context.followupsDue > 0) {
-    observation = `Tu as ${context.followupsDue} suivi${context.followupsDue > 1 ? "s" : ""} en attente et ${context.callsToMake} appel${context.callsToMake > 1 ? "s" : ""} prévu${context.callsToMake > 1 ? "s" : ""}.`;
+    observation = `${activitySnapshot} Tu as ${context.followupsDue} suivi${context.followupsDue > 1 ? "s" : ""} en attente et ${context.callsToMake} appel${context.callsToMake > 1 ? "s" : ""} prévu${context.callsToMake > 1 ? "s" : ""}.`;
     analysis = "Un suivi protège une relation déjà amorcée; le reporter coûte généralement plus cher que démarrer une nouvelle conversation.";
     recommendation = "Commence par le suivi le plus ancien avec un rappel du contexte, une information utile et une prochaine étape simple.";
   } else if (context.marketAnalysesToPrepare > 0) {
-    observation = `Tu as ${context.marketAnalysesToPrepare} analyse${context.marketAnalysesToPrepare > 1 ? "s" : ""} de marché incomplète${context.marketAnalysesToPrepare > 1 ? "s" : ""} avant tes prochaines actions commerciales.`;
+    observation = `${activitySnapshot} Tu as ${context.marketAnalysesToPrepare} analyse${context.marketAnalysesToPrepare > 1 ? "s" : ""} de marché incomplète${context.marketAnalysesToPrepare > 1 ? "s" : ""} avant tes prochaines actions commerciales.`;
     analysis = "Une analyse inachevée ralentit la décision du client et réduit ta capacité à défendre un positionnement de prix.";
     recommendation = "Finalise l'analyse la plus urgente et formule sa recommandation en une phrase avant de passer à autre chose.";
   } else if (context.callsToMake > 0 || context.radarProspectsToCall > 0) {
-    observation = `Tu as ${context.callsToMake} appel${context.callsToMake > 1 ? "s" : ""} planifié${context.callsToMake > 1 ? "s" : ""} et ${context.radarProspectsToCall} prospect${context.radarProspectsToCall > 1 ? "s" : ""} Radar prêt${context.radarProspectsToCall > 1 ? "s" : ""} à être contacté${context.radarProspectsToCall > 1 ? "s" : ""}.`;
+    observation = `${activitySnapshot} Tu as ${context.callsToMake} appel${context.callsToMake > 1 ? "s" : ""} planifié${context.callsToMake > 1 ? "s" : ""} et ${context.radarProspectsToCall} prospect${context.radarProspectsToCall > 1 ? "s" : ""} Radar prêt${context.radarProspectsToCall > 1 ? "s" : ""} à être contacté${context.radarProspectsToCall > 1 ? "s" : ""}.`;
     analysis = "Ton pipeline progresse lorsque chaque appel clarifie une motivation, un échéancier ou une prochaine permission; la préparation seule ne produit aucun de ces signaux.";
     recommendation = "Fais maintenant le premier appel et note immédiatement la motivation, l'échéancier et la prochaine étape obtenue.";
   } else if (context.totalProspects === 0) {
-    observation = "Ton pipeline ne contient actuellement aucun prospect réel et aucun appel n'est planifié.";
+    observation = `${activitySnapshot} Aucun prospect réel n'est actuellement disponible pour une prochaine action.`;
     analysis = "Sans volume minimal de conversations, tu ne peux ni mesurer ton approche ni créer assez d'occasions pour obtenir un mandat.";
     recommendation = "Ajoute tes cinq premiers prospects, puis appelle le premier sans attendre de perfectionner ton script.";
   } else {
-    observation = `Ton pipeline contient ${context.totalProspects} prospect${context.totalProspects > 1 ? "s" : ""}, sans urgence commerciale détectée aujourd'hui.`;
+    observation = `${activitySnapshot} Ton pipeline contient ${context.totalProspects} prospect${context.totalProspects > 1 ? "s" : ""}, sans urgence commerciale détectée aujourd'hui.`;
     analysis = "L'absence d'urgence est le meilleur moment pour faire avancer volontairement le dossier le plus proche d'une décision.";
     recommendation = "Choisis le prospect le plus avancé et fixe avec lui une prochaine étape datée.";
   }
@@ -157,6 +180,15 @@ async function generateDirectorReply(message: string, history: DirectorChatTurn[
 - Documents vendeur manquants : ${context.mandatesWithMissingDocuments}
 - Actions marketing à générer : ${context.marketingActionsToGenerate}
 - Nombre total de prospects actifs : ${context.totalProspects}
+- Prospects créés aujourd'hui : ${context.prospectsCreatedToday}
+- Appels effectués aujourd'hui : ${context.callsCompletedToday}
+- Suivis en retard : ${context.overdueFollowups}
+- Rendez-vous aujourd'hui : ${context.appointmentsToday}
+- Rendez-vous demain : ${context.appointmentsTomorrow}
+- Analyses de marché en attente : ${context.pendingMarketAnalyses}
+- Nouveaux contacts aujourd'hui : ${context.newContacts}
+- Pipeline acheteurs : ${context.buyerPipeline}
+- Pipeline vendeurs : ${context.sellerPipeline}
   `.trim();
 
   const priorityRules = `Ordre de priorité officiel de l'agence, du plus urgent au moins urgent :
