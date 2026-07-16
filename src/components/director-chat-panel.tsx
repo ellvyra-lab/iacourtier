@@ -26,6 +26,13 @@ type DirectorConversation = {
 const CONVERSATIONS_KEY = "iacourtier_director_conversations";
 const ACTIVE_ID_KEY = "iacourtier_director_active_conversation";
 
+const QUICK_SUGGESTIONS = [
+  "Qu'est-ce qui est prioritaire ?",
+  "Prépare ma journée.",
+  "J'ai reçu une demande Facebook.",
+  "Prépare mon rendez-vous.",
+] as const;
+
 function loadConversations(): DirectorConversation[] {
   if (typeof window === "undefined") return [];
   try {
@@ -364,14 +371,27 @@ export function DirectorChatPanel({
         </div>
       ) : null}
 
-      <form onSubmit={handleSubmit} className="mt-4 flex items-center gap-2">
-        <input
-          type="text"
+      <div className="mt-4 flex flex-wrap gap-2" aria-label="Suggestions de conversation">
+        {QUICK_SUGGESTIONS.map((suggestion) => (
+          <button
+            key={suggestion}
+            type="button"
+            onClick={() => setInput(suggestion)}
+            className="rounded-full border border-subtle bg-background px-3 py-2 text-left text-xs font-medium transition hover:border-electric-500/40 hover:text-electric-500"
+          >
+            {suggestion}
+          </button>
+        ))}
+      </div>
+
+      <form onSubmit={handleSubmit} className="mt-3 flex items-end gap-2">
+        <textarea
+          rows={2}
           value={input}
           onChange={(event) => setInput(event.target.value)}
           placeholder="Écris au Directeur IA..."
           disabled={isSending}
-          className="flex-1 rounded-2xl border border-subtle bg-background px-4 py-3 text-sm focus:border-electric-500/40 focus:outline-none disabled:opacity-60"
+          className="min-h-12 flex-1 resize-none rounded-2xl border border-subtle bg-background px-4 py-3 text-sm focus:border-electric-500/40 focus:outline-none disabled:opacity-60"
         />
         <button
           type="button"
@@ -383,10 +403,12 @@ export function DirectorChatPanel({
         </button>
         <button
           type="submit"
+          aria-label="Envoyer le message"
           disabled={isSending || !input.trim()}
           className="inline-flex items-center justify-center gap-2 rounded-2xl bg-electric-500 px-4 py-3 text-sm font-semibold text-white transition hover:bg-electric-600 disabled:opacity-50"
         >
           {isSending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+          <span className="hidden sm:inline">Envoyer</span>
         </button>
       </form>
 
