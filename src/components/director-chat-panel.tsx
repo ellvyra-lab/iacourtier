@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { ArrowRight, Loader2, Plus, Send } from "lucide-react";
 
+import { getAutomationMode, getAutomationSummary, syncClientAutomations } from "@/lib/client-automations";
 import { INFORMATION_REQUEST_NEXT_ACTION } from "@/lib/sonia-beta/storage";
 import type { SoniaBattlePlan, SoniaProspect } from "@/lib/sonia-beta";
 import type { DirectorAction } from "@/app/api/coach/director/route";
@@ -232,6 +233,7 @@ export function DirectorChatPanel({
     try {
       const realProspects = prospects.filter((prospect) => !prospect.id.startsWith("sonia-demo-"));
       const informationRequests = realProspects.filter((prospect) => prospect.nextAction === INFORMATION_REQUEST_NEXT_ACTION);
+      const automationSummary = getAutomationSummary(syncClientAutomations(realProspects, getAutomationMode()), realProspects);
       const today = localDateKey(new Date());
       const tomorrowDate = new Date();
       tomorrowDate.setDate(tomorrowDate.getDate() + 1);
@@ -277,13 +279,17 @@ export function DirectorChatPanel({
             newContacts,
             buyerPipeline: realProspects.filter((prospect) => prospect.clientType === "buyer").length,
             sellerPipeline: realProspects.filter((prospect) => prospect.clientType === "seller").length,
+            automationsReadyToday: automationSummary.ready,
+            automationsBlocked: automationSummary.incompleteContacts + automationSummary.blockedByConsent,
+            mortgageRenewalsWithin90Days: automationSummary.mortgageWithin90Days,
+            automationHumanInterventions: automationSummary.humanInterventions,
           },
         }),
       });
 
       if (!res.ok) {
         const payload = await res.json().catch(() => null);
-        throw new Error(payload?.error || "Le Directeur IA n'a pas pu répondre.");
+        throw new Error(payload?.error || "Le Coach IA n'a pas pu répondre.");
       }
 
       const data = (await res.json()) as { reply: string; action: DirectorAction; secondaryActions: DirectorAction[] };
@@ -298,7 +304,7 @@ export function DirectorChatPanel({
       setTurns(updatedTurns);
       persistConversation(conversationId, conversationTitle, conversationCreatedAt, updatedTurns);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Le Directeur IA n'a pas pu répondre.");
+      setError(err instanceof Error ? err.message : "Le Coach IA n'a pas pu répondre.");
     } finally {
       setIsSending(false);
     }
@@ -392,9 +398,9 @@ export function DirectorChatPanel({
     <section className="rounded-2xl border border-subtle bg-surface p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-sm font-semibold text-electric-500">Conversation avec le Directeur IA</p>
+          <p className="text-sm font-semibold text-electric-500">Conversation avec le Coach IA</p>
           <p className="mt-1 text-xs text-muted">
-            Pose une question ou décris une situation. Il répond comme un directeur d&apos;agence, pas comme un chatbot général.
+            Pose une question ou décris une situation. Il répond comme un coach d&apos;agence, pas comme un chatbot général.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -458,7 +464,7 @@ export function DirectorChatPanel({
                 turn.role === "user" ? "border-subtle bg-background text-foreground" : "border-electric-500/30 bg-electric-500/5 text-foreground"
               }`}
             >
-              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted">{turn.role === "user" ? userName : "Directeur IA"}</p>
+              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted">{turn.role === "user" ? userName : "Coach IA"}</p>
               <p className="whitespace-pre-line">{turn.content}</p>
 
               {turn.action ? (
@@ -487,7 +493,7 @@ export function DirectorChatPanel({
         {isSending ? (
           <div className="flex items-center gap-2 text-xs text-muted">
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            Le Directeur IA réfléchit...
+            Le Coach IA réfléchit...
           </div>
         ) : null}
       </div>
@@ -516,7 +522,7 @@ export function DirectorChatPanel({
           rows={2}
           value={input}
           onChange={(event) => setInput(event.target.value)}
-          placeholder="Écris au Directeur IA..."
+          placeholder="Écris au Coach IA..."
           disabled={isSending}
           className="min-h-12 flex-1 resize-none rounded-2xl border border-subtle bg-background px-4 py-3 text-sm focus:border-electric-500/40 focus:outline-none disabled:opacity-60"
         />
