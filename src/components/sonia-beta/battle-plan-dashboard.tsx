@@ -87,7 +87,6 @@ export function BattlePlanDashboard() {
   const [prospects, setProspects] = useState<SoniaProspect[]>([]);
   const [coachMessage, setCoachMessage] = useState<CoachMessageResponse>(fallbackCoachMessage);
   const [isLoadingMessage, setIsLoadingMessage] = useState(false);
-  const [isMissionVisible, setIsMissionVisible] = useState(false);
 
   useEffect(() => {
     setProspects(getSoniaProspects());
@@ -139,47 +138,27 @@ export function BattlePlanDashboard() {
   const isEmpty = workingProspects.length === 0;
   const todayPriority = useMemo(() => buildTodayPriority(workingProspects, plan), [workingProspects, plan]);
 
-  const showMission = () => {
-    setIsMissionVisible(true);
-  };
-
   return (
     <div className="space-y-7">
-      <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900/72">
-        <div className="grid gap-6 p-6 lg:grid-cols-[minmax(0,1fr)_360px] lg:p-8">
-          <div>
-            <p className="text-sm font-semibold text-teal-700 dark:text-teal-300">Coach IA</p>
-            <h1 className="mt-2 text-4xl font-semibold tracking-tight sm:text-5xl">{coachMessage.greeting}</h1>
-            <p className="mt-4 max-w-3xl text-lg leading-8 text-slate-700 dark:text-slate-200">
-              {coachMessage.mainMessage}
-            </p>
-            <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-500 dark:text-slate-400">
-              {coachMessage.recommendation}
-            </p>
-            <div className="mt-7 flex flex-col gap-3 sm:flex-row">
-              <button type="button" onClick={showMission} className="inline-flex items-center justify-center gap-2 rounded-lg bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 dark:bg-white dark:text-slate-950">
-                Commencer ma journée
-                <ArrowRight className="h-4 w-4" />
-              </button>
-            </div>
-          </div>
+      <DirectorChatPanel prospects={workingProspects} plan={plan} />
 
-          <div className="rounded-lg border border-teal-200 bg-teal-50/70 p-5 dark:border-teal-900 dark:bg-teal-950/30">
-            <p className="flex items-center gap-2 text-sm font-semibold text-teal-900 dark:text-teal-100">
+      <MissionDuJourSection priority={todayPriority} />
+
+      <section className="rounded-lg border border-slate-200 bg-white px-5 py-4 shadow-sm dark:border-slate-800 dark:bg-slate-900/72">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-teal-700 dark:text-teal-300">Ma journée</p>
+            <h1 className="mt-1 text-2xl font-semibold tracking-tight">{coachMessage.greeting}</h1>
+            <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">{coachMessage.mainMessage}</p>
+          </div>
+          <div className="max-w-xl rounded-lg border border-teal-200 bg-teal-50/70 px-4 py-3 dark:border-teal-900 dark:bg-teal-950/30">
+            <p className="flex items-center gap-2 text-xs font-semibold text-teal-900 dark:text-teal-100">
               <Target className="h-4 w-4" />
-              Aujourd&apos;hui, ton focus
-            </p>
-            <p className="mt-3 text-2xl font-semibold tracking-tight text-teal-950 dark:text-teal-50">{coachMessage.focus}</p>
-            <p className="mt-3 text-sm leading-6 text-teal-900/75 dark:text-teal-100/75">
-              Fais les actions qui créent du mouvement avant d&apos;ouvrir les détails qui peuvent attendre.
+              Focus : {coachMessage.focus}
             </p>
           </div>
         </div>
       </section>
-
-      <DirectorChatPanel prospects={workingProspects} plan={plan} />
-
-      {isMissionVisible ? <MissionDuJourSection priority={todayPriority} /> : null}
 
       {isEmpty ? <EmptyCoachState /> : null}
 
