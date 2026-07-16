@@ -53,6 +53,8 @@ export const MISSING_DATA_LABELS: Record<MissingDataField, string> = {
 const REQUESTS_KEY = "iacourtier_client_data_requests";
 const AUTOMATIONS_KEY = "iacourtier_client_automations";
 const IMPORT_INDEX_KEY = "iacourtier_client_import_index";
+const PROSPECTS_KEY = "iacourtier_sonia_beta_prospects";
+const RESET_MARKER_KEY = "iacourtier_client_database_reset";
 const REQUEST_TTL_DAYS = 30;
 
 export function getCollectionRequests(): CollectionRequest[] {
@@ -254,22 +256,81 @@ export function getClientDatabaseHealth(contacts = getSoniaProspects()) {
 
 export function getWorkspaceDeletionSummary() {
   const contacts = getSoniaProspects().filter((contact) => !contact.id.startsWith("sonia-demo-"));
-  let automations = 0;
-  if (typeof window !== "undefined") {
-    try { automations = JSON.parse(window.localStorage.getItem(AUTOMATIONS_KEY) || "[]").length || 0; } catch { automations = 0; }
-  }
+  const automations = readStoredArray(AUTOMATIONS_KEY).length;
+  const requests = readStoredArray(REQUESTS_KEY);
+  const importIndex = readStoredArray(IMPORT_INDEX_KEY);
+  const histories = contacts.reduce((total, contact) => total + contact.history.length, 0);
   const followUps = contacts.reduce((total, contact) => total
     + contact.history.filter((event) => event.type === "task" || event.type === "call").length
     + (/relance|rappeler|suivi/i.test(contact.nextAction) ? 1 : 0), 0);
-  return { clients: contacts.length, automations, followUps };
+  return {
+    clients: contacts.length,
+    automations,
+    followUps,
+    histories,
+    duplicates: importIndex.length,
+    campaigns: requests.length,
+  };
+}
+
+export function isClientDatabaseReset() {
+  return typeof window !== "undefined" && window.localStorage.getItem(RESET_MARKER_KEY) === "true";
 }
 
 export function clearAllClientWorkspaceData() {
-  if (typeof window === "undefined") return;
+  if (typeof window === "undefined") {
+    return { clients: 0, automations: 0, followUps: 0, histories: 0, duplicates: 0, campaigns: 0 };
+  }
+
+  const keysToRemove: string[] = [];
+  for (let index = 0; index < window.localStorage.length; index += 1) {
+    const key = window.localStorage.key(index);
+    if (key && isClientDataKey(key)) keysToRemove.push(key);
+  }
+  keysToRemove.forEach((key) => window.localStorage.removeItem(key));
+
+  const sessionKeys: string[] = [];
+  for (let index = 0; index < window.sessionStorage.length; index += 1) {
+    const key = window.sessionStorage.key(index);
+    if (key && isClientDataKey(key)) sessionKeys.push(key);
+  }
+  sessionKeys.forEach((key) => window.sessionStorage.removeItem(key));
+
+  window.localStorage.setItem(PROSPECTS_KEY, "[]");
+  window.localStorage.setItem(AUTOMATIONS_KEY, "[]");
+  window.localStorage.setItem(REQUESTS_KEY, "[]");
+  window.localStorage.setItem(IMPORT_INDEX_KEY, "[]");
+  window.localStorage.setItem(RESET_MARKER_KEY, "true");
   saveSoniaProspects([]);
-  window.localStorage.removeItem(AUTOMATIONS_KEY);
-  window.localStorage.removeItem(REQUESTS_KEY);
-  window.localStorage.removeItem(IMPORT_INDEX_KEY);
+
+  return getWorkspaceDeletionSummary();
+}
+
+function isClientDataKey(key: string) {
+  const normalized = key.toLowerCase();
+  if (/radar|quota|setting|parametre|paramètre|preference|préférence|config|automation_mode/.test(normalized)) return false;
+  return normalized === PROSPECTS_KEY
+    || normalized === AUTOMATIONS_KEY
+    || normalized === REQUESTS_KEY
+    || normalized === IMPORT_INDEX_KEY
+    || normalized.startsWith("iacourtier_client_")
+    || normalized.startsWith("iacourtier_sonia_beta_")
+    || normalized.startsWith("iacourtier_prospect")
+    || normalized.startsWith("iacourtier_contact")
+    || normalized.startsWith("iacourtier_pipeline_")
+    || normalized.startsWith("iacourtier_duplicate")
+    || normalized.startsWith("iacourtier_search_")
+    || normalized.startsWith("iacourtier_campaign");
+}
+
+function readStoredArray(key: string): unknown[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(key) || "[]");
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
 }
 
 function buildCampaign(field: MissingDataField) {
