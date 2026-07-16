@@ -15,6 +15,13 @@ import {
 import { contextFromPipelineStatus, getContextualAiActions } from "@/lib/ai-actions";
 import { cn } from "@/lib/utils";
 import {
+  clearAllClientWorkspaceData,
+  generateCollectionRequests,
+  getCollectionRequests,
+  getCollectionSummary,
+  type MissingDataField,
+} from "@/lib/client-data-collection";
+import {
   AUTOMATION_TYPE_LABELS,
   getAutomationMode,
   getAutomationSummary,
@@ -39,6 +46,7 @@ import {
   parseClientFile,
   type ColumnMapping,
   type DuplicateDecision,
+  type ImportListMode,
   type ImportPreview,
   type ImportReport,
 } from "@/lib/client-import";
@@ -46,6 +54,7 @@ import {
 export function IntelligentPipelineDashboard({ data }: { data: PipelineDashboardData }) {
   const [selectedId, setSelectedId] = useState(data.clients[0]?.id || "");
   const [isImportOpen, setIsImportOpen] = useState(false);
+  const [clearStep, setClearStep] = useState<0 | 1 | 2>(0);
   const [storedContacts, setStoredContacts] = useState<SoniaProspect[]>([]);
 
   function refreshStoredContacts() {
@@ -83,7 +92,14 @@ export function IntelligentPipelineDashboard({ data }: { data: PipelineDashboard
         </div>
       </section>
 
-      <div className="flex justify-end">
+      <div className="flex flex-wrap justify-end gap-3">
+        <button
+          type="button"
+          onClick={() => setClearStep(1)}
+          className="inline-flex items-center justify-center rounded-lg border border-red-300 px-4 py-2.5 text-sm font-semibold text-red-700 dark:border-red-900 dark:text-red-300"
+        >
+          Effacer toute la liste
+        </button>
         <button
           type="button"
           onClick={() => setIsImportOpen((current) => !current)}
@@ -94,7 +110,28 @@ export function IntelligentPipelineDashboard({ data }: { data: PipelineDashboard
         </button>
       </div>
 
+      {clearStep ? (
+        <section className="rounded-lg border border-red-300 bg-red-50 p-5 dark:border-red-900 dark:bg-red-950/20">
+          <p className="font-semibold text-red-900 dark:text-red-100">
+            {clearStep === 1
+              ? `Cette action supprimera ${storedContacts.length.toLocaleString("fr-CA")} contacts. Souhaites-tu continuer?`
+              : "Deuxième confirmation : supprimer définitivement les contacts, automatisations et index locaux associés?"}
+          </p>
+          <p className="mt-2 text-sm text-red-700 dark:text-red-300">Les paramètres globaux de l’application seront conservés.</p>
+          <div className="mt-4 flex gap-3">
+            <button type="button" onClick={() => setClearStep(0)} className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold dark:bg-slate-950">Annuler</button>
+            {clearStep === 1 ? (
+              <button type="button" onClick={() => setClearStep(2)} className="rounded-lg bg-red-700 px-4 py-2 text-sm font-semibold text-white">Je comprends, continuer</button>
+            ) : (
+              <button type="button" onClick={() => { clearAllClientWorkspaceData(); refreshStoredContacts(); setClearStep(0); }} className="rounded-lg bg-red-700 px-4 py-2 text-sm font-semibold text-white">Confirmer la suppression</button>
+            )}
+          </div>
+        </section>
+      ) : null}
+
       {isImportOpen ? <ClientImportPanel onImported={refreshStoredContacts} /> : null}
+
+      <MissingInformationSection contacts={storedContacts} />
 
       <ClientAutomationsSection contacts={storedContacts} />
 
@@ -146,7 +183,8 @@ function toPipelineClient(contact: SoniaProspect): PipelineClient {
 
 function ClientImportPanel({ onImported }: { onImported: () => void }) {
   const [preview, setPreview] = useState<ImportPreview | null>(null);
-  const [bulkDecision, setBulkDecision] = useState<DuplicateDecision | "ambiguous" | "">("");
+  const [importMode, setImportMode] = useState<ImportListMode | "">("");
+  const [replaceConfirmed, setReplaceConfirmed] = useState(false);
   const [report, setReport] = useState<ImportReport | null>(null);
   const [error, setError] = useState("");
 
@@ -155,8 +193,8 @@ function ClientImportPanel({ onImported }: { onImported: () => void }) {
     if (!file) return;
     setError("");
     setReport(null);
-    setBulkDecision("");
-
+    setImportMode("");
+    setReplaceConfirmed(false);
     try {
       setPreview(await parseClientFile(file));
     } catch (reason) {
@@ -171,7 +209,6 @@ function ClientImportPanel({ onImported }: { onImported: () => void }) {
       mapping: { ...current.mapping, [header]: field },
       uncertainHeaders: current.uncertainHeaders.filter((item) => item !== header),
     } : current);
-    setBulkDecision("");
     setReport(null);
   }
 
@@ -188,30 +225,22 @@ function ClientImportPanel({ onImported }: { onImported: () => void }) {
 
   const statistics = getImportStatistics(preview.rows, preview.mapping);
   const duplicates = findDuplicates(preview.rows, preview.mapping, getSoniaProspects());
-  const ambiguousDuplicates = duplicates.filter((duplicate) => duplicate.ambiguous);
-  const ambiguousRowNumbers = new Set(ambiguousDuplicates.map((duplicate) => duplicate.rowNumber));
-  const previewRows = (bulkDecision === "ambiguous"
-    ? preview.rows.filter((row) => ambiguousRowNumbers.has(row.rowNumber))
-    : preview.rows
-  ).slice(0, 20);
-
-  function chooseBulkDecision(decision: DuplicateDecision | "ambiguous") {
-    setBulkDecision(decision);
-    setError("");
-  }
+  const previewRows = preview.rows.slice(0, 20);
 
   function confirmImport() {
-    if (duplicates.length && !bulkDecision) {
-      setError("Choisissez une règle globale pour les doublons.");
+    if (!importMode) {
+      setError("Choisissez comment traiter la liste actuelle.");
+      return;
+    }
+    if (importMode === "replace" && !replaceConfirmed) {
+      setError("Confirmez que la liste actuelle peut être remplacée.");
       return;
     }
     const decisions = Object.fromEntries(duplicates.map((duplicate) => [
       duplicate.rowNumber,
-      bulkDecision === "ambiguous"
-        ? duplicate.ambiguous ? "keep-both" : "merge"
-        : bulkDecision,
+      importMode === "new-only" ? "ignore" : "merge",
     ])) as Record<number, DuplicateDecision>;
-    const result = importClientRows(preview.rows, preview.mapping, decisions);
+    const result = importClientRows(preview.rows, preview.mapping, decisions, importMode);
     setReport(result);
     setError("");
     onImported();
@@ -221,8 +250,32 @@ function ClientImportPanel({ onImported }: { onImported: () => void }) {
     <section className="space-y-5 rounded-lg border border-teal-200 bg-white p-5 shadow-sm dark:border-teal-900 dark:bg-slate-900/72">
       <div>
         <p className="text-sm font-semibold text-teal-700 dark:text-teal-300">Assistant d’importation · Aperçu</p>
-        <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">Les types sont préremplis à partir des tags et des catégories. Vous validez une règle globale, pas chacune des {preview.rows.length.toLocaleString("fr-CA")} lignes.</p>
+        <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">Choisissez d’abord le traitement de la liste actuelle. Les doublons et les types issus des tags seront ensuite traités automatiquement.</p>
       </div>
+
+      <fieldset className="rounded-lg border border-slate-200 p-4 dark:border-slate-800">
+        <legend className="px-1 text-sm font-semibold">Gestion de la liste</legend>
+        <div className="mt-2 grid gap-3 lg:grid-cols-3">
+          {[
+            ["replace", "Remplacer complètement la liste actuelle", "Supprime les contacts existants et conserve uniquement ce fichier."],
+            ["new-only", "Ajouter seulement les nouveaux", "Ignore automatiquement les contacts déjà présents."],
+            ["merge", "Fusionner avec l’existant", "Complète uniquement les champs vides selon le courriel, le téléphone ou le nom et l’adresse."],
+          ].map(([value, title, description]) => (
+            <label key={value} className={cn("cursor-pointer rounded-lg border p-4", importMode === value ? "border-teal-500 bg-teal-50 dark:bg-teal-950/30" : "border-slate-200 dark:border-slate-800")}>
+              <span className="flex items-start gap-3">
+                <input type="radio" name="import-list-mode" checked={importMode === value} onChange={() => { setImportMode(value as ImportListMode); setReplaceConfirmed(false); setError(""); }} className="mt-1 accent-teal-700" />
+                <span><span className="block font-semibold">{title}</span><span className="mt-1 block text-xs leading-5 text-slate-500">{description}</span></span>
+              </span>
+            </label>
+          ))}
+        </div>
+        {importMode === "replace" ? (
+          <label className="mt-4 flex items-start gap-3 rounded-lg border border-red-300 bg-red-50 p-4 text-sm text-red-900 dark:border-red-900 dark:bg-red-950/20 dark:text-red-100">
+            <input type="checkbox" checked={replaceConfirmed} onChange={(event) => setReplaceConfirmed(event.target.checked)} className="mt-0.5" />
+            Je confirme que tous les contacts actuels, leurs automatisations et leurs demandes de renseignements locales seront supprimés avant l’import.
+          </label>
+        ) : null}
+      </fieldset>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
         {[
@@ -232,12 +285,7 @@ function ClientImportPanel({ onImported }: { onImported: () => void }) {
           ["Téléphones manquants", statistics.missingPhones],
           ["Renouvellements manquants", statistics.missingMortgageRenewals],
           ["Naissances manquantes", statistics.missingBirthDates],
-        ].map(([label, value]) => (
-          <div key={label} className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950/50">
-            <p className="text-2xl font-semibold">{value}</p>
-            <p className="mt-1 text-xs text-slate-500">{label}</p>
-          </div>
-        ))}
+        ].map(([label, value]) => <div key={label} className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950/50"><p className="text-2xl font-semibold">{value}</p><p className="mt-1 text-xs text-slate-500">{label}</p></div>)}
       </div>
 
       <div>
@@ -255,81 +303,68 @@ function ClientImportPanel({ onImported }: { onImported: () => void }) {
         </div>
       </div>
 
-      {duplicates.length ? (
-        <fieldset className="rounded-lg border border-amber-200 bg-amber-50 p-5 dark:border-amber-900 dark:bg-amber-950/20">
-          <legend className="px-1 text-lg font-semibold text-amber-950 dark:text-amber-100">{duplicates.length} doublons détectés.</legend>
-          <p className="mt-1 font-semibold text-amber-900 dark:text-amber-100">Que souhaites-tu faire ?</p>
-          <div className="mt-4 space-y-3">
-            {[
-              ["merge", "Fusionner automatiquement tous les doublons"],
-              ["keep-both", "Conserver automatiquement tous les doublons"],
-              ["ignore", "Ignorer automatiquement tous les doublons"],
-              ["ambiguous", "Examiner seulement les cas ambigus"],
-            ].map(([value, label]) => (
-              <label key={value} className="flex cursor-pointer items-start gap-3 rounded-lg border border-amber-200 bg-white p-3 text-sm font-medium dark:bg-slate-950">
-                <input
-                  type="radio"
-                  name="duplicate-strategy"
-                  value={value}
-                  checked={bulkDecision === value}
-                  onChange={() => chooseBulkDecision(value as DuplicateDecision | "ambiguous")}
-                  className="mt-0.5 h-4 w-4 accent-teal-700"
-                />
-                <span>{label}</span>
-              </label>
-            ))}
-          </div>
-          {bulkDecision === "ambiguous" ? (
-            <p className="mt-4 text-sm text-amber-800 dark:text-amber-200">
-              {ambiguousDuplicates.length
-                ? `${ambiguousDuplicates.length} cas réellement ambigu${ambiguousDuplicates.length > 1 ? "s" : ""} affiché${ambiguousDuplicates.length > 1 ? "s" : ""} ci-dessous (maximum 20). Ils seront conservés séparément par sécurité; les doublons clairs seront fusionnés.`
-                : "Aucun cas réellement ambigu. Les doublons clairs seront fusionnés automatiquement."}
-            </p>
-          ) : null}
-        </fieldset>
-      ) : null}
-
       <div className="overflow-x-auto">
-        <div className="flex items-center justify-between gap-3">
-          <h3 className="text-sm font-semibold">{bulkDecision === "ambiguous" ? "Cas ambigus" : "Aperçu des contacts"}</h3>
-          <p className="text-xs text-slate-500">
-            {bulkDecision === "ambiguous"
-              ? `${Math.min(ambiguousDuplicates.length, 20)} affiché${Math.min(ambiguousDuplicates.length, 20) > 1 ? "s" : ""} sur ${ambiguousDuplicates.length} cas ambigu${ambiguousDuplicates.length > 1 ? "s" : ""}`
-              : `20 lignes maximum affichées sur ${preview.rows.length.toLocaleString("fr-CA")}`}
-          </p>
-        </div>
+        <div className="flex items-center justify-between gap-3"><h3 className="text-sm font-semibold">Aperçu des contacts</h3><p className="text-xs text-slate-500">20 lignes maximum sur {preview.rows.length.toLocaleString("fr-CA")}</p></div>
         <table className="mt-3 min-w-full text-left text-sm">
           <thead className="text-xs uppercase text-slate-500"><tr><th className="p-2">Ligne</th><th className="p-2">Aperçu</th><th className="p-2">Type détecté</th><th className="p-2">État</th></tr></thead>
-          <tbody>
-            {previewRows.map((row) => {
-              const duplicate = duplicates.find((item) => item.rowNumber === row.rowNumber);
-              const values = Object.values(row.values).filter(Boolean).slice(0, 3).join(" · ");
-              return (
-                <tr key={row.rowNumber} className="border-t border-slate-200 dark:border-slate-800">
-                  <td className="p-2">{row.rowNumber}</td>
-                  <td className="max-w-sm p-2">{values || "Ligne vide"}</td>
-                  <td className="p-2 capitalize">{RELATIONSHIP_LABELS[row.relationshipType]}</td>
-                  <td className="p-2 text-xs">{duplicate ? duplicate.ambiguous ? "Doublon ambigu" : "Doublon clair" : "Prêt"}</td>
-                </tr>
-              );
-            })}
-          </tbody>
+          <tbody>{previewRows.map((row) => {
+            const duplicate = duplicates.find((item) => item.rowNumber === row.rowNumber);
+            return <tr key={row.rowNumber} className="border-t border-slate-200 dark:border-slate-800"><td className="p-2">{row.rowNumber}</td><td className="max-w-sm p-2">{Object.values(row.values).filter(Boolean).slice(0, 3).join(" · ") || "Ligne vide"}</td><td className="p-2">{RELATIONSHIP_LABELS[row.relationshipType]}</td><td className="p-2 text-xs">{duplicate ? "Doublon détecté" : "Nouveau"}</td></tr>;
+          })}</tbody>
         </table>
       </div>
 
       {error ? <p className="text-sm text-red-700 dark:text-red-300">{error}</p> : null}
-      <button type="button" onClick={confirmImport} className="inline-flex items-center justify-center gap-2 rounded-lg bg-teal-700 px-5 py-3 text-sm font-semibold text-white hover:bg-teal-800">
-        <Upload className="h-4 w-4" /> Importer
-      </button>
+      <div className="flex flex-wrap gap-3">
+        <button type="button" onClick={confirmImport} className="inline-flex items-center justify-center gap-2 rounded-lg bg-teal-700 px-5 py-3 text-sm font-semibold text-white hover:bg-teal-800"><Upload className="h-4 w-4" />Importer</button>
+        <button type="button" onClick={() => setPreview(null)} className="rounded-lg border border-slate-300 px-5 py-3 text-sm font-semibold dark:border-slate-700">Annuler</button>
+      </div>
 
       {report ? (
         <div className="rounded-lg border border-teal-200 bg-teal-50/70 p-4 text-sm dark:border-teal-900 dark:bg-teal-950/30">
           <p className="font-semibold">Import terminé</p>
-          <p className="mt-2">Contacts importés : {report.imported} · Doublons : {report.duplicates} · Lignes ignorées : {report.ignored} · Erreurs : {report.errors.length}</p>
-          <p className="mt-1">Prêts pour automatisation : {report.readyForAutomation} · Contacts à compléter : {report.contactsToComplete}</p>
+          <p className="mt-2">Contacts avant : {report.contactsBefore} · Ajoutés : {report.contactsAdded} · Fusionnés : {report.contactsMerged} · Doublons ignorés : {report.duplicatesIgnored} · Contacts après : {report.contactsAfter}</p>
+          <p className="mt-1">Lignes ignorées : {report.ignored} · Erreurs : {report.errors.length} · Prêts pour automatisation : {report.readyForAutomation} · À compléter : {report.contactsToComplete}</p>
           {report.errors.length ? <ul className="mt-2 list-disc pl-5">{report.errors.map((item) => <li key={item}>{item}</li>)}</ul> : null}
         </div>
       ) : null}
+    </section>
+  );
+}
+
+function MissingInformationSection({ contacts }: { contacts: SoniaProspect[] }) {
+  const [requests, setRequests] = useState(() => getCollectionRequests());
+  const [copied, setCopied] = useState("");
+  const summary = getCollectionSummary(contacts, requests);
+
+  function prepare(field: MissingDataField) {
+    generateCollectionRequests(field, contacts);
+    setRequests(getCollectionRequests());
+  }
+
+  async function copyLink(link: string, field: string) {
+    await navigator.clipboard.writeText(link);
+    setCopied(field);
+  }
+
+  return (
+    <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900/72">
+      <p className="text-sm font-semibold text-teal-700 dark:text-teal-300">Coach IA</p>
+      <h2 className="mt-1 text-2xl font-semibold">Informations à compléter</h2>
+      <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">Préparez des demandes sécurisées sans envoyer de courriel ni de texto. Les contacts explicitement exclus ne reçoivent aucune demande.</p>
+      <div className="mt-5 grid gap-4 lg:grid-cols-2">
+        {summary.map((item) => (
+          <div key={item.field} className="rounded-lg border border-slate-200 p-4 dark:border-slate-800">
+            <div className="flex items-start justify-between gap-3"><div><p className="font-semibold">{item.label}</p><p className="mt-1 text-xs text-slate-500">{item.missing} client{item.missing > 1 ? "s" : ""} concerné{item.missing > 1 ? "s" : ""}</p></div><span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold dark:bg-slate-800">{item.prepared ? "préparée" : "à préparer"}</span></div>
+            <p className="mt-3 text-sm leading-6 text-slate-600 dark:text-slate-300">{item.latestMessage || "Le message sera rédigé par le moteur de communication client dans un ton rassurant et sans pression."}</p>
+            <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs"><div className="rounded-lg bg-slate-50 p-2 dark:bg-slate-950"><strong className="block text-lg">{item.responses}</strong>Réponses</div><div className="rounded-lg bg-slate-50 p-2 dark:bg-slate-950"><strong className="block text-lg">{item.updated}</strong>Fiches mises à jour</div><div className="rounded-lg bg-slate-50 p-2 dark:bg-slate-950"><strong className="block text-lg">{item.excluded}</strong>Exclus</div></div>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button type="button" disabled={!item.missing} onClick={() => prepare(item.field)} className="rounded-lg bg-teal-700 px-3 py-2 text-xs font-semibold text-white disabled:opacity-40">Générer les demandes</button>
+              {item.latestLink ? <><a href={item.latestLink} target="_blank" rel="noreferrer" className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold dark:border-slate-700">Ouvrir le formulaire</a><button type="button" onClick={() => copyLink(item.latestLink!, item.field)} className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold dark:border-slate-700">{copied === item.field ? "Lien copié" : "Copier le lien"}</button></> : null}
+            </div>
+          </div>
+        ))}
+      </div>
     </section>
   );
 }
