@@ -3,7 +3,7 @@ import { syncClientAutomations } from "@/lib/client-automations";
 import { getSoniaProspect, getSoniaProspects, saveSoniaProspects, updateSoniaProspect } from "@/lib/sonia-beta/storage";
 import type { ClientImportProfile, SoniaProspect } from "@/lib/sonia-beta/types";
 
-export type MissingDataField = "mortgageRenewal" | "birthDate" | "transactionDate" | "address" | "projectType" | "communicationConsent" | "lender" | "interests";
+export type MissingDataField = "mortgageRenewal" | "birthDate" | "transactionDate" | "email" | "phone" | "address" | "projectType" | "communicationConsent" | "lender" | "interests";
 export type CollectionRequestStatus = "préparée" | "complétée" | "expirée" | "exclue";
 
 export type CollectionRequest = {
@@ -29,6 +29,8 @@ export type CollectionResponse = {
   mortgagePartnerInterest?: "yes" | "no";
   birthDate?: string;
   transactionDate?: string;
+  email?: string;
+  phone?: string;
   address?: string;
   projectType?: string;
   communicationConsent?: "yes" | "no";
@@ -39,6 +41,8 @@ export const MISSING_DATA_LABELS: Record<MissingDataField, string> = {
   mortgageRenewal: "Renouvellement hypothécaire",
   birthDate: "Date de naissance",
   transactionDate: "Date de transaction",
+  email: "Courriel",
+  phone: "Téléphone",
   address: "Adresse actuelle",
   projectType: "Type de projet",
   communicationConsent: "Consentement de communication",
@@ -77,6 +81,8 @@ export function getMissingDataFields(contact: SoniaProspect): MissingDataField[]
     !profile?.mortgageRenewalDate ? "mortgageRenewal" : null,
     !profile?.birthDate ? "birthDate" : null,
     !profile?.transactionDate ? "transactionDate" : null,
+    !contact.email ? "email" : null,
+    !contact.phone ? "phone" : null,
     !contact.address ? "address" : null,
     !profile?.projectType ? "projectType" : null,
     !profile?.communicationConsent && !profile?.communicationConsentAnsweredAt ? "communicationConsent" : null,
@@ -169,6 +175,8 @@ export function submitCollectionResponse(token: string, response: CollectionResp
     }
     if (response.birthDate) { profile.birthDate = response.birthDate; updatedFields.push("Date de naissance"); }
     if (response.transactionDate) { profile.transactionDate = response.transactionDate; updatedFields.push("Date de transaction"); }
+    if (response.email?.trim()) updatedFields.push("Courriel");
+    if (response.phone?.trim()) updatedFields.push("Téléphone");
     if (response.projectType?.trim()) { profile.projectType = response.projectType.trim(); updatedFields.push("Type de projet"); }
     if (response.communicationConsent) {
       profile.communicationConsent = response.communicationConsent === "yes";
@@ -182,6 +190,8 @@ export function submitCollectionResponse(token: string, response: CollectionResp
     profile.automationEligible = eligibility(profile);
     return {
       ...current,
+      email: response.email?.trim() || current.email,
+      phone: response.phone?.trim() || current.phone,
       address: response.address?.trim() || current.address,
       importProfile: profile,
       nextAction: getMissingDataFields({ ...current, address: response.address?.trim() || current.address, importProfile: profile }).length ? "Compléter la fiche client" : "Planifier le prochain suivi relationnel",
@@ -210,6 +220,7 @@ export function submitCollectionResponse(token: string, response: CollectionResp
 export function getCollectionSummary(contacts = getSoniaProspects(), requests = getCollectionRequests()) {
   return (Object.keys(MISSING_DATA_LABELS) as MissingDataField[]).map((field) => {
     const relevant = requests.filter((request) => request.fields.includes(field));
+    const campaign = buildCampaign(field);
     return {
       field,
       label: MISSING_DATA_LABELS[field],
@@ -219,9 +230,38 @@ export function getCollectionSummary(contacts = getSoniaProspects(), requests = 
       updated: relevant.filter((request) => request.status === "complétée").length,
       excluded: relevant.filter((request) => request.status === "exclue").length,
       latestLink: relevant.filter((request) => request.status === "préparée").at(-1)?.link,
-      latestMessage: relevant.at(-1)?.message,
+      latestMessage: relevant.at(-1)?.message || campaign.message,
+      campaign,
     };
   });
+}
+
+export function getClientDatabaseHealth(contacts = getSoniaProspects()) {
+  const clients = contacts.filter((contact) => !contact.id.startsWith("sonia-demo-"));
+  const total = clients.length;
+  const percentage = (predicate: (contact: SoniaProspect) => boolean) => total ? Math.round((clients.filter(predicate).length / total) * 100) : 0;
+  const metrics = {
+    complete: percentage((contact) => Boolean(contact.name && (contact.email || contact.phone) && contact.address && contact.importProfile?.relationshipType)),
+    emails: percentage((contact) => Boolean(contact.email)),
+    phones: percentage((contact) => Boolean(contact.phone)),
+    consents: percentage((contact) => Boolean(contact.importProfile?.communicationConsent)),
+    mortgageRenewals: percentage((contact) => Boolean(contact.importProfile?.mortgageRenewalDate)),
+    birthDates: percentage((contact) => Boolean(contact.importProfile?.birthDate)),
+    transactionDates: percentage((contact) => Boolean(contact.importProfile?.transactionDate)),
+  };
+  return { total, metrics };
+}
+
+export function getWorkspaceDeletionSummary() {
+  const contacts = getSoniaProspects().filter((contact) => !contact.id.startsWith("sonia-demo-"));
+  let automations = 0;
+  if (typeof window !== "undefined") {
+    try { automations = JSON.parse(window.localStorage.getItem(AUTOMATIONS_KEY) || "[]").length || 0; } catch { automations = 0; }
+  }
+  const followUps = contacts.reduce((total, contact) => total
+    + contact.history.filter((event) => event.type === "task" || event.type === "call").length
+    + (/relance|rappeler|suivi/i.test(contact.nextAction) ? 1 : 0), 0);
+  return { clients: contacts.length, automations, followUps };
 }
 
 export function clearAllClientWorkspaceData() {
@@ -232,22 +272,37 @@ export function clearAllClientWorkspaceData() {
   window.localStorage.removeItem(IMPORT_INDEX_KEY);
 }
 
+function buildCampaign(field: MissingDataField) {
+  if (field === "mortgageRenewal") {
+    return {
+      subject: "Mise à jour de votre dossier — renouvellement hypothécaire",
+      email: "Mise à jour du dossier client",
+      message: "Bonjour Marie,\n\nJe mets actuellement mes dossiers clients à jour afin de pouvoir mieux vous accompagner.\n\nPeux-tu simplement me dire à quel moment ton hypothèque arrive à renouvellement ?\n\nCela me permettra de te transmettre les bonnes informations au bon moment.\n\nAucune obligation.\n\nMerci !",
+      question: "À quel mois et en quelle année votre hypothèque arrive-t-elle à renouvellement?",
+    };
+  }
+  const label = MISSING_DATA_LABELS[field].toLowerCase();
+  return {
+    subject: `Mise à jour de votre dossier — ${label}`,
+    email: "Mise à jour du dossier client",
+    message: `Bonjour,\n\nJe mets actuellement mes dossiers clients à jour et il me manque une information : ${label}. Ce court formulaire me permettra de mieux vous accompagner au bon moment, sans pression.\n\nMerci!`,
+    question: `Pouvez-vous nous indiquer : ${label}?`,
+  };
+}
+
 function buildCollectionMessage(contact: SoniaProspect, field: MissingDataField) {
-  const subject = MISSING_DATA_LABELS[field].toLowerCase();
+  const campaign = buildCampaign(field);
   const generated = generateClientCommunication({
     clientType: contact.clientType === "seller" ? "vendeur" : "acheteur",
     journeyStage: "mise à jour du dossier client",
     channel: contact.email ? "courriel" : "texto",
-    objective: `Demander ${subject} pour mieux accompagner le client au bon moment, sans pression.`,
+    objective: campaign.question,
     warmth: "tiède",
-    context: { clientName: contact.name, topic: subject },
+    context: { clientName: contact.name, topic: MISSING_DATA_LABELS[field].toLowerCase() },
     tone: "rassurant",
     length: "courte",
   });
-  const specific = field === "mortgageRenewal"
-    ? "Je mets actuellement mes dossiers clients à jour afin de pouvoir mieux vous accompagner au bon moment. Pourriez-vous m’indiquer le mois et l’année de votre prochain renouvellement hypothécaire? Cela me permettra simplement de vous transmettre les bonnes informations au bon moment, sans aucune obligation."
-    : `Je mets actuellement mes dossiers clients à jour et il me manque une information : ${subject}. Ce court formulaire me permettra de mieux vous accompagner, sans pression et selon vos préférences.`;
-  return `${specific} ${generated.shortVersion}`;
+  return `${campaign.message.replace("Marie", firstName(contact.name))}\n\n${generated.shortVersion}`;
 }
 
 function eligibility(profile: ClientImportProfile) {
