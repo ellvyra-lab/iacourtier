@@ -73,6 +73,8 @@ export default function ClientInformationPage({ params }: { params: { token: str
 
           {request.fields.includes("birthDate") ? <DateField label="Date de naissance" value={response.birthDate} onChange={(value) => update("birthDate", value)} /> : null}
           {request.fields.includes("transactionDate") ? <DateField label="Date de transaction" value={response.transactionDate} onChange={(value) => update("transactionDate", value)} /> : null}
+          {request.fields.includes("email") ? <TextField label="Courriel" value={response.email} onChange={(value) => update("email", value)} placeholder="nom@exemple.com" /> : null}
+          {request.fields.includes("phone") ? <TextField label="Téléphone" value={response.phone} onChange={(value) => update("phone", value)} placeholder="514 555-1234" /> : null}
           {request.fields.includes("address") ? <TextField label="Adresse actuelle" value={response.address} onChange={(value) => update("address", value)} /> : null}
           {request.fields.includes("projectType") ? <TextField label="Quel est votre type de projet immobilier?" value={response.projectType} onChange={(value) => update("projectType", value)} placeholder="Vendre, acheter, investir, refinancer…" /> : null}
           {request.fields.includes("lender") && !request.fields.includes("mortgageRenewal") ? <TextField label="Institution financière (facultatif)" value={response.lender} onChange={(value) => update("lender", value)} required={false} /> : null}
