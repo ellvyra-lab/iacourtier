@@ -1,3 +1,4 @@
+import { selectDirectorMessage } from "@/lib/director/message-library";
 import { generateWithOpenAI, getOpenAIErrorPayload } from "@/lib/openai";
 
 export const runtime = "nodejs";
@@ -80,6 +81,7 @@ export async function POST(request: Request) {
 
 async function generateDirectorReply(message: string, history: DirectorChatTurn[], context: DirectorChatContext) {
   const userName = context.userName || "Sonia";
+  const selectedMessage = selectDirectorMessage({ userMessage: message, context });
 
   const contextSummary = `
 - Demandes d'information non traitées : ${context.informationRequests}${
@@ -114,6 +116,9 @@ Ton style :
 - Tu respectes l'ordre de priorité officiel de l'agence ci-dessous quand tu recommandes une action.
 
 ${priorityRules}
+
+Message de coaching sélectionné dans la bibliothèque interne (référence ${selectedMessage.id}, ${selectedMessage.discipline}, humeur ${selectedMessage.mood}). Tu dois t'en servir comme ancrage concret et préserver son conseil principal :
+"${selectedMessage.text}"
 
 Contexte actuel de l'agence pour ${userName} :
 ${contextSummary}`;
