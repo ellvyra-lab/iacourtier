@@ -1,3 +1,8 @@
+import {
+  formatClientCommunication,
+  generateClientCommunication,
+  inferClientCommunicationRequest,
+} from "@/lib/client-communication/engine";
 import { selectDirectorMessage } from "@/lib/director/message-library";
 import { generateWithOpenAI, getOpenAIErrorPayload } from "@/lib/openai";
 
@@ -70,7 +75,10 @@ export async function POST(request: Request) {
       return Response.json({ error: "context is required" }, { status: 400 });
     }
 
-    const reply = await generateDirectorReply(message, body.history || [], body.context);
+    const communicationRequest = inferClientCommunicationRequest(message);
+    const reply = communicationRequest
+      ? formatClientCommunication(generateClientCommunication(communicationRequest))
+      : await generateDirectorReply(message, body.history || [], body.context);
     const action = buildPrimaryAction(body.context);
     const secondaryActions = buildSecondaryActions(action);
     return Response.json({ reply, action, secondaryActions } satisfies DirectorChatResponse);
