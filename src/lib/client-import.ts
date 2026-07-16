@@ -21,6 +21,8 @@ export type DuplicateMatch = {
   existingId: string;
   existingName: string;
   reasons: string[];
+  ambiguous: boolean;
+  matchCount: number;
 };
 
 export type ImportPreview = {
@@ -100,7 +102,7 @@ const FIELD_ALIASES: Record<ImportField, string[]> = {
   address: ["adresse", "address", "street", "street address"],
   city: ["ville", "city", "municipalite", "municipalité"],
   postalCode: ["code postal", "postal code", "postcode", "zip", "zip code"],
-  relationshipType: ["type de client", "type client", "client type", "contact type", "acheteur", "vendeur", "investisseur"],
+  relationshipType: ["type de client", "type client", "client type", "contact type", "type", "tags", "tag", "étiquettes", "etiquettes", "labels", "catégories", "categories", "acheteur", "vendeur", "investisseur"],
   transactionDate: ["date de transaction", "transaction date", "closing date", "date achat", "date vente"],
   birthDate: ["date de naissance", "naissance", "birth date", "birthdate", "birthday", "dob"],
   mortgageRenewalDate: ["date de renouvellement hypothecaire", "date renouvellement hypothécaire", "renouvellement hypothecaire", "mortgage renewal date", "mortgage renewal"],
@@ -210,32 +212,36 @@ export function findDuplicates(rows: ParsedClientRow[], mapping: ColumnMapping, 
     const phone = normalizePhone(valueFor(row.values, mapping, "phone"));
     const name = normalize(buildName(row.values, mapping));
     const address = normalize(valueFor(row.values, mapping, "address"));
-    const existingMatch = existing.find((contact) =>
+    const existingMatches = existing.filter((contact) =>
       (email && normalizeEmail(contact.email || "") === email) ||
       (phone && normalizePhone(contact.phone || "") === phone) ||
       (name && address && normalize(contact.name) === name && normalize(contact.address) === address)
     );
-    const rowMatch = seen.find((contact) =>
+    const rowMatches = seen.filter((contact) =>
       (email && contact.email === email) ||
       (phone && contact.phone === phone) ||
       (name && address && contact.name === name && contact.address === address)
     );
-    const match = existingMatch || rowMatch;
-    if (match) {
-      const matchEmail = "email" in match ? normalizeEmail(match.email || "") : "";
-      const matchPhone = "phone" in match ? normalizePhone(match.phone || "") : "";
-      const matchName = normalize(match.name);
-      const matchAddress = normalize(match.address || "");
+    const allMatches = [...existingMatches, ...rowMatches];
+
+    if (allMatches.length) {
+      const primary = allMatches[0];
+      const primaryEmail = normalizeEmail(primary.email || "");
+      const primaryPhone = normalizePhone(primary.phone || "");
+      const primaryName = normalize(primary.name);
+      const primaryAddress = normalize(primary.address || "");
       const reasons = [
-        email && matchEmail === email ? "courriel" : "",
-        phone && matchPhone === phone ? "téléphone" : "",
-        name && address && matchName === name && matchAddress === address ? "nom + adresse" : "",
+        email && primaryEmail === email ? "courriel" : "",
+        phone && primaryPhone === phone ? "téléphone" : "",
+        name && address && primaryName === name && primaryAddress === address ? "nom + adresse" : "",
       ].filter(Boolean);
       matches.push({
         rowNumber: row.rowNumber,
-        existingId: existingMatch ? existingMatch.id : `row:${rowMatch?.rowNumber}`,
-        existingName: match.name,
+        existingId: existingMatches.length ? existingMatches[0].id : `row:${rowMatches[0].rowNumber}`,
+        existingName: primary.name,
         reasons,
+        ambiguous: allMatches.length > 1,
+        matchCount: allMatches.length,
       });
     }
     seen.push({ rowNumber: row.rowNumber, name, email, phone, address });
