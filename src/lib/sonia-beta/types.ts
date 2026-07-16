@@ -16,6 +16,11 @@ export type ClientImportProfile = {
   mortgageBroker?: string;
   lastContact?: string;
   communicationConsent: boolean;
+  communicationConsentAnsweredAt?: string;
+  projectType?: string;
+  interests?: string[];
+  mortgagePartnerInterest?: boolean;
+  lastDataResponseAt?: string;
   automationEligible: string[];
   missingInformation: string[];
 };
