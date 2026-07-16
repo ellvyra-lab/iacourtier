@@ -9,24 +9,24 @@ const csvHeaderAliases: Record<string, string[]> = {
   city: ["ville", "city"],
   province: ["province", "etat", "state"],
   postalCode: ["codepostal", "code postal", "postalcode", "postal code", "zip", "zipcode"],
-  ownerName: ["nomproprietaire", "nom proprietaire", "proprietaire", "propriÃ©taire", "ownername", "owner name", "owner", "nom"],
+  ownerName: ["nomproprietaire", "nom proprietaire", "proprietaire", "propriétaire", "ownername", "owner name", "owner", "nom"],
   source: ["source", "origine"],
-  contactName: ["nom", "name", "propriÃ©taire", "proprietaire"],
-  phone: ["tÃ©lÃ©phone", "telephone", "tel", "phone"],
+  contactName: ["nom", "name", "propriétaire", "proprietaire"],
+  phone: ["téléphone", "telephone", "tel", "phone"],
   email: ["courriel", "email", "e-mail"],
   facebookUrl: ["facebookurl", "facebook url", "facebook", "facebook_profile", "facebook profile"],
   contactStatus: ["statutcontact", "statut contact", "contactstatus", "contact status", "statut"],
-  category: ["catÃ©gorie", "categorie", "category"],
+  category: ["catégorie", "categorie", "category"],
   acquisitionDate: ["date acquisition", "dateacquisition", "acquisition date"],
-  ownerYears: ["annÃ©es dÃ©tention", "annees detention", "annÃ©es de dÃ©tention", "annees de detention", "owner years"],
-  ownerCount: ["nb propriÃ©taires", "nb proprietaires", "nombre propriÃ©taires", "nombre proprietaires", "owner count"],
-  yearBuilt: ["annÃ©e construction", "annee construction", "annÃ©e de construction", "annee de construction", "year built"],
-  propertyType: ["type", "type propriÃ©tÃ©", "type propriete", "property type"],
+  ownerYears: ["années détention", "annees detention", "années de détention", "annees de detention", "owner years"],
+  ownerCount: ["nb propriétaires", "nb proprietaires", "nombre propriétaires", "nombre proprietaires", "owner count"],
+  yearBuilt: ["année construction", "annee construction", "année de construction", "annee de construction", "year built"],
+  propertyType: ["type", "type propriété", "type propriete", "property type"],
   housingCount: ["logements", "nb logements", "nombre logements", "units"],
-  buildingArea: ["superficie bÃ¢timent (mÂ²)", "superficie batiment (m2)", "superficie bÃ¢timent", "superficie batiment", "building area"],
-  landArea: ["superficie terrain (mÂ²)", "superficie terrain (m2)", "superficie terrain", "land area"],
-  totalValue: ["valeur Ã©valuation ($)", "valeur evaluation ($)", "valeur Ã©valuation", "valeur evaluation", "assessed value"],
-  signals: ["signaux dÃ©tectÃ©s", "signaux detectes", "signaux", "signals"],
+  buildingArea: ["superficie bâtiment (m²)", "superficie batiment (m2)", "superficie bâtiment", "superficie batiment", "building area"],
+  landArea: ["superficie terrain (m²)", "superficie terrain (m2)", "superficie terrain", "land area"],
+  totalValue: ["valeur évaluation ($)", "valeur evaluation ($)", "valeur évaluation", "valeur evaluation", "assessed value"],
+  signals: ["signaux détectés", "signaux detectes", "signaux", "signals"],
   notes: ["notes", "note", "commentaires", "comments"],
 };
 
@@ -57,7 +57,7 @@ export function parseProspectsCsv(csvText: string, fileName = "import.csv", list
       const contactStatus = normalizeContactStatus(readCsvValue(row, "contactStatus"));
       const rawCategory = readCsvValue(row, "category");
       const signals = readCsvValue(row, "signals");
-      const notes = [readCsvValue(row, "notes"), signals].filter(Boolean).join(" â€” ");
+      const notes = [readCsvValue(row, "notes"), signals].filter(Boolean).join(" — ");
       const category = normalizeCategory(rawCategory || notes);
       const propertyType = readCsvValue(row, "propertyType") || inferPropertyType(rawCategory, notes);
       const importedScore = parseCsvNumber(readCsvValue(row, "score"));
@@ -73,10 +73,10 @@ export function parseProspectsCsv(csvText: string, fileName = "import.csv", list
       const prospect: Prospect = {
         id: `csv-${slugify(fileName)}-${index + 1}-${slugify(address || ownerName || contactName || city)}`,
         nomProprietaire: ownerName || contactName || undefined,
-        adresse: address || "Adresse non prÃ©cisÃ©e",
-        ville: city || "Ville non prÃ©cisÃ©e",
+        adresse: address || "Adresse non précisée",
+        ville: city || "Ville non précisée",
         province: province || "QC",
-        codePostal: postalCode || "Non prÃ©cisÃ©",
+        codePostal: postalCode || "Non précisé",
         source,
         score: opportunityScore,
         raisonDuScore: buildCsvReason({ category, notes, contactName: ownerName || contactName }),
@@ -243,12 +243,12 @@ function inferPropertyType(category: string, notes: string) {
   if (searchable.includes("multiplex") || searchable.includes("plex")) return "Multiplex";
   if (searchable.includes("condo")) return "Condo";
   if (searchable.includes("commercial")) return "Commercial";
-  return "PropriÃ©tÃ©";
+  return "Propriété";
 }
 
 function buildCsvReason({ category, notes, contactName }: { category: string; notes: string; contactName: string }) {
-  const base = notes ? notes : "Prospect importÃ© par CSV. Le score est calculÃ© selon la catÃ©gorie et les signaux prÃ©sents dans les notes.";
-  return contactName ? `${base} Contact identifiÃ© : ${contactName}. CatÃ©gorie : ${category}.` : `${base} CatÃ©gorie : ${category}.`;
+  const base = notes ? notes : "Prospect importé par CSV. Le score est calculé selon la catégorie et les signaux présents dans les notes.";
+  return contactName ? `${base} Contact identifié : ${contactName}. Catégorie : ${category}.` : `${base} Catégorie : ${category}.`;
 }
 
 function normalizeContactStatus(value: string): Prospect["statutContact"] {
@@ -258,7 +258,7 @@ function normalizeContactStatus(value: string): Prospect["statutContact"] {
   if (normalized.includes("qualif")) return "qualifie";
   if (normalized.includes("cours") || normalized.includes("en cours")) return "en_cours";
   if (normalized.includes("contact") || normalized.includes("joint")) return "contacte";
-  if (normalized.includes("a contacter") || normalized.includes("Ã  contacter")) return "a_contacter";
+  if (normalized.includes("a contacter") || normalized.includes("à contacter")) return "a_contacter";
   return "nouveau";
 }
 
