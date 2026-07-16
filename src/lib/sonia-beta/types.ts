@@ -2,6 +2,24 @@ import type { PipelineStatus, PipelineType } from "@/lib/pipeline-intelligence";
 
 export type SoniaProspectSource = "Radar" | "Manuel" | "Pipeline";
 
+export type ClientRelationshipType = "buyer" | "seller" | "both" | "investor" | "former" | "prospect" | "partner" | "other";
+
+export type ClientImportProfile = {
+  firstName?: string;
+  lastName?: string;
+  postalCode?: string;
+  relationshipType: ClientRelationshipType;
+  transactionDate?: string;
+  birthDate?: string;
+  mortgageRenewalDate?: string;
+  lender?: string;
+  mortgageBroker?: string;
+  lastContact?: string;
+  communicationConsent: boolean;
+  automationEligible: string[];
+  missingInformation: string[];
+};
+
 export type CallResult =
   | "pas_repondu"
   | "mauvais_numero"
@@ -35,6 +53,7 @@ export type SoniaProspect = {
   createdAt: string;
   updatedAt: string;
   history: SoniaHistoryEvent[];
+  importProfile?: ClientImportProfile;
 };
 
 export type SoniaBattlePlan = {
