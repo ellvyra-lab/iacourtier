@@ -2,7 +2,19 @@ import type { ProspectRecord } from "@/lib/prospecting";
 import type { PipelineStatus } from "@/lib/pipeline-intelligence";
 import { officialBuyerWorkflow, officialSellerWorkflow } from "@/lib/business-rules";
 
-import type { CallResult, SoniaBattlePlan, SoniaHistoryEvent, SoniaProspect } from "./types";
+import type { SoniaBattlePlan, SoniaHistoryEvent, SoniaProspect } from "./types";
+
+export type RecordedCallResult =
+  | "a_repondu"
+  | "message_laisse"
+  | "pas_repondu"
+  | "mauvais_numero"
+  | "pas_interesse"
+  | "a_rappeler"
+  | "rendez_vous_obtenu"
+  | "ne_plus_contacter"
+  | "interesse"
+  | "deja_avec_courtier";
 
 const STORAGE_KEY = "iacourtier_sonia_beta_prospects";
 const sellerStatus = {
@@ -170,17 +182,26 @@ export function updateProspectStatus(id: string, status: PipelineStatus, nextAct
   }));
 }
 
-export function recordCallResult(id: string, result: CallResult, note: string, callbackDate?: string) {
+export function recordCallResult(id: string, result: RecordedCallResult, note: string, callbackDate?: string) {
   return updateSoniaProspect(id, (prospect) => {
     const rule = callResultRules[result];
     const nextDate = result === "a_rappeler" && callbackDate ? callbackDate : addDays(rule.days);
     const status = rule.status || prospect.status;
     const description = note.trim() ? `${rule.description} Note : ${note.trim()}` : rule.description;
+    const systemNote = result === "mauvais_numero"
+      ? "Téléphone invalide — rechercher de nouvelles coordonnées."
+      : result === "ne_plus_contacter"
+        ? "NE PLUS CONTACTER — exclu des communications et automatisations."
+        : "";
+    const profile = result === "ne_plus_contacter" && prospect.importProfile
+      ? { ...prospect.importProfile, communicationConsent: false, communicationConsentAnsweredAt: new Date().toISOString() }
+      : prospect.importProfile;
 
     return {
       ...prospect,
       status,
-      notes: note.trim() ? [prospect.notes, note.trim()].filter(Boolean).join("\n\n") : prospect.notes,
+      importProfile: profile,
+      notes: [prospect.notes, note.trim(), systemNote].filter(Boolean).join("\n\n"),
       nextAction: rule.nextAction,
       nextActionDate: nextDate,
       history: [
@@ -210,7 +231,26 @@ export function buildSoniaBattlePlan(prospects: SoniaProspect[]): SoniaBattlePla
   };
 }
 
-const callResultRules: Record<CallResult, { label: string; description: string; nextAction: string; days: number; status?: PipelineStatus }> = {
+const callResultRules: Record<RecordedCallResult, { label: string; description: string; nextAction: string; days: number; status?: PipelineStatus }> = {
+  a_repondu: {
+    label: "A répondu",
+    description: "Conversation établie. Le Coach IA recommande de qualifier le projet et de confirmer la prochaine étape.",
+    nextAction: "Qualifier le projet et confirmer la prochaine étape",
+    days: 0,
+    status: sellerStatus.callQualification,
+  },
+  message_laisse: {
+    label: "Message laissé",
+    description: "Message vocal laissé. IACourtier crée automatiquement un suivi dans 3 jours.",
+    nextAction: "Relancer après le message vocal",
+    days: 3,
+  },
+  ne_plus_contacter: {
+    label: "Ne plus contacter",
+    description: "Le prospect demande de ne plus être contacté. Il est exclu des communications et automatisations.",
+    nextAction: "Aucune action — contact exclu",
+    days: 36500,
+  },
   pas_repondu: {
     label: "Pas répondu",
     description: "Aucune réponse. IACourtier crée une relance dans 2 jours et prépare un texto court pour rouvrir la porte.",
