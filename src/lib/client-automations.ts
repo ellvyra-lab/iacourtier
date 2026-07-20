@@ -55,6 +55,15 @@ type Candidate = Omit<ClientAutomation, "id" | "dedupeKey" | "message" | "shortM
   task?: string;
 };
 
+type MortgageAutomationRule = {
+  months?: number;
+  days?: number;
+  period: string;
+  objective: string;
+  opening: string;
+  task?: string;
+};
+
 const AUTOMATIONS_KEY = "iacourtier_client_automations";
 const MODE_KEY = "iacourtier_automation_mode";
 
@@ -177,25 +186,30 @@ function buildCandidates(contact: SoniaProspect): Candidate[] {
 
   const renewal = parseDate(profile.mortgageRenewalDate);
   if (renewal) {
-    [
+    const mortgageRules: MortgageAutomationRule[] = [
       { months: 12, period: "12m", opening: "Votre renouvellement hypothécaire approche dans la prochaine année.", objective: "Expliquer l'avantage d'analyser tôt les options et proposer une discussion avec un partenaire hypothécaire.", task: undefined },
       { months: 6, period: "6m", opening: "Votre renouvellement hypothécaire arrive dans environ six mois.", objective: "Faire un rappel direct et proposer une mise en contact hypothécaire.", task: "Faire un suivi hypothécaire" },
       { months: 3, period: "3m", opening: "Votre renouvellement hypothécaire est maintenant à moins de trois mois.", objective: "Préparer une communication prioritaire et proposer un court appel.", task: "Appeler le client en priorité" },
       { days: 30, period: "30d", opening: "Votre renouvellement hypothécaire est prévu dans environ trente jours.", objective: "Faire une dernière relance utile et proposer une intervention rapide.", task: "Alerte prioritaire dans le Coach IA" },
-    ].forEach((rule) => {
-      if (!rule) return;
+    ];
+
+    for (const rule of mortgageRules) {
+      const scheduledDate = rule.months !== undefined
+        ? addMonths(renewal, -rule.months)
+        : addDays(renewal, -(rule.days ?? 0));
+
       candidates.push({
         clientId: contact.id,
         type: "mortgage",
         employee: "Employé IA Hypothèque",
-        scheduledFor: toIso("months" in rule && rule.months ? addMonths(renewal, -rule.months) : addDays(renewal, -("days" in rule ? rule.days : 0)), 9),
+        scheduledFor: toIso(scheduledDate, 9),
         period: `${renewal.getFullYear()}-${rule.period}`,
         objective: rule.objective,
         opening: rule.opening,
         reason: `Renouvellement prévu le ${formatDate(renewal.toISOString())} · jalon ${rule.period}.`,
         task: rule.task,
       });
-    });
+    }
   }
 
   const birth = parseDate(profile.birthDate);
