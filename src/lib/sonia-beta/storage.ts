@@ -12,6 +12,7 @@ export type RecordedCallResult =
   | "pas_interesse"
   | "a_rappeler"
   | "rendez_vous_obtenu"
+  | "projet_futur"
   | "ne_plus_contacter"
   | "interesse"
   | "deja_avec_courtier";
@@ -182,12 +183,36 @@ export function updateProspectStatus(id: string, status: PipelineStatus, nextAct
   }));
 }
 
-export function recordCallResult(id: string, result: RecordedCallResult, note: string, callbackDate?: string) {
+export type CallResultMetadata = {
+  occurredAt?: string;
+  followupDate?: string;
+  objection?: string;
+  interest?: "froid" | "tiède" | "chaud";
+};
+
+export function recordCallResult(
+  id: string,
+  result: RecordedCallResult,
+  note: string,
+  callbackDate?: string,
+  metadata: CallResultMetadata = {},
+) {
   return updateSoniaProspect(id, (prospect) => {
     const rule = callResultRules[result];
-    const nextDate = result === "a_rappeler" && callbackDate ? callbackDate : addDays(rule.days);
+    const requestedDate = (result === "a_rappeler" || result === "projet_futur") && callbackDate
+      ? callbackDate
+      : metadata.followupDate;
+    const nextDate = requestedDate || addDays(rule.days);
     const status = rule.status || prospect.status;
-    const description = note.trim() ? `${rule.description} Note : ${note.trim()}` : rule.description;
+    const details = [
+      rule.description,
+      note.trim() ? `Note : ${note.trim()}` : "",
+      metadata.objection ? `Objection principale : ${metadata.objection}` : "",
+      metadata.interest ? `Niveau d’intérêt : ${metadata.interest}` : "",
+      `Prochaine action : ${rule.nextAction}`,
+      `Prochaine date de suivi : ${nextDate}`,
+    ].filter(Boolean);
+    const description = details.join(" ");
     const systemNote = result === "mauvais_numero"
       ? "Téléphone invalide — rechercher de nouvelles coordonnées."
       : result === "ne_plus_contacter"
@@ -207,7 +232,7 @@ export function recordCallResult(id: string, result: RecordedCallResult, note: s
       history: [
         {
           id: `history-${Date.now()}`,
-          date: new Date().toISOString(),
+          date: metadata.occurredAt || new Date().toISOString(),
           title: `Résultat de l'appel : ${rule.label}`,
           description,
           type: "call",
@@ -276,6 +301,12 @@ const callResultRules: Record<RecordedCallResult, { label: string; description: 
     nextAction: "Préparer analyse de marché",
     days: 0,
     status: sellerStatus.appointmentObtained,
+  },
+  projet_futur: {
+    label: "Projet futur",
+    description: "Projet immobilier à une échéance future. IACourtier crée un suivi long terme à la date choisie.",
+    nextAction: "Suivi long terme du projet futur",
+    days: 180,
   },
   a_rappeler: {
     label: "À rappeler plus tard",
