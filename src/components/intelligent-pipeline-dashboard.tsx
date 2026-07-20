@@ -262,6 +262,10 @@ function ClientImportPanel({ onImported }: { onImported: () => void }) {
   const previewRows = preview.rows.slice(0, 20);
 
   function confirmImport() {
+    if (!preview) {
+      setError("Aucun fichier prêt à importer.");
+      return;
+    }
     if (!importMode) {
       setError("Choisissez comment traiter la liste actuelle.");
       return;
