@@ -24,6 +24,11 @@ export type DirectorChatContext = {
   totalProspects: number;
   prospectsCreatedToday: number;
   callsCompletedToday: number;
+  callsAnsweredToday?: number;
+  callFollowupsCreatedToday?: number;
+  appointmentsObtainedFromCallsToday?: number;
+  nextCallbackName?: string;
+  nextCallbackDate?: string;
   overdueFollowups: number;
   appointmentsToday: number;
   appointmentsTomorrow: number;
@@ -107,7 +112,13 @@ function buildMentorBrief(context: DirectorChatContext, inspiration: string) {
 
   const activitySnapshot = `${context.userName || "Sonia"}, aujourd'hui tu as ${context.prospectsCreatedToday} prospect${context.prospectsCreatedToday > 1 ? "s" : ""} créé${context.prospectsCreatedToday > 1 ? "s" : ""}, ${context.callsCompletedToday} appel${context.callsCompletedToday > 1 ? "s" : ""} effectué${context.callsCompletedToday > 1 ? "s" : ""}, ${context.overdueFollowups} suivi${context.overdueFollowups > 1 ? "s" : ""} en retard, ${context.appointmentsToday} rendez-vous aujourd'hui et ${context.appointmentsTomorrow} demain. Le pipeline compte ${context.buyerPipeline} acheteur${context.buyerPipeline > 1 ? "s" : ""} et ${context.sellerPipeline} vendeur${context.sellerPipeline > 1 ? "s" : ""}.`;
 
-  if ((context.automationsReadyToday || 0) > 0 || (context.mortgageRenewalsWithin90Days || 0) > 0) {
+  if (context.callsCompletedToday > 0 && ((context.callsAnsweredToday || 0) > 0 || (context.callFollowupsCreatedToday || 0) > 0)) {
+    observation = `${activitySnapshot} Parmi ces appels, ${context.callsAnsweredToday || 0} propriétaire${(context.callsAnsweredToday || 0) > 1 ? "s ont" : " a"} répondu, ${context.callFollowupsCreatedToday || 0} suivi${(context.callFollowupsCreatedToday || 0) > 1 ? "s ont" : " a"} été créé et ${context.appointmentsObtainedFromCallsToday || 0} rendez-vous ${(context.appointmentsObtainedFromCallsToday || 0) > 1 ? "ont" : "a"} été obtenu.`;
+    analysis = "Les résultats enregistrés indiquent où une conversation est déjà engagée; les rappels demandés doivent passer avant une nouvelle séquence de prospection.";
+    recommendation = context.nextCallbackName
+      ? `Rappelle maintenant ${context.nextCallbackName}${context.nextCallbackDate ? ` au moment prévu le ${context.nextCallbackDate}` : ""}.`
+      : "Commence par le suivi issu de l'appel le plus récent.";
+  } else if ((context.automationsReadyToday || 0) > 0 || (context.mortgageRenewalsWithin90Days || 0) > 0) {
     observation = `${activitySnapshot} Tu as ${context.automationsReadyToday || 0} communication${(context.automationsReadyToday || 0) > 1 ? "s" : ""} prête${(context.automationsReadyToday || 0) > 1 ? "s" : ""}, ${context.mortgageRenewalsWithin90Days || 0} renouvellement${(context.mortgageRenewalsWithin90Days || 0) > 1 ? "s" : ""} hypothécaire${(context.mortgageRenewalsWithin90Days || 0) > 1 ? "s" : ""} à moins de 90 jours et ${context.automationsBlocked || 0} contact${(context.automationsBlocked || 0) > 1 ? "s" : ""} bloqué${(context.automationsBlocked || 0) > 1 ? "s" : ""} par des données ou consentements manquants.`;
     analysis = "Les suivis hypothécaires proches demandent une validation humaine rapide; les communications restent préparées dans l'application et aucun envoi externe n'est effectué.";
     recommendation = (context.mortgageRenewalsWithin90Days || 0) > 0
@@ -200,6 +211,10 @@ async function generateDirectorReply(message: string, history: DirectorChatTurn[
 - Nombre total de prospects actifs : ${context.totalProspects}
 - Prospects créés aujourd'hui : ${context.prospectsCreatedToday}
 - Appels effectués aujourd'hui : ${context.callsCompletedToday}
+- Propriétaires ayant répondu aujourd'hui : ${context.callsAnsweredToday || 0}
+- Suivis créés après appel aujourd'hui : ${context.callFollowupsCreatedToday || 0}
+- Rendez-vous obtenus après appel aujourd'hui : ${context.appointmentsObtainedFromCallsToday || 0}
+- Prochain rappel prioritaire : ${context.nextCallbackName || "aucun"}${context.nextCallbackDate ? ` (${context.nextCallbackDate})` : ""}
 - Suivis en retard : ${context.overdueFollowups}
 - Rendez-vous aujourd'hui : ${context.appointmentsToday}
 - Rendez-vous demain : ${context.appointmentsTomorrow}
