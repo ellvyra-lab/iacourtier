@@ -239,10 +239,18 @@ export function DirectorChatPanel({
       tomorrowDate.setDate(tomorrowDate.getDate() + 1);
       const tomorrow = localDateKey(tomorrowDate);
       const prospectsCreatedToday = realProspects.filter((prospect) => localDateKey(prospect.createdAt) === today).length;
-      const callsCompletedToday = realProspects.reduce(
-        (total, prospect) => total + prospect.history.filter((event) => event.type === "call" && localDateKey(event.date) === today).length,
-        0,
+      const callEventsToday = realProspects.flatMap((prospect) =>
+        prospect.history
+          .filter((event) => event.type === "call" && localDateKey(event.date) === today)
+          .map((event) => ({ prospect, event })),
       );
+      const callsCompletedToday = callEventsToday.length;
+      const callsAnsweredToday = callEventsToday.filter(({ event }) => /A répondu|Intéressé|Rendez-vous obtenu/i.test(event.title)).length;
+      const callFollowupsCreatedToday = callEventsToday.filter(({ event }) => /Pas répondu|Message laissé|À rappeler/i.test(event.title)).length;
+      const appointmentsObtainedFromCallsToday = callEventsToday.filter(({ event }) => /Rendez-vous obtenu/i.test(event.title)).length;
+      const nextCallbackProspect = [...realProspects]
+        .filter((prospect) => /rappeler|relance/i.test(prospect.nextAction) && prospect.nextActionDate)
+        .sort((a, b) => a.nextActionDate.localeCompare(b.nextActionDate))[0];
       const overdueFollowups = plan.followupsDue.filter((prospect) => prospect.nextActionDate && prospect.nextActionDate < today).length;
       const appointmentsToday = plan.sellerAppointmentsToPrepare.filter((prospect) => prospect.nextActionDate === today).length;
       const appointmentsTomorrow = plan.sellerAppointmentsToPrepare.filter((prospect) => prospect.nextActionDate === tomorrow).length;
@@ -272,6 +280,11 @@ export function DirectorChatPanel({
             totalProspects: realProspects.length,
             prospectsCreatedToday,
             callsCompletedToday,
+            callsAnsweredToday,
+            callFollowupsCreatedToday,
+            appointmentsObtainedFromCallsToday,
+            nextCallbackName: nextCallbackProspect?.name,
+            nextCallbackDate: nextCallbackProspect?.nextActionDate,
             overdueFollowups,
             appointmentsToday,
             appointmentsTomorrow,
