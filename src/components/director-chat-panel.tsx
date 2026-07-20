@@ -246,6 +246,8 @@ export function DirectorChatPanel({
       );
       const callsCompletedToday = callEventsToday.length;
       const callsAnsweredToday = callEventsToday.filter(({ event }) => /A répondu|Intéressé|Rendez-vous obtenu/i.test(event.title)).length;
+      const messagesLeftToday = callEventsToday.filter(({ event }) => /Message laissé/i.test(event.title)).length;
+      const callResponseRateToday = callsCompletedToday ? Math.round((callsAnsweredToday / callsCompletedToday) * 100) : 0;
       const callFollowupsCreatedToday = callEventsToday.filter(({ event }) => /Pas répondu|Message laissé|À rappeler/i.test(event.title)).length;
       const appointmentsObtainedFromCallsToday = callEventsToday.filter(({ event }) => /Rendez-vous obtenu/i.test(event.title)).length;
       const nextCallbackProspect = [...realProspects]
@@ -281,6 +283,8 @@ export function DirectorChatPanel({
             prospectsCreatedToday,
             callsCompletedToday,
             callsAnsweredToday,
+            messagesLeftToday,
+            callResponseRateToday,
             callFollowupsCreatedToday,
             appointmentsObtainedFromCallsToday,
             nextCallbackName: nextCallbackProspect?.name,
