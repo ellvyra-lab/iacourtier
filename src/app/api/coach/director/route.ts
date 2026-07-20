@@ -25,6 +25,8 @@ export type DirectorChatContext = {
   prospectsCreatedToday: number;
   callsCompletedToday: number;
   callsAnsweredToday?: number;
+  messagesLeftToday?: number;
+  callResponseRateToday?: number;
   callFollowupsCreatedToday?: number;
   appointmentsObtainedFromCallsToday?: number;
   nextCallbackName?: string;
@@ -113,7 +115,7 @@ function buildMentorBrief(context: DirectorChatContext, inspiration: string) {
   const activitySnapshot = `${context.userName || "Sonia"}, aujourd'hui tu as ${context.prospectsCreatedToday} prospect${context.prospectsCreatedToday > 1 ? "s" : ""} créé${context.prospectsCreatedToday > 1 ? "s" : ""}, ${context.callsCompletedToday} appel${context.callsCompletedToday > 1 ? "s" : ""} effectué${context.callsCompletedToday > 1 ? "s" : ""}, ${context.overdueFollowups} suivi${context.overdueFollowups > 1 ? "s" : ""} en retard, ${context.appointmentsToday} rendez-vous aujourd'hui et ${context.appointmentsTomorrow} demain. Le pipeline compte ${context.buyerPipeline} acheteur${context.buyerPipeline > 1 ? "s" : ""} et ${context.sellerPipeline} vendeur${context.sellerPipeline > 1 ? "s" : ""}.`;
 
   if (context.callsCompletedToday > 0 && ((context.callsAnsweredToday || 0) > 0 || (context.callFollowupsCreatedToday || 0) > 0)) {
-    observation = `${activitySnapshot} Parmi ces appels, ${context.callsAnsweredToday || 0} propriétaire${(context.callsAnsweredToday || 0) > 1 ? "s ont" : " a"} répondu, ${context.callFollowupsCreatedToday || 0} suivi${(context.callFollowupsCreatedToday || 0) > 1 ? "s ont" : " a"} été créé et ${context.appointmentsObtainedFromCallsToday || 0} rendez-vous ${(context.appointmentsObtainedFromCallsToday || 0) > 1 ? "ont" : "a"} été obtenu.`;
+    observation = `${activitySnapshot} Parmi ces appels, ${context.callsAnsweredToday || 0} propriétaire${(context.callsAnsweredToday || 0) > 1 ? "s ont" : " a"} répondu, ${context.messagesLeftToday || 0} message${(context.messagesLeftToday || 0) > 1 ? "s ont" : " a"} été laissé (${context.callResponseRateToday || 0} % de réponse), ${context.callFollowupsCreatedToday || 0} suivi${(context.callFollowupsCreatedToday || 0) > 1 ? "s ont" : " a"} été créé et ${context.appointmentsObtainedFromCallsToday || 0} rendez-vous ${(context.appointmentsObtainedFromCallsToday || 0) > 1 ? "ont" : "a"} été obtenu.`;
     analysis = "Les résultats enregistrés indiquent où une conversation est déjà engagée; les rappels demandés doivent passer avant une nouvelle séquence de prospection.";
     recommendation = context.nextCallbackName
       ? `Rappelle maintenant ${context.nextCallbackName}${context.nextCallbackDate ? ` au moment prévu le ${context.nextCallbackDate}` : ""}.`
@@ -212,6 +214,8 @@ async function generateDirectorReply(message: string, history: DirectorChatTurn[
 - Prospects créés aujourd'hui : ${context.prospectsCreatedToday}
 - Appels effectués aujourd'hui : ${context.callsCompletedToday}
 - Propriétaires ayant répondu aujourd'hui : ${context.callsAnsweredToday || 0}
+- Messages laissés aujourd'hui : ${context.messagesLeftToday || 0}
+- Taux de réponse aujourd'hui : ${context.callResponseRateToday || 0} %
 - Suivis créés après appel aujourd'hui : ${context.callFollowupsCreatedToday || 0}
 - Rendez-vous obtenus après appel aujourd'hui : ${context.appointmentsObtainedFromCallsToday || 0}
 - Prochain rappel prioritaire : ${context.nextCallbackName || "aucun"}${context.nextCallbackDate ? ` (${context.nextCallbackDate})` : ""}
