@@ -6,12 +6,20 @@ import Link from "next/link";
 import { ArrowRight, CalendarPlus, Copy, ExternalLink, Mail, MessageCircle, Phone, Plus, RotateCcw, Save, Search, Sparkles } from "lucide-react";
 
 import { analyzeCallTranscript, createCallCoachFeedback, type CallAnalysis } from "@/lib/call-intelligence";
+import { generateClientCommunication, type ClientCommunicationOutput } from "@/lib/client-communication/engine";
 import { contextFromPipelineStatus, getContextualAiActions } from "@/lib/ai-actions";
 import { getSoniaProspect, recordCallResult, updateProspectStatus, updateSoniaProspect, type SoniaProspect } from "@/lib/sonia-beta";
 import type { RecordedCallResult } from "@/lib/sonia-beta/storage";
 import { officialSellerWorkflow } from "@/lib/business-rules";
 import { cn } from "@/lib/utils";
 import { VoiceDictationButton } from "@/components/voice-dictation-button";
+
+type PreparedCall = {
+  script: ClientCommunicationOutput;
+  voicemail: string;
+  noAnswerText: string;
+  messenger: string;
+};
 
 const callResults: Array<{ id: RecordedCallResult; label: string }> = [
   { id: "a_repondu", label: "A répondu" },
@@ -21,6 +29,7 @@ const callResults: Array<{ id: RecordedCallResult; label: string }> = [
   { id: "pas_interesse", label: "Pas intéressé" },
   { id: "a_rappeler", label: "À rappeler" },
   { id: "rendez_vous_obtenu", label: "Rendez-vous obtenu" },
+  { id: "projet_futur", label: "Projet futur" },
   { id: "ne_plus_contacter", label: "Ne plus contacter" },
 ];
 
@@ -30,6 +39,11 @@ export function ProspectDetail({ id, demoCall = false }: { id: string; demoCall?
   const [callResult, setCallResult] = useState<RecordedCallResult>("pas_repondu");
   const [callNote, setCallNote] = useState("");
   const [callbackDate, setCallbackDate] = useState("");
+  const [callOccurredAt, setCallOccurredAt] = useState(() => new Date().toISOString().slice(0, 16));
+  const [resultFollowupDate, setResultFollowupDate] = useState("");
+  const [mainObjection, setMainObjection] = useState("");
+  const [interestLevel, setInterestLevel] = useState<"froid" | "tiède" | "chaud">("tiède");
+  const [preparedCall, setPreparedCall] = useState<PreparedCall | null>(null);
   const [followupDate, setFollowupDate] = useState("");
   const [keepLongTerm, setKeepLongTerm] = useState(true);
   const [copiedField, setCopiedField] = useState("");
@@ -69,6 +83,70 @@ export function ProspectDetail({ id, demoCall = false }: { id: string; demoCall?
     if (updated) setProspect(updated);
   }
 
+  function prepareCall() {
+    if (!prospect) return;
+    const context = {
+      clientName: prospect.name,
+      address: prospect.address,
+      city: prospect.city,
+      propertyType: extractNoteValue(prospect.notes, "Type") || "propriété résidentielle",
+      sector: prospect.city,
+      ownershipDuration: extractNoteValue(prospect.notes, "Années détention") || extractNoteValue(prospect.notes, "Durée de détention") || "non précisée",
+      score: extractNoteValue(prospect.notes, "Score") || extractNoteValue(prospect.notes, "Priorité") || "non disponible",
+      signals: extractNoteValue(prospect.notes, "Signaux détectés") || extractNoteValue(prospect.notes, "Pourquoi ce prospect") || "aucun signal consigné",
+      source: prospect.source,
+      previousAttempts: prospect.history.filter((event) => event.type === "call").map((event) => event.title).join(" · ") || "aucune tentative",
+      previousObjections: prospect.history.filter((event) => /objection/i.test(event.description)).map((event) => event.description).join(" · ") || "aucune objection consignée",
+    };
+    const script = generateClientCommunication({
+      clientType: prospect.clientType === "buyer" ? "acheteur" : "vendeur",
+      journeyStage: "prospection initiale",
+      channel: "téléphone",
+      objective: "Comprendre le projet immobilier et convenir d’une prochaine étape utile, sans pression.",
+      warmth: "froid",
+      context,
+      tone: "chaleureux",
+      length: "détaillée",
+    });
+    const voicemail = generateClientCommunication({
+      clientType: prospect.clientType === "buyer" ? "acheteur" : "vendeur",
+      journeyStage: "message vocal après appel sans réponse",
+      channel: "téléphone",
+      objective: "Laisser un message vocal court, humain et sans pression.",
+      warmth: "froid",
+      context,
+      tone: "rassurant",
+      length: "courte",
+    });
+    const noAnswerText = generateClientCommunication({
+      clientType: prospect.clientType === "buyer" ? "acheteur" : "vendeur",
+      journeyStage: "texto après appel sans réponse",
+      channel: "texto",
+      objective: "Expliquer simplement la raison de l’appel et offrir une réponse facile.",
+      warmth: "froid",
+      context,
+      tone: "rassurant",
+      length: "courte",
+    });
+    const messenger = generateClientCommunication({
+      clientType: prospect.clientType === "buyer" ? "acheteur" : "vendeur",
+      journeyStage: "premier contact Messenger",
+      channel: "messenger",
+      objective: "Ouvrir une conversation immobilière locale sans pression.",
+      warmth: "froid",
+      context,
+      tone: "chaleureux",
+      length: "courte",
+    });
+    setPreparedCall({
+      script,
+      voicemail: voicemail.shortVersion,
+      noAnswerText: noAnswerText.shortVersion,
+      messenger: messenger.shortVersion,
+    });
+    window.setTimeout(() => document.getElementById("prepared-call")?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+  }
+
   function startCall() {
     if (!prospect) return;
     setCallStarted(true);
@@ -83,7 +161,16 @@ export function ProspectDetail({ id, demoCall = false }: { id: string; demoCall?
 
   function saveCallResult() {
     if (!prospect) return;
-    let updated = recordCallResult(prospect.id, callResult, callNote, callbackDate);
+    if ((callResult === "a_rappeler" || callResult === "projet_futur") && !callbackDate) {
+      setCallStatus(callResult === "projet_futur" ? "Indiquez l’échéance estimée du projet." : "Indiquez la date et l’heure du rappel.");
+      return;
+    }
+    let updated = recordCallResult(prospect.id, callResult, callNote, callbackDate, {
+      occurredAt: callOccurredAt ? new Date(callOccurredAt).toISOString() : undefined,
+      followupDate: resultFollowupDate || undefined,
+      objection: mainObjection || undefined,
+      interest: interestLevel,
+    });
     if (callResult === "pas_interesse" && !keepLongTerm) {
       updated = updateSoniaProspect(prospect.id, (current) => ({
         ...current,
@@ -213,19 +300,33 @@ export function ProspectDetail({ id, demoCall = false }: { id: string; demoCall?
               <Info label="Courriel" value={prospect.email || "Non renseigné"} />
               <Info label="Adresse" value={prospect.address} />
               <Info label="Ville" value={prospect.city} />
+              <Info label="Source des coordonnées" value={extractNoteValue(prospect.notes, "Source des coordonnées") || prospect.source} />
+              <Info label="Niveau de confiance" value={extractNoteValue(prospect.notes, "Niveau de confiance") || extractNoteValue(prospect.notes, "Confiance") || "À confirmer"} />
+              <Info label="Dernier résultat" value={prospect.history.find((event) => event.type === "call")?.title.replace("Résultat de l'appel : ", "") || "Aucun appel enregistré"} />
             </div>
             <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              <a
-                href={prospect.phone ? `tel:${normalizePhoneForLink(prospect.phone)}` : undefined}
-                onClick={(event) => {
-                  event.preventDefault();
-                  startCall();
-                }}
-                className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-lg bg-slate-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 dark:bg-white dark:text-slate-950"
-              >
-                <Phone className="h-4 w-4" />
-                Appeler
-              </a>
+              <button type="button" onClick={prepareCall} className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-lg border border-teal-300 bg-teal-50 px-4 py-3 text-sm font-semibold text-teal-900 dark:border-teal-800 dark:bg-teal-950/40 dark:text-teal-100">
+                <Sparkles className="h-4 w-4" />
+                Préparer mon appel
+              </button>
+              {prospect.phone ? (
+                <a
+                  href={`tel:${normalizePhoneForLink(prospect.phone)}`}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    startCall();
+                  }}
+                  className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-lg bg-slate-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 dark:bg-white dark:text-slate-950"
+                >
+                  <Phone className="h-4 w-4" />
+                  Appeler maintenant
+                </a>
+              ) : (
+                <button type="button" disabled className="inline-flex min-h-12 w-full cursor-not-allowed items-center justify-center gap-2 rounded-lg bg-slate-300 px-4 py-3 text-sm font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-400">
+                  <Phone className="h-4 w-4" />
+                  Appeler maintenant — numéro manquant
+                </button>
+              )}
               <a href={prospect.phone ? `sms:${prospect.phone}` : undefined} className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-lg border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-950">
                 <MessageCircle className="h-4 w-4" />
                 Envoyer texto
@@ -264,6 +365,23 @@ export function ProspectDetail({ id, demoCall = false }: { id: string; demoCall?
             </div>
           </section>
 
+          {preparedCall ? (
+            <section id="prepared-call" className="scroll-mt-4 rounded-lg border border-teal-200 bg-teal-50/60 p-4 shadow-sm dark:border-teal-900 dark:bg-teal-950/20 sm:p-5">
+              <h2 className="flex items-center gap-2 text-lg font-semibold"><Sparkles className="h-5 w-5 text-teal-700" />Script d&apos;appel préparé</h2>
+              <div className="mt-4 grid gap-3">
+                <CoachLine label="1. Ouverture naturelle et raison de l’appel" value={preparedCall.script.mainMessage} />
+                <CoachLine label="2. Version courte" value={preparedCall.script.shortVersion} />
+                <CoachLine label="3. Première question ouverte" value={preparedCall.script.followUpQuestion} />
+                <CoachLine label="4. Questions de découverte" value="Qu’est-ce qui est le plus important pour vous dans la suite? · Qu’est-ce qui vous ferait considérer un changement? · Comment aimeriez-vous être accompagné?" />
+                <CoachLine label="5. Réponse aux objections" value="Je comprends. Qu’est-ce qui vous ferait sentir qu’une conversation serait utile, même sans prendre de décision aujourd’hui?" />
+                <CoachLine label="6. Prochaine étape suggérée" value={preparedCall.script.recommendedNextAction} />
+                <CoachLine label="Message vocal" value={preparedCall.voicemail} />
+                <CoachLine label="Texto après appel sans réponse" value={preparedCall.noAnswerText} />
+                <CoachLine label="Facebook / Messenger" value={preparedCall.messenger} />
+              </div>
+            </section>
+          ) : null}
+
           <section id="call-result" className="scroll-mt-4 rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900/72 sm:p-5">
             <h2 className="text-lg font-semibold">Enregistrer le résultat de l&apos;appel</h2>
             {!callStarted ? <p className="mt-2 text-sm text-slate-500">Lancez un appel ou utilisez ce bloc après un appel déjà fait.</p> : null}
@@ -282,9 +400,9 @@ export function ProspectDetail({ id, demoCall = false }: { id: string; demoCall?
                 </button>
               ))}
             </div>
-            {callResult === "a_rappeler" ? (
+            {callResult === "a_rappeler" || callResult === "projet_futur" ? (
               <label className="mt-4 block text-sm font-semibold">
-                Date de rappel
+                {callResult === "projet_futur" ? "Échéance estimée du projet" : "Date de rappel"}
                 <input type="datetime-local" value={callbackDate} onChange={(event) => setCallbackDate(event.target.value)} className="mt-2 h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-teal-500 dark:border-slate-700 dark:bg-slate-950" />
               </label>
             ) : null}
@@ -297,6 +415,24 @@ export function ProspectDetail({ id, demoCall = false }: { id: string; demoCall?
                 </div>
               </fieldset>
             ) : null}
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <label className="text-sm font-semibold">Date et heure de l&apos;appel
+                <input type="datetime-local" value={callOccurredAt} onChange={(event) => setCallOccurredAt(event.target.value)} className="mt-2 h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm dark:border-slate-700 dark:bg-slate-950" />
+              </label>
+              <label className="text-sm font-semibold">Prochaine date de suivi
+                <input type="datetime-local" value={resultFollowupDate} onChange={(event) => setResultFollowupDate(event.target.value)} className="mt-2 h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm dark:border-slate-700 dark:bg-slate-950" />
+              </label>
+              <label className="text-sm font-semibold">Objection principale
+                <input value={mainObjection} onChange={(event) => setMainObjection(event.target.value)} placeholder="Ex. Je veux attendre au printemps" className="mt-2 h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm dark:border-slate-700 dark:bg-slate-950" />
+              </label>
+              <label className="text-sm font-semibold">Niveau d&apos;intérêt
+                <select value={interestLevel} onChange={(event) => setInterestLevel(event.target.value as "froid" | "tiède" | "chaud")} className="mt-2 h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm dark:border-slate-700 dark:bg-slate-950">
+                  <option value="froid">Froid</option>
+                  <option value="tiède">Tiède</option>
+                  <option value="chaud">Chaud</option>
+                </select>
+              </label>
+            </div>
             <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <label className="text-sm font-semibold" htmlFor="call-note">Note d&apos;appel</label>
               <VoiceDictationButton onTranscript={appendCallTranscript} />
