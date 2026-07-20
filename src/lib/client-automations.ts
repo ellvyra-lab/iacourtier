@@ -182,17 +182,20 @@ function buildCandidates(contact: SoniaProspect): Candidate[] {
       { months: 6, period: "6m", opening: "Votre renouvellement hypothécaire arrive dans environ six mois.", objective: "Faire un rappel direct et proposer une mise en contact hypothécaire.", task: "Faire un suivi hypothécaire" },
       { months: 3, period: "3m", opening: "Votre renouvellement hypothécaire est maintenant à moins de trois mois.", objective: "Préparer une communication prioritaire et proposer un court appel.", task: "Appeler le client en priorité" },
       { days: 30, period: "30d", opening: "Votre renouvellement hypothécaire est prévu dans environ trente jours.", objective: "Faire une dernière relance utile et proposer une intervention rapide.", task: "Alerte prioritaire dans le Coach IA" },
-    ].forEach((rule) => candidates.push({
-      clientId: contact.id,
-      type: "mortgage",
-      employee: "Employé IA Hypothèque",
-      scheduledFor: toIso("months" in rule && rule.months ? addMonths(renewal, -rule.months) : addDays(renewal, -("days" in rule ? rule.days : 0)), 9),
-      period: `${renewal.getFullYear()}-${rule.period}`,
-      objective: rule.objective,
-      opening: rule.opening,
-      reason: `Renouvellement prévu le ${formatDate(renewal.toISOString())} · jalon ${rule.period}.`,
-      task: rule.task,
-    }));
+    ].forEach((rule) => {
+      if (!rule) return;
+      candidates.push({
+        clientId: contact.id,
+        type: "mortgage",
+        employee: "Employé IA Hypothèque",
+        scheduledFor: toIso("months" in rule && rule.months ? addMonths(renewal, -rule.months) : addDays(renewal, -("days" in rule ? rule.days : 0)), 9),
+        period: `${renewal.getFullYear()}-${rule.period}`,
+        objective: rule.objective,
+        opening: rule.opening,
+        reason: `Renouvellement prévu le ${formatDate(renewal.toISOString())} · jalon ${rule.period}.`,
+        task: rule.task,
+      });
+    });
   }
 
   const birth = parseDate(profile.birthDate);
