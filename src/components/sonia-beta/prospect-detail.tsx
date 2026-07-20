@@ -3,32 +3,36 @@
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowRight, CalendarPlus, Mail, MessageCircle, Phone, Plus, RotateCcw, Save, Sparkles } from "lucide-react";
+import { ArrowRight, CalendarPlus, Copy, ExternalLink, Mail, MessageCircle, Phone, Plus, RotateCcw, Save, Search, Sparkles } from "lucide-react";
 
 import { analyzeCallTranscript, createCallCoachFeedback, type CallAnalysis } from "@/lib/call-intelligence";
 import { contextFromPipelineStatus, getContextualAiActions } from "@/lib/ai-actions";
-import { addProspectHistory, getSoniaProspect, recordCallResult, updateProspectStatus, updateSoniaProspect, type CallResult, type SoniaProspect } from "@/lib/sonia-beta";
+import { getSoniaProspect, recordCallResult, updateProspectStatus, updateSoniaProspect, type SoniaProspect } from "@/lib/sonia-beta";
+import type { RecordedCallResult } from "@/lib/sonia-beta/storage";
 import { officialSellerWorkflow } from "@/lib/business-rules";
 import { cn } from "@/lib/utils";
 import { VoiceDictationButton } from "@/components/voice-dictation-button";
 
-const callResults: Array<{ id: CallResult; label: string }> = [
-  { id: "pas_repondu", label: "Pas répondu" },
+const callResults: Array<{ id: RecordedCallResult; label: string }> = [
+  { id: "a_repondu", label: "A répondu" },
+  { id: "message_laisse", label: "Message laissé" },
+  { id: "pas_repondu", label: "Pas de réponse" },
   { id: "mauvais_numero", label: "Mauvais numéro" },
-  { id: "interesse", label: "Intéressé" },
-  { id: "rendez_vous_obtenu", label: "Rendez-vous obtenu" },
-  { id: "a_rappeler", label: "À rappeler plus tard" },
   { id: "pas_interesse", label: "Pas intéressé" },
-  { id: "deja_avec_courtier", label: "Vendu / déjà avec courtier" },
+  { id: "a_rappeler", label: "À rappeler" },
+  { id: "rendez_vous_obtenu", label: "Rendez-vous obtenu" },
+  { id: "ne_plus_contacter", label: "Ne plus contacter" },
 ];
 
 export function ProspectDetail({ id, demoCall = false }: { id: string; demoCall?: boolean }) {
   const [prospect, setProspect] = useState<SoniaProspect | null>(null);
   const [callStarted, setCallStarted] = useState(false);
-  const [callResult, setCallResult] = useState<CallResult>("pas_repondu");
+  const [callResult, setCallResult] = useState<RecordedCallResult>("pas_repondu");
   const [callNote, setCallNote] = useState("");
   const [callbackDate, setCallbackDate] = useState("");
   const [followupDate, setFollowupDate] = useState("");
+  const [keepLongTerm, setKeepLongTerm] = useState(true);
+  const [copiedField, setCopiedField] = useState("");
   const [newNote, setNewNote] = useState("");
   const [callStatus, setCallStatus] = useState("");
   const [coachAnalysis, setCoachAnalysis] = useState<CallAnalysis | null>(null);
@@ -65,39 +69,35 @@ export function ProspectDetail({ id, demoCall = false }: { id: string; demoCall?
     if (updated) setProspect(updated);
   }
 
-  async function startCall() {
+  function startCall() {
     if (!prospect) return;
     setCallStarted(true);
-    setCallStatus("Préparation de l'appel...");
-    const updated = addProspectHistory(prospect.id, {
-      title: "Appel lancé avec IACourtier",
-      description: prospect.phone ? `Mode bêta : ouverture du téléphone pour ${prospect.phone}.` : "Mode démo : aucun numéro disponible, appel simulé créé.",
-      type: "call",
-    });
-    refresh(updated);
     if (!prospect.phone) {
-      setCallStatus("Mode démo : aucun numéro disponible. Notez le résultat de l'appel simulé.");
+      setCallStatus("Aucun numéro disponible. Utilisez la recherche de coordonnées.");
       return;
     }
-
-    try {
-      const response = await fetch("/api/calls/start", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ to: prospect.phone, prospectId: prospect.id, recordingEnabled: true, provider: "twilio" }),
-      });
-      const payload = (await response.json()) as { message?: string; error?: string; mode?: string };
-      setCallStatus(payload.error || payload.message || "Appel lancé.");
-      if (!response.ok || payload.mode === "demo") window.location.href = `tel:${prospect.phone}`;
-    } catch {
-      setCallStatus("Mode démo : ouverture du téléphone de l'appareil.");
-      window.location.href = `tel:${prospect.phone}`;
-    }
+    setCallStatus("Application téléphonique ouverte. Revenez ensuite enregistrer le résultat de l’appel.");
+    window.setTimeout(() => document.getElementById("call-result")?.scrollIntoView({ behavior: "smooth", block: "start" }), 300);
+    window.location.href = `tel:${normalizePhoneForLink(prospect.phone)}`;
   }
 
   function saveCallResult() {
     if (!prospect) return;
-    const updated = recordCallResult(prospect.id, callResult, callNote, callbackDate);
+    let updated = recordCallResult(prospect.id, callResult, callNote, callbackDate);
+    if (callResult === "pas_interesse" && !keepLongTerm) {
+      updated = updateSoniaProspect(prospect.id, (current) => ({
+        ...current,
+        nextAction: "Archiver de la prospection active",
+        nextActionDate: "",
+        history: [{
+          id: `long-term-${Date.now()}`,
+          date: new Date().toISOString(),
+          title: "Suivi long terme refusé",
+          description: "Le courtier a choisi de ne pas placer ce prospect en suivi long terme.",
+          type: "task",
+        }, ...current.history],
+      }));
+    }
     refresh(updated);
     const analysis = analyzeCallTranscript({
       id: `call-${prospect.id}-${Date.now()}`,
@@ -164,9 +164,23 @@ export function ProspectDetail({ id, demoCall = false }: { id: string; demoCall?
     setCallNote((current) => [current.trim(), transcript.trim()].filter(Boolean).join(" "));
   }
 
+  async function copyValue(label: string, value: string) {
+    await navigator.clipboard.writeText(value);
+    setCopiedField(label);
+  }
+
+  function openSearch(provider: "google" | "facebook", includeAddress = true) {
+    if (!prospect) return;
+    const query = [prospect.name, includeAddress ? prospect.address : "", includeAddress ? prospect.city : ""].filter(Boolean).join(" ");
+    const url = provider === "facebook"
+      ? `https://www.facebook.com/search/top?q=${encodeURIComponent(query)}`
+      : `https://www.google.com/search?q=${encodeURIComponent(query)}`;
+    window.open(url, "_blank", "noopener,noreferrer");
+  }
+
   return (
-    <div className="space-y-7">
-      <section className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900/72">
+    <div className="min-w-0 space-y-4 overflow-x-hidden sm:space-y-7">
+      <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm sm:p-6 dark:border-slate-800 dark:bg-slate-900/72">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <p className="text-sm font-semibold text-teal-700 dark:text-teal-300">Fiche prospect / client</p>
@@ -176,7 +190,11 @@ export function ProspectDetail({ id, demoCall = false }: { id: string; demoCall?
               <Badge>{prospect.status}</Badge>
               <Badge>{prospect.clientType === "seller" ? "Vendeur" : "Acheteur"}</Badge>
               <Badge>Source : {prospect.source}</Badge>
+              <Badge>Score : {extractNoteValue(prospect.notes, "Score") || extractNoteValue(prospect.notes, "Priorité") || "Non disponible"}</Badge>
             </div>
+            <p className="mt-4 max-w-3xl text-sm leading-6 text-slate-600 dark:text-slate-300">
+              <span className="font-semibold">Raisons du score :</span> {extractNoteValue(prospect.notes, "Pourquoi ce prospect") || extractNoteValue(prospect.notes, "Raison") || "Aucune raison consignée."}
+            </p>
           </div>
           <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/50">
             <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Prochaine action</p>
@@ -197,33 +215,48 @@ export function ProspectDetail({ id, demoCall = false }: { id: string; demoCall?
               <Info label="Ville" value={prospect.city} />
             </div>
             <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              <button onClick={startCall} type="button" className="inline-flex items-center justify-center gap-2 rounded-lg bg-slate-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 dark:bg-white dark:text-slate-950">
+              <a
+                href={prospect.phone ? `tel:${normalizePhoneForLink(prospect.phone)}` : undefined}
+                onClick={(event) => {
+                  event.preventDefault();
+                  startCall();
+                }}
+                className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-lg bg-slate-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 dark:bg-white dark:text-slate-950"
+              >
                 <Phone className="h-4 w-4" />
-                Appeler avec IACourtier
-              </button>
-              <a href={prospect.phone ? `sms:${prospect.phone}` : undefined} className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-950">
+                Appeler
+              </a>
+              <a href={prospect.phone ? `sms:${prospect.phone}` : undefined} className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-lg border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-950">
                 <MessageCircle className="h-4 w-4" />
                 Envoyer texto
               </a>
-              <a href={prospect.email ? `mailto:${prospect.email}` : undefined} className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-950">
+              <a href={prospect.email ? `mailto:${prospect.email}` : undefined} className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-lg border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-950">
                 <Mail className="h-4 w-4" />
                 Préparer courriel
               </a>
-              <button onClick={markAppointmentObtained} type="button" className="inline-flex items-center justify-center gap-2 rounded-lg border border-teal-200 bg-teal-50 px-4 py-3 text-sm font-semibold text-teal-800 transition hover:bg-teal-100 dark:border-teal-900 dark:bg-teal-950/30 dark:text-teal-100">
+              <button onClick={markAppointmentObtained} type="button" className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-lg border border-teal-200 bg-teal-50 px-4 py-3 text-sm font-semibold text-teal-800 transition hover:bg-teal-100 dark:border-teal-900 dark:bg-teal-950/30 dark:text-teal-100">
                 <CalendarPlus className="h-4 w-4" />
                 Marquer rendez-vous obtenu
               </button>
-              <button onClick={markMandateSigned} type="button" className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200">
+              <button onClick={markMandateSigned} type="button" className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-lg border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200">
                 <Save className="h-4 w-4" />
                 Mandat signé
               </button>
+            </div>
+            <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              <Link href={`/tableau-de-bord/actions/prepare-first-seller-call?name=${encodeURIComponent(prospect.name)}&address=${encodeURIComponent(prospect.address)}&city=${encodeURIComponent(prospect.city)}&channel=sms&context=prospect`} className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg border border-slate-200 px-3 py-3 text-sm font-semibold dark:border-slate-700"><MessageCircle className="h-4 w-4" />Préparer un message</Link>
+              <button type="button" onClick={() => openSearch("google")} className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg border border-slate-200 px-3 py-3 text-sm font-semibold dark:border-slate-700"><Search className="h-4 w-4" />Rechercher les coordonnées</button>
+              <button type="button" onClick={() => openSearch("google")} className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg border border-slate-200 px-3 py-3 text-sm font-semibold dark:border-slate-700"><ExternalLink className="h-4 w-4" />Rechercher sur le Web</button>
+              <button type="button" onClick={() => openSearch("facebook")} className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg border border-slate-200 px-3 py-3 text-sm font-semibold dark:border-slate-700"><ExternalLink className="h-4 w-4" />Rechercher sur Facebook</button>
+              <button type="button" onClick={() => copyValue("name", prospect.name)} className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg border border-slate-200 px-3 py-3 text-sm font-semibold dark:border-slate-700"><Copy className="h-4 w-4" />{copiedField === "name" ? "Nom copié" : "Copier le nom"}</button>
+              <button type="button" onClick={() => copyValue("address", [prospect.address, prospect.city].filter(Boolean).join(", "))} className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg border border-slate-200 px-3 py-3 text-sm font-semibold dark:border-slate-700"><Copy className="h-4 w-4" />{copiedField === "address" ? "Adresse copiée" : "Copier l’adresse"}</button>
             </div>
             {callStatus ? <p className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-950/50 dark:text-slate-300">{callStatus}</p> : null}
             <div className="mt-5 rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/50">
               <p className="text-sm font-semibold">Planifier relance</p>
               <div className="mt-3 flex flex-col gap-3 sm:flex-row">
                 <input type="date" value={followupDate} onChange={(event) => setFollowupDate(event.target.value)} className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-teal-500 dark:border-slate-700 dark:bg-slate-950" />
-                <button onClick={planFollowup} type="button" className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold dark:border-slate-700 dark:bg-slate-900">
+                <button onClick={planFollowup} type="button" className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold dark:border-slate-700 dark:bg-slate-900">
                   <CalendarPlus className="h-4 w-4" />
                   Planifier relance
                 </button>
@@ -231,8 +264,8 @@ export function ProspectDetail({ id, demoCall = false }: { id: string; demoCall?
             </div>
           </section>
 
-          <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900/72">
-            <h2 className="text-lg font-semibold">Résultat de l&apos;appel</h2>
+          <section id="call-result" className="scroll-mt-4 rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900/72 sm:p-5">
+            <h2 className="text-lg font-semibold">Enregistrer le résultat de l&apos;appel</h2>
             {!callStarted ? <p className="mt-2 text-sm text-slate-500">Lancez un appel ou utilisez ce bloc après un appel déjà fait.</p> : null}
             <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
               {callResults.map((item) => (
@@ -252,8 +285,17 @@ export function ProspectDetail({ id, demoCall = false }: { id: string; demoCall?
             {callResult === "a_rappeler" ? (
               <label className="mt-4 block text-sm font-semibold">
                 Date de rappel
-                <input type="date" value={callbackDate} onChange={(event) => setCallbackDate(event.target.value)} className="mt-2 h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-teal-500 dark:border-slate-700 dark:bg-slate-950" />
+                <input type="datetime-local" value={callbackDate} onChange={(event) => setCallbackDate(event.target.value)} className="mt-2 h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-teal-500 dark:border-slate-700 dark:bg-slate-950" />
               </label>
+            ) : null}
+            {callResult === "pas_interesse" ? (
+              <fieldset className="mt-4 rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+                <legend className="px-1 text-sm font-semibold">Placer ce prospect en suivi long terme?</legend>
+                <div className="mt-2 flex gap-5 text-sm">
+                  <label className="flex items-center gap-2"><input type="radio" checked={keepLongTerm} onChange={() => setKeepLongTerm(true)} />Oui</label>
+                  <label className="flex items-center gap-2"><input type="radio" checked={!keepLongTerm} onChange={() => setKeepLongTerm(false)} />Non</label>
+                </div>
+              </fieldset>
             ) : null}
             <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <label className="text-sm font-semibold" htmlFor="call-note">Note d&apos;appel</label>
@@ -266,7 +308,7 @@ export function ProspectDetail({ id, demoCall = false }: { id: string; demoCall?
               placeholder="Ex. Le propriétaire est curieux de connaître la valeur, mais veut attendre au printemps."
               className="mt-3 min-h-32 w-full resize-none rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm leading-6 outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 dark:border-slate-700 dark:bg-slate-950"
             />
-            <button onClick={saveCallResult} type="button" className="mt-4 inline-flex items-center gap-2 rounded-lg bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 dark:bg-white dark:text-slate-950">
+            <button onClick={saveCallResult} type="button" className="mt-4 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-lg bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 dark:bg-white dark:text-slate-950">
               <RotateCcw className="h-4 w-4" />
               Enregistrer et créer la prochaine action
             </button>
@@ -345,6 +387,16 @@ export function ProspectDetail({ id, demoCall = false }: { id: string; demoCall?
       </div>
     </div>
   );
+}
+
+function normalizePhoneForLink(phone: string) {
+  const digits = phone.replace(/\D/g, "");
+  return digits.length === 10 ? `+1${digits}` : phone.startsWith("+") ? phone : `+${digits}`;
+}
+
+function extractNoteValue(notes: string, label: string) {
+  const line = notes.split("\n").find((item) => item.toLowerCase().startsWith(label.toLowerCase()));
+  return line?.split(":").slice(1).join(":").trim();
 }
 
 function buildProspectContextHref(href: string, prospect: SoniaProspect) {
