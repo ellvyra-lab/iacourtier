@@ -234,6 +234,14 @@ export function DirectorChatPanel({
       const realProspects = prospects.filter((prospect) => !prospect.id.startsWith("sonia-demo-"));
       const informationRequests = realProspects.filter((prospect) => prospect.nextAction === INFORMATION_REQUEST_NEXT_ACTION);
       const automationSummary = getAutomationSummary(syncClientAutomations(realProspects, getAutomationMode()), realProspects);
+      const birthdayResponse = await fetch("/api/automations/birthdays", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "status" }),
+      });
+      const birthdayStatus = birthdayResponse.ok
+        ? await birthdayResponse.json() as { sent?: number; blocked?: number; missingEmails?: number }
+        : {};
       const today = localDateKey(new Date());
       const tomorrowDate = new Date();
       tomorrowDate.setDate(tomorrowDate.getDate() + 1);
@@ -300,6 +308,9 @@ export function DirectorChatPanel({
             automationsBlocked: automationSummary.incompleteContacts + automationSummary.blockedByConsent,
             mortgageRenewalsWithin90Days: automationSummary.mortgageWithin90Days,
             automationHumanInterventions: automationSummary.humanInterventions,
+            birthdayMessagesSentToday: birthdayStatus.sent || 0,
+            birthdayMessagesBlockedToday: birthdayStatus.blocked || 0,
+            birthdayMissingEmailsToday: birthdayStatus.missingEmails || 0,
           },
         }),
       });
