@@ -1,7 +1,7 @@
 export type ClientType = "acheteur" | "vendeur" | "les_deux";
 export type CommunicationChannel = "courriel" | "texto" | "téléphone" | "messenger";
 export type LeadWarmth = "froid" | "tiède" | "chaud";
-export type CommunicationTone = "chaleureux" | "direct" | "rassurant" | "stratégique";
+export type CommunicationTone = "chaleureux" | "professionnel" | "amical" | "direct" | "rassurant" | "stratégique";
 export type CommunicationLength = "courte" | "standard" | "détaillée";
 
 export type ClientCommunicationInput = {
@@ -25,6 +25,7 @@ export type ClientCommunicationOutput = {
 };
 
 export type ClientCommunicationTemplateId =
+  | "birthday"
   | "new-seller-inquiry"
   | "new-buyer-inquiry"
   | "no-response-follow-up"
@@ -60,6 +61,37 @@ const close = (input: ClientCommunicationInput, invitation: string) => {
 };
 
 const TEMPLATES: Template[] = [
+  {
+    id: "birthday",
+    matches: (input) => score(/anniversaire|bonne fête/i.test(input.journeyStage), input.objective.toLowerCase().includes("anniversaire")),
+    create: (input) => {
+      const name = value(input, "firstName", value(input, "clientName", ""));
+      const availability = input.tone === "professionnel"
+        ? "Je demeure disponible si je peux vous être utile au cours de la prochaine année."
+        : input.tone === "amical"
+          ? "Ça me fait toujours plaisir de garder contact, alors n’hésite pas si je peux t’aider."
+          : "Au plaisir de garder contact — je reste disponible si je peux t’être utile.";
+      const intro = input.tone === "professionnel"
+        ? `Je tiens à vous souhaiter une excellente journée d’anniversaire, ${name}.`
+        : input.tone === "amical"
+          ? `Bonne fête ${name}! J’espère que tu profites pleinement de ta journée.`
+          : `Je voulais simplement prendre un moment pour te souhaiter une très belle journée d’anniversaire, ${name}.`;
+      const wish = input.tone === "professionnel"
+        ? "J’espère que cette journée sera remplie de beaux moments avec les personnes qui vous sont chères."
+        : "J’espère qu’elle sera remplie de beaux moments avec les personnes qui te sont chères.";
+      return {
+        mainMessage: `Bonjour ${name},
+
+${intro} ${wish}
+
+${availability}
+Sonia`,
+        shortVersion: `Bonne fête ${name}! Je te souhaite une magnifique journée remplie de beaux moments. — Sonia`,
+        followUpQuestion: "Aucune question requise : ce message est purement relationnel.",
+        recommendedNextAction: "Conserver le contact dans le suivi relationnel, sans relance commerciale.",
+      };
+    },
+  },
   {
     id: "new-seller-inquiry",
     matches: (input) => score(input.clientType === "vendeur", /nouvelle|demande|information|vendre/i.test(input.journeyStage + input.objective)),
