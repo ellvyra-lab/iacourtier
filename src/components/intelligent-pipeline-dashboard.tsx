@@ -450,6 +450,24 @@ function MissingInformationSection({ contacts }: { contacts: SoniaProspect[] }) 
   );
 }
 
+type BirthdayAutomationStatus = {
+  birthdaysToday: number;
+  sent: number;
+  blocked: number;
+  missingEmails: number;
+  missingConsents: number;
+  nextBirthday: { name: string; date: string } | null;
+};
+
+const emptyBirthdayStatus: BirthdayAutomationStatus = {
+  birthdaysToday: 0,
+  sent: 0,
+  blocked: 0,
+  missingEmails: 0,
+  missingConsents: 0,
+  nextBirthday: null,
+};
+
 function ClientAutomationsSection({ contacts }: { contacts: SoniaProspect[] }) {
   const [mode, setMode] = useState<AutomationMode>("approval");
   const [automations, setAutomations] = useState<ClientAutomation[]>([]);
@@ -457,6 +475,12 @@ function ClientAutomationsSection({ contacts }: { contacts: SoniaProspect[] }) {
   const [statusFilter, setStatusFilter] = useState<AutomationStatus | "all">("all");
   const [dateFilter, setDateFilter] = useState("");
   const [selectedId, setSelectedId] = useState("");
+  const [birthdayStatus, setBirthdayStatus] = useState<BirthdayAutomationStatus>(emptyBirthdayStatus);
+  const [birthdayContactId, setBirthdayContactId] = useState("");
+  const [birthdayTestEmail, setBirthdayTestEmail] = useState("");
+  const [birthdayTone, setBirthdayTone] = useState<"chaleureux" | "professionnel" | "amical">("chaleureux");
+  const [birthdayTestResult, setBirthdayTestResult] = useState("");
+  const [birthdayTestRunning, setBirthdayTestRunning] = useState(false);
   const selected = automations.find((item) => item.id === selectedId);
   const summary = getAutomationSummary(automations, contacts);
   const today = new Date().toISOString().slice(0, 10);
@@ -466,6 +490,63 @@ function ClientAutomationsSection({ contacts }: { contacts: SoniaProspect[] }) {
     setMode(savedMode);
     setAutomations(syncClientAutomations(contacts, savedMode));
   }, [contacts]);
+
+  useEffect(() => {
+    const birthdayContacts = contacts.map((contact) => ({
+      id: contact.id,
+      name: contact.name,
+      email: contact.email,
+      birthDate: contact.importProfile?.birthDate,
+      consent: Boolean(contact.importProfile?.communicationConsent),
+      excluded: /ne plus contacter/i.test([contact.status, contact.notes, contact.nextAction].join(" ")),
+    }));
+    async function refreshBirthdays() {
+      await fetch("/api/automations/birthdays", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "sync", contacts: birthdayContacts }),
+      });
+      const response = await fetch("/api/automations/birthdays", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "status" }),
+      });
+      if (response.ok) setBirthdayStatus(await response.json() as BirthdayAutomationStatus);
+    }
+    void refreshBirthdays();
+  }, [contacts]);
+
+  async function testBirthday() {
+    const contact = contacts.find((item) => item.id === birthdayContactId);
+    if (!contact || !birthdayTestEmail.trim()) {
+      setBirthdayTestResult("Choisissez un contact et indiquez l’adresse de test autorisée.");
+      return;
+    }
+    setBirthdayTestRunning(true);
+    setBirthdayTestResult("");
+    const response = await fetch("/api/automations/birthdays", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "test",
+        testEmail: birthdayTestEmail,
+        tone: birthdayTone,
+        contact: {
+          id: contact.id,
+          name: contact.name,
+          email: contact.email,
+          birthDate: contact.importProfile?.birthDate,
+          consent: Boolean(contact.importProfile?.communicationConsent),
+          excluded: /ne plus contacter/i.test([contact.status, contact.notes, contact.nextAction].join(" ")),
+        },
+      }),
+    });
+    const payload = await response.json() as { error?: string; result?: { status?: string; subject?: string; simulated?: boolean } };
+    setBirthdayTestResult(response.ok
+      ? `${payload.result?.simulated ? "Simulation réussie" : "Courriel test envoyé"} · ${payload.result?.subject || "Bonne fête"} · le vrai contact n’a pas été marqué comme contacté.`
+      : payload.error || "Le test a échoué.");
+    setBirthdayTestRunning(false);
+  }
 
   function changeMode(nextMode: AutomationMode) {
     setMode(nextMode);
@@ -491,7 +572,7 @@ function ClientAutomationsSection({ contacts }: { contacts: SoniaProspect[] }) {
         <div>
           <p className="text-sm font-semibold text-teal-700 dark:text-teal-300">Coach IA</p>
           <h2 className="mt-1 text-2xl font-semibold tracking-tight">Automatisations clients</h2>
-          <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">Les employés IA préparent et planifient les communications. Aucun envoi externe n’est effectué.</p>
+          <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">Les employés IA préparent et planifient les communications. Les anniversaires admissibles peuvent être envoyés automatiquement par courriel.</p>
         </div>
         <label className="text-sm font-semibold">
           Mode automatisation
@@ -501,6 +582,43 @@ function ClientAutomationsSection({ contacts }: { contacts: SoniaProspect[] }) {
             <option value="automatic">Automatique (planification seulement)</option>
           </select>
         </label>
+      </div>
+
+      <div className="mt-5 rounded-lg border border-teal-200 bg-teal-50/60 p-4 dark:border-teal-900 dark:bg-teal-950/20">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p className="text-sm font-semibold text-teal-800 dark:text-teal-200">Anniversaires</p>
+            <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">Détection quotidienne, consentement vérifié et un seul envoi réel par contact et par année.</p>
+          </div>
+          <p className="text-xs font-semibold text-teal-800 dark:text-teal-200">Prochain : {birthdayStatus.nextBirthday ? `${birthdayStatus.nextBirthday.name} · ${birthdayStatus.nextBirthday.date}` : "Aucun"}</p>
+        </div>
+        <div className="mt-4 grid gap-2 sm:grid-cols-3 lg:grid-cols-5">
+          {[
+            ["Aujourd’hui", birthdayStatus.birthdaysToday],
+            ["Envoyés", birthdayStatus.sent],
+            ["Bloqués", birthdayStatus.blocked],
+            ["Courriels manquants", birthdayStatus.missingEmails],
+            ["Consentements manquants", birthdayStatus.missingConsents],
+          ].map(([label, value]) => <div key={label} className="rounded-lg bg-white p-3 ring-1 ring-teal-200 dark:bg-slate-950 dark:ring-teal-900"><p className="text-xl font-semibold">{value}</p><p className="mt-1 text-xs text-slate-500">{label}</p></div>)}
+        </div>
+        <details className="mt-4 rounded-lg border border-teal-200 bg-white p-4 dark:border-teal-900 dark:bg-slate-950">
+          <summary className="cursor-pointer text-sm font-semibold">Tester avec un contact</summary>
+          <p className="mt-2 text-xs text-slate-500">Le serveur force uniquement ce contact à aujourd’hui et envoie exclusivement à BIRTHDAY_TEST_EMAIL. La fiche réelle n’est pas modifiée.</p>
+          <div className="mt-3 grid gap-3 md:grid-cols-3">
+            <select value={birthdayContactId} onChange={(event) => setBirthdayContactId(event.target.value)} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950">
+              <option value="">Choisir un contact</option>
+              {contacts.map((contact) => <option key={contact.id} value={contact.id}>{contact.name}</option>)}
+            </select>
+            <input type="email" value={birthdayTestEmail} onChange={(event) => setBirthdayTestEmail(event.target.value)} placeholder="Adresse de test autorisée" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950" />
+            <select value={birthdayTone} onChange={(event) => setBirthdayTone(event.target.value as "chaleureux" | "professionnel" | "amical")} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950">
+              <option value="chaleureux">Chaleureux</option>
+              <option value="professionnel">Professionnel</option>
+              <option value="amical">Amical</option>
+            </select>
+          </div>
+          <button type="button" disabled={birthdayTestRunning} onClick={testBirthday} className="mt-3 rounded-lg bg-teal-700 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{birthdayTestRunning ? "Envoi du test…" : "Envoyer uniquement le test"}</button>
+          {birthdayTestResult ? <p className="mt-3 rounded-lg bg-slate-50 p-3 text-sm dark:bg-slate-900">{birthdayTestResult}</p> : null}
+        </details>
       </div>
 
       <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
