@@ -42,6 +42,9 @@ export type DirectorChatContext = {
   automationsBlocked?: number;
   mortgageRenewalsWithin90Days?: number;
   automationHumanInterventions?: number;
+  birthdayMessagesSentToday?: number;
+  birthdayMessagesBlockedToday?: number;
+  birthdayMissingEmailsToday?: number;
 };
 
 export type DirectorChatRequest = {
@@ -114,7 +117,13 @@ function buildMentorBrief(context: DirectorChatContext, inspiration: string) {
 
   const activitySnapshot = `${context.userName || "Sonia"}, aujourd'hui tu as ${context.prospectsCreatedToday} prospect${context.prospectsCreatedToday > 1 ? "s" : ""} créé${context.prospectsCreatedToday > 1 ? "s" : ""}, ${context.callsCompletedToday} appel${context.callsCompletedToday > 1 ? "s" : ""} effectué${context.callsCompletedToday > 1 ? "s" : ""}, ${context.overdueFollowups} suivi${context.overdueFollowups > 1 ? "s" : ""} en retard, ${context.appointmentsToday} rendez-vous aujourd'hui et ${context.appointmentsTomorrow} demain. Le pipeline compte ${context.buyerPipeline} acheteur${context.buyerPipeline > 1 ? "s" : ""} et ${context.sellerPipeline} vendeur${context.sellerPipeline > 1 ? "s" : ""}.`;
 
-  if (context.callsCompletedToday > 0 && ((context.callsAnsweredToday || 0) > 0 || (context.callFollowupsCreatedToday || 0) > 0)) {
+  if ((context.birthdayMessagesSentToday || 0) > 0 || (context.birthdayMessagesBlockedToday || 0) > 0) {
+    observation = `${activitySnapshot} ${context.birthdayMessagesSentToday || 0} message${(context.birthdayMessagesSentToday || 0) > 1 ? "s d’anniversaire ont" : " d’anniversaire a"} été envoyé ce matin. ${context.birthdayMessagesBlockedToday || 0} contact${(context.birthdayMessagesBlockedToday || 0) > 1 ? "s n’ont" : " n’a"} pas été joint, dont ${context.birthdayMissingEmailsToday || 0} sans courriel valide.`;
+    analysis = "L’automatisation relationnelle fonctionne, tandis que les contacts bloqués indiquent exactement quelles fiches doivent être complétées.";
+    recommendation = (context.birthdayMessagesBlockedToday || 0) > 0
+      ? "Complète d’abord les courriels ou consentements manquants des anniversaires du jour."
+      : "Poursuis avec la prochaine action prioritaire de ton pipeline.";
+  } else if (context.callsCompletedToday > 0 && ((context.callsAnsweredToday || 0) > 0 || (context.callFollowupsCreatedToday || 0) > 0)) {
     observation = `${activitySnapshot} Parmi ces appels, ${context.callsAnsweredToday || 0} propriétaire${(context.callsAnsweredToday || 0) > 1 ? "s ont" : " a"} répondu, ${context.messagesLeftToday || 0} message${(context.messagesLeftToday || 0) > 1 ? "s ont" : " a"} été laissé (${context.callResponseRateToday || 0} % de réponse), ${context.callFollowupsCreatedToday || 0} suivi${(context.callFollowupsCreatedToday || 0) > 1 ? "s ont" : " a"} été créé et ${context.appointmentsObtainedFromCallsToday || 0} rendez-vous ${(context.appointmentsObtainedFromCallsToday || 0) > 1 ? "ont" : "a"} été obtenu.`;
     analysis = "Les résultats enregistrés indiquent où une conversation est déjà engagée; les rappels demandés doivent passer avant une nouvelle séquence de prospection.";
     recommendation = context.nextCallbackName
