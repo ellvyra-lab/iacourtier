@@ -123,6 +123,72 @@ export async function generateWithOpenAI({
   return text.trim();
 }
 
+export async function generateWithOpenAIVision({
+  systemPrompt,
+  userPrompt,
+  images,
+  maxTokens = 1600,
+}: {
+  systemPrompt: string;
+  userPrompt: string;
+  images: Array<{ dataUrl: string; name: string }>;
+  maxTokens?: number;
+}): Promise<string> {
+  const apiKey = readOpenAIKey();
+  const model = readOpenAIModel();
+  let response: Response;
+  try {
+    response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model,
+        temperature: 0.1,
+        max_tokens: maxTokens,
+        messages: [
+          { role: "system", content: systemPrompt },
+          {
+            role: "user",
+            content: [
+              { type: "text", text: userPrompt },
+              ...images.map((image) => ({ type: "image_url", image_url: { url: image.dataUrl, detail: "high" } })),
+            ],
+          },
+        ],
+      }),
+      signal: AbortSignal.timeout(60_000),
+    });
+  } catch (error) {
+    throw new AIUnavailableError({
+      diagnostic: "openai_network_error",
+      message: error instanceof Error ? error.message : "Network error calling OpenAI vision",
+      publicMessage: "L’analyse visuelle OpenAI a échoué avant de recevoir une réponse.",
+      statusCode: 503,
+    });
+  }
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    throw new AIUnavailableError({
+      diagnostic: response.status === 401 ? "invalid_api_key" : response.status === 429 ? "openai_rate_limited" : "openai_api_error",
+      message: `OpenAI vision error ${response.status}: ${detail.slice(0, 500)}`,
+      publicMessage: "L’analyse visuelle OpenAI a échoué.",
+      publicDetail: `Statut OpenAI: ${response.status}`,
+      statusCode: response.status === 401 ? 500 : 503,
+    });
+  }
+  const data = await response.json();
+  const text = data?.choices?.[0]?.message?.content;
+  if (!text || typeof text !== "string") {
+    throw new AIUnavailableError({
+      diagnostic: "openai_empty_response",
+      message: "Empty response from OpenAI vision",
+      publicMessage: "OpenAI a répondu sans extraction exploitable.",
+      statusCode: 502,
+    });
+  }
+  return text.trim();
+}
+
 function readOpenAIKey() {
   const rawApiKey = process.env.OPENAI_API_KEY;
 
