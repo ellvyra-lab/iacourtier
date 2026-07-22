@@ -4,7 +4,10 @@ export type ExtractedSeller = {
   mailingAddress: string;
   phone: string;
   email: string;
+  roles?: Array<"buyer" | "seller" | "investor" | "owner">;
 };
+
+export type ExtractedBuyer = ExtractedSeller;
 
 export type ExtractedMandateFields = {
   address: string;
@@ -12,6 +15,8 @@ export type ExtractedMandateFields = {
   postalCode: string;
   owners: string;
   sellers: ExtractedSeller[];
+  buyers: ExtractedBuyer[];
+  transactionType: string;
   lotNumber: string;
   cadastre: string;
   propertyType: string;
@@ -42,7 +47,7 @@ export type ExtractedMandateFields = {
 };
 
 export const emptyExtractedMandateFields: ExtractedMandateFields = {
-  address: "", city: "", postalCode: "", owners: "", sellers: [], lotNumber: "", cadastre: "",
+  address: "", city: "", postalCode: "", owners: "", sellers: [], buyers: [], transactionType: "", lotNumber: "", cadastre: "",
   propertyType: "", dimensions: "", landArea: "", livingArea: "", yearBuilt: "", bedrooms: "",
   bathrooms: "", parking: "", zoning: "", servitudes: "", pool: "", garage: "", fireplace: "",
   municipalTaxes: "", schoolTaxes: "", municipalAssessment: "", mortgageLender: "", mortgageDate: "",
@@ -62,14 +67,16 @@ Analyse les documents fournis (actes, certificats, déclarations, taxes, évalua
 Règles strictes :
 - Ne jamais inventer une donnée.
 - Si une information n'est pas trouvée, retourner une chaîne vide ou un tableau vide.
-- Distinguer chaque vendeur; ne pas transformer un témoin, notaire ou créancier en propriétaire.
+- Distinguer les acheteurs, vendeurs, investisseurs et propriétaires; ne pas transformer un témoin, notaire ou créancier en client.\n- Si la même personne achète et vend, la placer dans les deux tableaux avec les mêmes coordonnées et les rôles buyer et seller.
 - Conserver les montants, unités et dates tels qu'ils apparaissent.
 - Retourner uniquement un JSON valide, sans Markdown.
 
 Structure JSON obligatoire :
 {
   "address": "", "city": "", "postalCode": "", "owners": "",
-  "sellers": [{"firstName":"","lastName":"","mailingAddress":"","phone":"","email":""}],
+  "sellers": [{"firstName":"","lastName":"","mailingAddress":"","phone":"","email":"","roles":["seller","owner"]}],
+  "buyers": [{"firstName":"","lastName":"","mailingAddress":"","phone":"","email":"","roles":["buyer"]}],
+  "transactionType": "achat|vente|achat_vente|investissement|",
   "lotNumber": "", "cadastre": "", "propertyType": "", "dimensions": "",
   "landArea": "", "livingArea": "", "yearBuilt": "", "bedrooms": "", "bathrooms": "",
   "parking": "", "zoning": "", "servitudes": "", "pool": "", "garage": "", "fireplace": "",
@@ -81,20 +88,26 @@ Structure JSON obligatoire :
 
 export function normalizeExtractedMandateFields(value: unknown): ExtractedMandateFields {
   const record = typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
-  const sellers = Array.isArray(record.sellers) ? record.sellers.map((seller) => {
-    const item = typeof seller === "object" && seller !== null ? seller as Record<string, unknown> : {};
+  const normalizePeople = (value: unknown, defaultRole: "buyer" | "seller") => Array.isArray(value) ? value.map((person) => {
+    const item = typeof person === "object" && person !== null ? person as Record<string, unknown> : {};
+    const roles = Array.isArray(item.roles)
+      ? item.roles.map(String).filter((role): role is "buyer" | "seller" | "investor" | "owner" => ["buyer", "seller", "investor", "owner"].includes(role))
+      : [defaultRole];
     return {
       firstName: String(item.firstName || ""),
       lastName: String(item.lastName || ""),
       mailingAddress: String(item.mailingAddress || ""),
       phone: String(item.phone || ""),
       email: String(item.email || ""),
+      roles,
     };
-  }).filter((seller) => seller.firstName || seller.lastName) : [];
+  }).filter((person) => person.firstName || person.lastName) : [];
+  const sellers = normalizePeople(record.sellers, "seller");
+  const buyers = normalizePeople(record.buyers, "buyer");
   const text = (key: keyof ExtractedMandateFields) => String(record[key] || "");
   return {
-    address: text("address"), city: text("city"), postalCode: text("postalCode"), owners: text("owners"), sellers,
-    lotNumber: text("lotNumber"), cadastre: text("cadastre"), propertyType: text("propertyType"),
+    address: text("address"), city: text("city"), postalCode: text("postalCode"), owners: text("owners"), sellers, buyers,
+    transactionType: text("transactionType"), lotNumber: text("lotNumber"), cadastre: text("cadastre"), propertyType: text("propertyType"),
     dimensions: text("dimensions"), landArea: text("landArea"), livingArea: text("livingArea"),
     yearBuilt: text("yearBuilt"), bedrooms: text("bedrooms"), bathrooms: text("bathrooms"),
     parking: text("parking"), zoning: text("zoning"), servitudes: text("servitudes"), pool: text("pool"),
