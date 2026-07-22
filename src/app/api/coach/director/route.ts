@@ -38,6 +38,9 @@ export type DirectorChatContext = {
   newContacts: number;
   buyerPipeline: number;
   sellerPipeline: number;
+  buyerSellerContacts?: number;
+  investorContacts?: number;
+  multiRoleContacts?: number;
   automationsReadyToday?: number;
   automationsBlocked?: number;
   mortgageRenewalsWithin90Days?: number;
@@ -115,7 +118,7 @@ function buildMentorBrief(context: DirectorChatContext, inspiration: string) {
   let analysis: string;
   let recommendation: string;
 
-  const activitySnapshot = `${context.userName || "Sonia"}, aujourd'hui tu as ${context.prospectsCreatedToday} prospect${context.prospectsCreatedToday > 1 ? "s" : ""} créé${context.prospectsCreatedToday > 1 ? "s" : ""}, ${context.callsCompletedToday} appel${context.callsCompletedToday > 1 ? "s" : ""} effectué${context.callsCompletedToday > 1 ? "s" : ""}, ${context.overdueFollowups} suivi${context.overdueFollowups > 1 ? "s" : ""} en retard, ${context.appointmentsToday} rendez-vous aujourd'hui et ${context.appointmentsTomorrow} demain. Le pipeline compte ${context.buyerPipeline} acheteur${context.buyerPipeline > 1 ? "s" : ""} et ${context.sellerPipeline} vendeur${context.sellerPipeline > 1 ? "s" : ""}.`;
+  const activitySnapshot = `${context.userName || "Sonia"}, aujourd'hui tu as ${context.prospectsCreatedToday} prospect${context.prospectsCreatedToday > 1 ? "s" : ""} créé${context.prospectsCreatedToday > 1 ? "s" : ""}, ${context.callsCompletedToday} appel${context.callsCompletedToday > 1 ? "s" : ""} effectué${context.callsCompletedToday > 1 ? "s" : ""}, ${context.overdueFollowups} suivi${context.overdueFollowups > 1 ? "s" : ""} en retard, ${context.appointmentsToday} rendez-vous aujourd'hui et ${context.appointmentsTomorrow} demain. Le pipeline compte ${context.buyerPipeline} acheteur${context.buyerPipeline > 1 ? "s" : ""}, ${context.sellerPipeline} vendeur${context.sellerPipeline > 1 ? "s" : ""}, ${context.buyerSellerContacts || 0} client${(context.buyerSellerContacts || 0) > 1 ? "s" : ""} acheteur-vendeur et ${context.investorContacts || 0} investisseur${(context.investorContacts || 0) > 1 ? "s" : ""}.`;
 
   if ((context.birthdayMessagesSentToday || 0) > 0 || (context.birthdayMessagesBlockedToday || 0) > 0) {
     observation = `${activitySnapshot} ${context.birthdayMessagesSentToday || 0} message${(context.birthdayMessagesSentToday || 0) > 1 ? "s d’anniversaire ont" : " d’anniversaire a"} été envoyé ce matin. ${context.birthdayMessagesBlockedToday || 0} contact${(context.birthdayMessagesBlockedToday || 0) > 1 ? "s n’ont" : " n’a"} pas été joint, dont ${context.birthdayMissingEmailsToday || 0} sans courriel valide.`;
@@ -235,6 +238,9 @@ async function generateDirectorReply(message: string, history: DirectorChatTurn[
 - Nouveaux contacts aujourd'hui : ${context.newContacts}
 - Pipeline acheteurs : ${context.buyerPipeline}
 - Pipeline vendeurs : ${context.sellerPipeline}
+- Clients acheteurs et vendeurs : ${context.buyerSellerContacts || 0}
+- Investisseurs : ${context.investorContacts || 0}
+- Fiches multirôles détectées : ${context.multiRoleContacts || 0}
 - Automatisations prêtes aujourd'hui : ${context.automationsReadyToday || 0}
 - Automatisations bloquées par données ou consentement : ${context.automationsBlocked || 0}
 - Renouvellements hypothécaires à moins de 90 jours : ${context.mortgageRenewalsWithin90Days || 0}
