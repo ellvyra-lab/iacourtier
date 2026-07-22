@@ -1,74 +1,70 @@
 "use client";
 
 import type { DragEvent } from "react";
-import { useRef, useState } from "react";
-import { useRouter } from "next/navigation";
-import { Check, FileText, Loader2, UploadCloud, X } from "lucide-react";
+import { useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import { Check, FileText, Home, Loader2, UploadCloud, X } from "lucide-react";
 
-import {
-  emptyExtractedMandateFields,
-  type ExtractedMandateFields,
-  type MandateDocumentExtractionResponse,
-} from "@/lib/mandate-document-extraction";
+import { emptyExtractedMandateFields, type ExtractedMandateFields, type ExtractedSeller, type MandateDocumentExtractionResponse } from "@/lib/mandate-document-extraction";
+import { getSoniaProspects, upsertSoniaProspect } from "@/lib/sonia-beta/storage";
+import type { SoniaProspect } from "@/lib/sonia-beta/types";
+import { officialSellerWorkflow } from "@/lib/business-rules";
 import { cn } from "@/lib/utils";
 
-const fieldGroups: Array<{
-  title: string;
-  fields: Array<{ key: keyof ExtractedMandateFields; label: string; multiline?: boolean }>;
-}> = [
-  {
-    title: "Identification",
-    fields: [
-      { key: "address", label: "Adresse" },
-      { key: "city", label: "Ville" },
-      { key: "postalCode", label: "Code postal" },
-      { key: "owners", label: "Nom des propriétaires" },
-    ],
-  },
-  {
-    title: "Cadastre et superficies",
-    fields: [
-      { key: "lotNumber", label: "Numéro de lot" },
-      { key: "cadastre", label: "Cadastre" },
-      { key: "landArea", label: "Superficie du terrain" },
-      { key: "livingArea", label: "Superficie habitable" },
-      { key: "yearBuilt", label: "Année de construction" },
-    ],
-  },
-  {
-    title: "Taxes et évaluation",
-    fields: [
-      { key: "municipalTaxes", label: "Taxes municipales" },
-      { key: "schoolTaxes", label: "Taxes scolaires" },
-      { key: "municipalAssessment", label: "Évaluation municipale" },
-    ],
-  },
-  {
-    title: "Caractéristiques et contraintes",
-    fields: [
-      { key: "zoning", label: "Zonage" },
-      { key: "servitudes", label: "Servitudes", multiline: true },
-      { key: "pool", label: "Piscine" },
-      { key: "garage", label: "Garage" },
-      { key: "importantInfo", label: "Informations importantes", multiline: true },
-      { key: "missingInfo", label: "Informations manquantes", multiline: true },
-    ],
-  },
+type TextFieldKey = Exclude<keyof ExtractedMandateFields, "sellers">;
+type DuplicateDecision = "merge" | "update" | "create";
+type ExistingProperty = Record<string, unknown> & { id: string; address?: string; city?: string };
+
+const accepted = [".pdf", ".jpg", ".jpeg", ".png", ".heic"];
+const fieldGroups: Array<{ title: string; fields: Array<{ key: TextFieldKey; label: string; multiline?: boolean }> }> = [
+  { title: "Propriété", fields: [
+    { key: "address", label: "Adresse" }, { key: "city", label: "Ville" }, { key: "postalCode", label: "Code postal" },
+    { key: "propertyType", label: "Type de propriété" }, { key: "lotNumber", label: "Numéro de lot" },
+    { key: "yearBuilt", label: "Année" }, { key: "dimensions", label: "Dimensions" }, { key: "livingArea", label: "Superficie habitable" },
+    { key: "landArea", label: "Terrain" }, { key: "bedrooms", label: "Chambres" }, { key: "bathrooms", label: "Salles de bain" },
+    { key: "garage", label: "Garage" }, { key: "pool", label: "Piscine" }, { key: "fireplace", label: "Foyer" },
+    { key: "parking", label: "Stationnements" }, { key: "zoning", label: "Zonage" }, { key: "servitudes", label: "Servitudes", multiline: true },
+  ]},
+  { title: "Taxes et évaluation", fields: [
+    { key: "municipalTaxes", label: "Taxes municipales" }, { key: "schoolTaxes", label: "Taxes scolaires" },
+    { key: "municipalAssessment", label: "Évaluation municipale" },
+  ]},
+  { title: "Hypothèque", fields: [
+    { key: "mortgageLender", label: "Prêteur" }, { key: "mortgageDate", label: "Date" },
+    { key: "mortgageAmount", label: "Montant" }, { key: "mortgageMaturity", label: "Échéance" },
+  ]},
+  { title: "Mise en marché", fields: [
+    { key: "askingPrice", label: "Prix demandé" }, { key: "marketDate", label: "Date de mise en marché" },
+    { key: "availability", label: "Disponibilité" }, { key: "importantInfo", label: "Informations importantes", multiline: true },
+    { key: "missingInfo", label: "Informations manquantes", multiline: true },
+  ]},
 ];
 
 export function MandateDocumentImporter() {
-  const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
   const [files, setFiles] = useState<File[]>([]);
   const [fields, setFields] = useState<ExtractedMandateFields>(emptyExtractedMandateFields);
   const [fileNames, setFileNames] = useState<string[]>([]);
-  const [status, setStatus] = useState<"idle" | "extracting" | "ready" | "error">("idle");
+  const [status, setStatus] = useState<"idle" | "extracting" | "ready" | "created" | "error">("idle");
   const [error, setError] = useState("");
+  const [contactDecisions, setContactDecisions] = useState<Record<number, DuplicateDecision>>({});
+  const [propertyDecision, setPropertyDecision] = useState<DuplicateDecision | "">("");
+  const [createdId, setCreatedId] = useState("");
+
+  const contacts = status === "ready" ? getSoniaProspects().filter((contact) => !contact.id.startsWith("sonia-demo-")) : [];
+  const sellers = useMemo(() => normalizedSellers(fields), [fields]);
+  const contactDuplicates = sellers.map((seller) => findContactDuplicate(contacts, seller));
+  const existingProperty = status === "ready" ? findExistingProperty(fields.address, fields.city) : null;
+  const foundFields = Object.entries(fields).filter(([key, value]) => key !== "sellers" && typeof value === "string" && value.trim()).map(([key]) => key);
+  const missing = [
+    !fields.askingPrice ? "prix demandé" : "", !fields.marketDate ? "date de mise en marché" : "",
+    !fields.availability ? "disponibilité" : "",
+  ].filter(Boolean);
 
   function addFiles(nextFiles: File[]) {
-    const pdfs = nextFiles.filter((file) => file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf"));
-    setFiles((current) => [...current, ...pdfs].slice(0, 8));
-    setError(pdfs.length === nextFiles.length ? "" : "Seuls les fichiers PDF ont été ajoutés.");
+    const valid = nextFiles.filter((file) => accepted.some((extension) => file.name.toLowerCase().endsWith(extension)));
+    setFiles((current) => [...current, ...valid].slice(0, 12));
+    setError(valid.length === nextFiles.length ? "" : "Certains fichiers ont été ignorés. Formats acceptés : PDF, JPG, JPEG, PNG et HEIC.");
   }
 
   function handleDrop(event: DragEvent<HTMLLabelElement>) {
@@ -76,207 +72,208 @@ export function MandateDocumentImporter() {
     addFiles(Array.from(event.dataTransfer.files));
   }
 
-  function updateField<K extends keyof ExtractedMandateFields>(key: K, value: ExtractedMandateFields[K]) {
+  function updateField(key: TextFieldKey, value: string) {
     setFields((current) => ({ ...current, [key]: value }));
   }
 
   async function extractDocuments() {
-    if (!files.length) {
-      setError("Déposez au moins un PDF avant de lancer l’extraction.");
+    if (!files.length) return setError("Déposez au moins un document.");
+    setStatus("extracting");
+    setError("");
+    const formData = new FormData();
+    files.forEach((file) => formData.append("files", file));
+    try {
+      const response = await fetch("/api/extract-mandate-documents", { method: "POST", body: formData });
+      const payload = await response.json() as MandateDocumentExtractionResponse & { error?: string };
+      if (!response.ok) throw new Error(payload.error || "L’analyse a échoué.");
+      setFields(payload.fields);
+      setFileNames(payload.fileNames);
+      setContactDecisions({});
+      setPropertyDecision("");
+      setStatus("ready");
+    } catch (reason) {
+      setStatus("error");
+      setError(reason instanceof Error ? reason.message : "L’analyse a échoué.");
+    }
+  }
+
+  function validateAndCreate() {
+    const unresolvedContact = contactDuplicates.findIndex((duplicate, index) => duplicate && !contactDecisions[index]);
+    if (unresolvedContact >= 0) {
+      setError(`Choisissez comment traiter le doublon de ${sellers[unresolvedContact].firstName} ${sellers[unresolvedContact].lastName}.`);
+      return;
+    }
+    if (existingProperty && !propertyDecision) {
+      setError("Choisissez comment traiter la propriété existante.");
+      return;
+    }
+    if (!fields.address.trim() || !fields.city.trim()) {
+      setError("L’adresse et la ville sont nécessaires avant la création.");
       return;
     }
 
-    setStatus("extracting");
+    const ownerIds: string[] = [];
+    sellers.forEach((seller, index) => {
+      const duplicate = contactDuplicates[index];
+      const decision = contactDecisions[index];
+      if (duplicate && decision !== "create") {
+        const updated = contactFromSeller(seller, duplicate, decision === "update");
+        upsertSoniaProspect(updated);
+        ownerIds.push(updated.id);
+      } else {
+        const created = contactFromSeller(seller);
+        upsertSoniaProspect(created);
+        ownerIds.push(created.id);
+      }
+    });
+
+    const newId = existingProperty && propertyDecision !== "create" ? existingProperty.id : `local-${Date.now()}`;
+    const extracted = propertyPayload(newId, fields, fileNames, ownerIds);
+    const payload = existingProperty && propertyDecision === "merge"
+      ? mergeProperty(existingProperty, extracted, false)
+      : existingProperty && propertyDecision === "update"
+        ? mergeProperty(existingProperty, extracted, true)
+        : extracted;
+    window.localStorage.setItem(`iacourtier-mandate-${newId}`, JSON.stringify(payload));
+    setCreatedId(newId);
+    setStatus("created");
     setError("");
-
-    try {
-      const formData = new FormData();
-      files.forEach((file) => formData.append("files", file));
-
-      const response = await fetch("/api/extract-mandate-documents", {
-        method: "POST",
-        body: formData,
-      });
-      const payload = (await response.json()) as MandateDocumentExtractionResponse & { error?: string };
-
-      if (!response.ok) throw new Error(payload.error || "L’extraction des documents a échoué.");
-
-      setFields(payload.fields);
-      setFileNames(payload.fileNames);
-      setStatus("ready");
-    } catch (extractError) {
-      setStatus("error");
-      setError(extractError instanceof Error ? extractError.message : "L’extraction des documents a échoué.");
-    }
   }
 
-  function createMandate() {
-    const id = `local-${Date.now()}`;
-    const highlights = [
-      fields.importantInfo ? `Informations importantes: ${fields.importantInfo}` : null,
-      fields.servitudes ? `Servitudes: ${fields.servitudes}` : null,
-      fields.zoning ? `Zonage: ${fields.zoning}` : null,
-      fields.missingInfo ? `Informations manquantes: ${fields.missingInfo}` : null,
-    ]
-      .filter(Boolean)
-      .join("\n");
-
-    const payload = {
-      id,
-      address: fields.address,
-      city: fields.city,
-      postal_code: fields.postalCode,
-      property_type: "Propriété",
-      asking_price: "",
-      mls_number: "",
-      bedrooms: "",
-      bathrooms: "",
-      garage: fields.garage,
-      parking: "",
-      pool: fields.pool,
-      basement: "",
-      fireplace: "",
-      air_conditioning: "",
-      living_area: fields.livingArea,
-      land_area: fields.landArea,
-      year_built: fields.yearBuilt,
-      highlights,
-      marketing_style: "Professionnel",
-      created_at: new Date().toISOString(),
-      type: "Propriété",
-      price: "",
-      description: highlights,
-      lot: fields.landArea,
-      owners: fields.owners,
-      lot_number: fields.lotNumber,
-      cadastre: fields.cadastre,
-      municipal_taxes: fields.municipalTaxes,
-      school_taxes: fields.schoolTaxes,
-      municipal_assessment: fields.municipalAssessment,
-      zoning: fields.zoning,
-      servitudes: fields.servitudes,
-      extracted_document_names: fileNames,
-      missing_info: fields.missingInfo,
-      particularities: [fields.importantInfo, fields.servitudes, fields.zoning].filter(Boolean),
-    };
-
-    window.localStorage.setItem(`iacourtier-mandate-${id}`, JSON.stringify(payload));
-    router.push(`/tableau-de-bord/mandats/local/${id}`);
+  if (status === "created") {
+    const actions = ["Préparer la fiche Centris", "Générer la description", "Préparer les publications Facebook", "Préparer Instagram", "Préparer TikTok", "Préparer les Stories", "Préparer les scripts vidéo", "Préparer la campagne courriel", "Préparer les affiches"];
+    return <section className="rounded-lg border border-teal-200 bg-white p-6 shadow-sm dark:border-teal-900 dark:bg-slate-900"><p className="text-sm font-semibold text-teal-700">Dossier créé</p><h2 className="mt-2 text-2xl font-semibold">{fields.address}, {fields.city}</h2><p className="mt-3 text-sm text-slate-600 dark:text-slate-300">Les vendeurs et la propriété sont reliés. Les documents analysés et les informations extraites sont conservés dans le dossier.</p><div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{actions.map((action, index) => index === 0 ? <Link key={action} href={`/tableau-de-bord/mandats/local/${createdId}`} className="min-h-12 rounded-lg bg-slate-950 px-4 py-3 text-center text-sm font-semibold text-white dark:bg-white dark:text-slate-950">{action}</Link> : <button key={action} type="button" onClick={() => setError(`${action} : bientôt disponible.`)} className="min-h-12 rounded-lg border border-slate-200 px-4 py-3 text-sm font-semibold dark:border-slate-700">{action}<span className="ml-2 text-xs text-slate-400">Bientôt</span></button>)}</div>{error ? <p className="mt-4 rounded-lg bg-slate-50 p-3 text-sm dark:bg-slate-950">{error}</p> : null}</section>;
   }
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[0.85fr_1.15fr]">
+    <div className="grid gap-6 xl:grid-cols-[0.82fr_1.18fr]">
       <section className="space-y-5">
         <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900/72">
-          <p className="text-sm font-medium text-teal-700 dark:text-teal-300">Import intelligent</p>
-          <h2 className="mt-2 text-2xl font-semibold tracking-tight">Déposez les documents du mandat</h2>
-          <p className="mt-3 text-sm leading-6 text-slate-600 dark:text-slate-300">
-            Glissez le certificat de localisation, les comptes de taxes, l’acte de vente ou la déclaration du vendeur. IACourtier extrait les informations, puis vous les validez avant création.
-          </p>
-
-          <input
-            ref={inputRef}
-            type="file"
-            accept="application/pdf,.pdf"
-            multiple
-            className="hidden"
-            onChange={(event) => addFiles(Array.from(event.target.files || []))}
-          />
-
-          <label
-            onDragOver={(event) => event.preventDefault()}
-            onDrop={handleDrop}
-            className="mt-5 flex cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-slate-300 bg-slate-50 px-6 py-10 text-center transition hover:border-teal-400 hover:bg-white dark:border-slate-700 dark:bg-slate-950/60 dark:hover:border-teal-700"
-          >
-            <UploadCloud className="h-10 w-10 text-teal-600" />
-            <span className="mt-4 text-base font-semibold">Glisser les PDF ici</span>
-            <span className="mt-2 max-w-lg text-sm leading-6 text-slate-600 dark:text-slate-300">ou cliquez pour sélectionner plusieurs documents. Format accepté : PDF.</span>
+          <p className="text-sm font-medium text-teal-700">Création intelligente</p>
+          <h2 className="mt-2 text-2xl font-semibold">Déposez les documents de la propriété</h2>
+          <p className="mt-3 text-sm leading-6 text-slate-600 dark:text-slate-300">Actes, certificat, déclaration du vendeur, taxes, évaluation, inspection, plans et photos peuvent être analysés ensemble.</p>
+          <input ref={inputRef} type="file" accept=".pdf,.jpg,.jpeg,.png,.heic,application/pdf,image/jpeg,image/png,image/heic" multiple className="hidden" onChange={(event) => addFiles(Array.from(event.target.files || []))} />
+          <label onClick={() => inputRef.current?.click()} onDragOver={(event) => event.preventDefault()} onDrop={handleDrop} className="mt-5 flex cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-slate-300 bg-slate-50 px-6 py-10 text-center dark:border-slate-700 dark:bg-slate-950/60">
+            <UploadCloud className="h-10 w-10 text-teal-600" /><span className="mt-4 font-semibold">Glissez plusieurs documents ici</span><span className="mt-2 text-sm text-slate-500">PDF, JPG, JPEG, PNG ou HEIC · 12 fichiers maximum</span>
           </label>
-
-          {files.length ? (
-            <div className="mt-5 space-y-2">
-              {files.map((file, index) => (
-                <div key={`${file.name}-${index}`} className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-950/60">
-                  <span className="inline-flex min-w-0 items-center gap-2">
-                    <FileText className="h-4 w-4 shrink-0 text-teal-600" />
-                    <span className="truncate">{file.name}</span>
-                  </span>
-                  <button type="button" onClick={() => setFiles((current) => current.filter((_, itemIndex) => itemIndex !== index))} className="rounded-md p-1 text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-800">
-                    <X className="h-4 w-4" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          ) : null}
-
-          {error ? <p className="mt-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-200">{error}</p> : null}
-
-          <button
-            type="button"
-            onClick={extractDocuments}
-            disabled={status === "extracting" || !files.length}
-            className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-slate-950 px-5 py-3.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-white dark:text-slate-950"
-          >
-            {status === "extracting" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-            {status === "extracting" ? "Analyse des documents en cours..." : "Extraire les informations"}
-          </button>
+          {files.length ? <div className="mt-4 space-y-2">{files.map((file, index) => <div key={`${file.name}-${index}`} className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 p-3 text-sm dark:border-slate-800"><span className="flex min-w-0 items-center gap-2"><FileText className="h-4 w-4 shrink-0 text-teal-600" /><span className="truncate">{file.name}</span></span><button type="button" onClick={() => setFiles((current) => current.filter((_, item) => item !== index))}><X className="h-4 w-4" /></button></div>)}</div> : null}
+          <button type="button" onClick={extractDocuments} disabled={!files.length || status === "extracting"} className="mt-5 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-lg bg-slate-950 px-5 py-3 text-sm font-semibold text-white disabled:opacity-50 dark:bg-white dark:text-slate-950">{status === "extracting" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}{status === "extracting" ? "Analyse en cours…" : "Analyser les documents"}</button>
+          {error ? <p className="mt-4 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-200">{error}</p> : null}
         </div>
+        {status === "ready" ? <Summary files={fileNames.length} sellers={sellers.length} existingContacts={contactDuplicates.filter(Boolean).length} propertyExists={Boolean(existingProperty)} found={foundFields.length} missing={missing} /> : null}
       </section>
 
-      <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-premium dark:border-slate-800 dark:bg-slate-900/72">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="text-sm font-medium text-teal-700 dark:text-teal-300">Validation</p>
-            <h2 className="mt-2 text-2xl font-semibold tracking-tight">Validez les informations extraites</h2>
-            <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">Tous les champs restent modifiables. Les champs non détectés sont laissés vides.</p>
-          </div>
-          {status === "ready" ? <span className="rounded-full bg-teal-50 px-3 py-1 text-xs font-semibold text-teal-700 dark:bg-teal-950 dark:text-teal-200">Prêt</span> : null}
-        </div>
-
-        <div className="mt-6 space-y-7">
-          {fieldGroups.map((group) => (
-            <div key={group.title}>
-              <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">{group.title}</h3>
-              <div className="mt-3 grid gap-4 md:grid-cols-2">
-                {group.fields.map((field) =>
-                  field.multiline ? (
-                    <Textarea key={field.key} label={field.label} value={fields[field.key]} onChange={(value) => updateField(field.key, value)} />
-                  ) : (
-                    <Field key={field.key} label={field.label} value={fields[field.key]} onChange={(value) => updateField(field.key, value)} />
-                  ),
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-
-        <button
-          type="button"
-          onClick={createMandate}
-          disabled={!fields.address.trim() || !fields.city.trim()}
-          className="mt-7 inline-flex w-full items-center justify-center rounded-lg bg-slate-950 px-5 py-3.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white dark:text-slate-950"
-        >
-          Créer le mandat avec ces informations
-        </button>
+      <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900/72">
+        <div className="flex items-start justify-between gap-4"><div><p className="text-sm font-medium text-teal-700">Validation obligatoire</p><h2 className="mt-2 text-2xl font-semibold">Vérifiez le dossier avant création</h2></div>{status === "ready" ? <span className="rounded-full bg-teal-50 px-3 py-1 text-xs font-semibold text-teal-700">Prêt</span> : null}</div>
+        {status === "ready" ? <>
+          <div className="mt-5 rounded-lg border border-teal-200 bg-teal-50 p-4 text-sm leading-6 text-teal-950 dark:border-teal-900 dark:bg-teal-950/30 dark:text-teal-100"><strong>Coach IA</strong><p className="mt-1">J’ai analysé {fileNames.length} document{fileNames.length > 1 ? "s" : ""}. {sellers.length} vendeur{sellers.length > 1 ? "s ont" : " a"} été identifié{sellers.length > 1 ? "s" : ""}. Une {existingProperty ? "propriété existante a été trouvée" : "nouvelle propriété sera créée"}. {missing.length ? `Il manque : ${missing.join(", ")}.` : "Les informations essentielles sont présentes."}</p></div>
+          <div className="mt-6 space-y-6">{fieldGroups.map((group) => <div key={group.title}><h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">{group.title}</h3><div className="mt-3 grid gap-4 md:grid-cols-2">{group.fields.map((field) => field.multiline ? <Textarea key={field.key} label={field.label} value={fields[field.key]} onChange={(value) => updateField(field.key, value)} /> : <Field key={field.key} label={field.label} value={fields[field.key]} onChange={(value) => updateField(field.key, value)} />)}</div></div>)}</div>
+          <div className="mt-6"><h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Vendeurs détectés</h3><div className="mt-3 space-y-3">{sellers.length ? sellers.map((seller, index) => { const duplicate = contactDuplicates[index]; return <div key={index} className="rounded-lg border border-slate-200 p-4 dark:border-slate-800"><p className="font-semibold">{seller.firstName} {seller.lastName}</p><p className="mt-1 text-xs text-slate-500">{seller.email || seller.phone || seller.mailingAddress || "Coordonnées non trouvées"}</p>{duplicate ? <div className="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-950 dark:bg-amber-950/30 dark:text-amber-100"><p className="font-semibold">Contact existant trouvé : {duplicate.name}</p><div className="mt-2 flex flex-wrap gap-2">{(["merge", "update", "create"] as DuplicateDecision[]).map((decision) => <button key={decision} type="button" onClick={() => setContactDecisions((current) => ({ ...current, [index]: decision }))} className={cn("rounded-lg border px-3 py-2 text-xs font-semibold", contactDecisions[index] === decision ? "border-amber-700 bg-amber-700 text-white" : "border-amber-400")}>{decision === "merge" ? "Fusionner" : decision === "update" ? "Mettre à jour" : "Créer quand même"}</button>)}</div></div> : <p className="mt-2 text-xs font-semibold text-teal-700">Nouvelle fiche vendeur</p>}</div>}) : <p className="rounded-lg border border-dashed border-slate-200 p-4 text-sm text-slate-500">Aucun vendeur clairement identifié. Vérifiez le champ « propriétaires » dans les documents.</p>}</div></div>
+          {existingProperty ? <div className="mt-5 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100"><p className="font-semibold">Propriété existante trouvée : {String(existingProperty.address || "")}, {String(existingProperty.city || "")}</p><div className="mt-3 flex flex-wrap gap-2">{(["merge", "update", "create"] as DuplicateDecision[]).map((decision) => <button key={decision} type="button" onClick={() => setPropertyDecision(decision)} className={cn("rounded-lg border px-3 py-2 font-semibold", propertyDecision === decision ? "border-amber-700 bg-amber-700 text-white" : "border-amber-400")}>{decision === "merge" ? "Fusionner" : decision === "update" ? "Mettre à jour" : "Créer quand même"}</button>)}</div></div> : null}
+          <button type="button" onClick={validateAndCreate} disabled={!fields.address.trim() || !fields.city.trim()} className="mt-7 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-lg bg-slate-950 px-5 py-3 font-semibold text-white disabled:opacity-50 dark:bg-white dark:text-slate-950"><Home className="h-4 w-4" />Valider et créer le dossier</button>
+        </> : <p className="mt-8 rounded-lg border border-dashed border-slate-200 p-8 text-center text-sm text-slate-500 dark:border-slate-800">Déposez les documents pour commencer l’analyse structurée.</p>}
       </section>
     </div>
   );
 }
 
+function Summary({ files, sellers, existingContacts, propertyExists, found, missing }: { files: number; sellers: number; existingContacts: number; propertyExists: boolean; found: number; missing: string[] }) {
+  return <div className="rounded-lg border border-slate-200 bg-white p-5 text-sm shadow-sm dark:border-slate-800 dark:bg-slate-900"><h3 className="font-semibold">Résumé avant validation</h3><div className="mt-3 grid grid-cols-2 gap-2"><p>Documents analysés : <strong>{files}</strong></p><p>Contacts identifiés : <strong>{sellers}</strong></p><p>Contacts existants : <strong>{existingContacts}</strong></p><p>Nouvelle propriété : <strong>{propertyExists ? "non" : "oui"}</strong></p><p>Informations trouvées : <strong>{found}</strong></p><p>Informations manquantes : <strong>{missing.length}</strong></p></div>{missing.length ? <ul className="mt-3 text-slate-500">{missing.map((item) => <li key={item}>□ {item}</li>)}</ul> : null}</div>;
+}
+
 function Field({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
-  return (
-    <label className="block">
-      <span className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-200">{label}</span>
-      <input value={value} onChange={(event) => onChange(event.target.value)} className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500 focus:ring-4 focus:ring-teal-500/10 dark:border-slate-700 dark:bg-slate-950" />
-    </label>
-  );
+  return <label className="block"><span className="mb-2 block text-sm font-medium">{label}</span><input value={value} onChange={(event) => onChange(event.target.value)} className="min-h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm dark:border-slate-700 dark:bg-slate-950" /></label>;
 }
 
 function Textarea({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
-  return (
-    <label className="block md:col-span-2">
-      <span className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-200">{label}</span>
-      <textarea value={value} rows={4} onChange={(event) => onChange(event.target.value)} className="w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-3 text-sm outline-none transition focus:border-teal-500 focus:ring-4 focus:ring-teal-500/10 dark:border-slate-700 dark:bg-slate-950" />
-    </label>
-  );
+  return <label className="block md:col-span-2"><span className="mb-2 block text-sm font-medium">{label}</span><textarea rows={3} value={value} onChange={(event) => onChange(event.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-3 text-sm dark:border-slate-700 dark:bg-slate-950" /></label>;
+}
+
+function normalizedSellers(fields: ExtractedMandateFields): ExtractedSeller[] {
+  if (fields.sellers.length) return fields.sellers;
+  return fields.owners.split(/\s+(?:et|&)\s+|[,;]/i).map((name) => {
+    const parts = name.trim().split(/\s+/);
+    return { firstName: parts[0] || "", lastName: parts.slice(1).join(" "), mailingAddress: "", phone: "", email: "" };
+  }).filter((seller) => seller.firstName || seller.lastName);
+}
+
+function normalizePhone(value?: string) { return (value || "").replace(/\D/g, ""); }
+function normalizeText(value?: string) { return (value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim(); }
+
+function findContactDuplicate(contacts: SoniaProspect[], seller: ExtractedSeller) {
+  const phone = normalizePhone(seller.phone);
+  const email = normalizeText(seller.email);
+  const name = normalizeText(`${seller.firstName} ${seller.lastName}`);
+  return contacts.find((contact) => (phone && normalizePhone(contact.phone) === phone) || (email && normalizeText(contact.email) === email) || normalizeText(contact.name) === name) || null;
+}
+
+function contactFromSeller(seller: ExtractedSeller, existing?: SoniaProspect | null, overwrite = false): SoniaProspect {
+  const now = new Date().toISOString();
+  const choose = (oldValue: string | undefined, newValue: string) => overwrite ? newValue || oldValue : oldValue || newValue;
+  const name = `${seller.firstName} ${seller.lastName}`.trim() || existing?.name || "Vendeur";
+  return {
+    id: existing?.id || `document-seller-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    name: choose(existing?.name, name) || name,
+    phone: choose(existing?.phone, seller.phone) || undefined,
+    email: choose(existing?.email, seller.email) || undefined,
+    address: choose(existing?.address, seller.mailingAddress) || "",
+    city: existing?.city || "",
+    clientType: "seller",
+    source: existing?.source || "Pipeline",
+    status: existing?.status || officialSellerWorkflow[1],
+    notes: [existing?.notes, "Source : documents du dossier immobilier"].filter(Boolean).join("\n"),
+    nextAction: existing?.nextAction || "Valider le dossier et préparer la mise en marché",
+    nextActionDate: existing?.nextActionDate || new Date().toISOString().slice(0, 10),
+    createdAt: existing?.createdAt || now,
+    updatedAt: now,
+    history: [{ id: `document-${Date.now()}`, date: now, title: existing ? "Fiche reliée au dossier immobilier" : "Vendeur créé depuis les documents", description: "Informations extraites des documents et validées par le courtier.", type: "status" }, ...(existing?.history || [])],
+    importProfile: {
+      ...(existing?.importProfile || { relationshipType: "seller", communicationConsent: false, automationEligible: [], missingInformation: [] }),
+      firstName: seller.firstName || existing?.importProfile?.firstName,
+      lastName: seller.lastName || existing?.importProfile?.lastName,
+      relationshipType: "seller",
+      communicationConsent: existing?.importProfile?.communicationConsent || false,
+      automationEligible: existing?.importProfile?.automationEligible || [],
+      missingInformation: [!seller.email && !existing?.email ? "courriel" : "", !seller.phone && !existing?.phone ? "téléphone" : ""].filter(Boolean),
+    },
+  };
+}
+
+function propertyPayload(id: string, fields: ExtractedMandateFields, fileNames: string[], ownerIds: string[]) {
+  return {
+    id, address: fields.address, city: fields.city, postal_code: fields.postalCode, property_type: fields.propertyType || "Propriété",
+    asking_price: fields.askingPrice, bedrooms: fields.bedrooms, bathrooms: fields.bathrooms, garage: fields.garage,
+    parking: fields.parking, pool: fields.pool, fireplace: fields.fireplace, living_area: fields.livingArea,
+    land_area: fields.landArea, dimensions: fields.dimensions, year_built: fields.yearBuilt, lot_number: fields.lotNumber,
+    cadastre: fields.cadastre, municipal_taxes: fields.municipalTaxes, school_taxes: fields.schoolTaxes,
+    municipal_assessment: fields.municipalAssessment, zoning: fields.zoning, servitudes: fields.servitudes,
+    mortgage: { lender: fields.mortgageLender, date: fields.mortgageDate, amount: fields.mortgageAmount, maturity: fields.mortgageMaturity },
+    market_date: fields.marketDate, availability: fields.availability, description: fields.importantInfo,
+    missing_info: fields.missingInfo, extracted_document_names: fileNames, owner_contact_ids: ownerIds,
+    created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+  };
+}
+
+function mergeProperty(existing: ExistingProperty, extracted: Record<string, unknown>, overwrite: boolean) {
+  const next: Record<string, unknown> = { ...existing };
+  Object.entries(extracted).forEach(([key, value]) => {
+    const hasValue = value !== "" && value !== null && value !== undefined && (!Array.isArray(value) || value.length > 0);
+    if (hasValue && (overwrite || !next[key])) next[key] = value;
+  });
+  next.updated_at = new Date().toISOString();
+  return next;
+}
+
+function findExistingProperty(address: string, city: string): ExistingProperty | null {
+  if (typeof window === "undefined" || !address.trim()) return null;
+  const key = `${normalizeText(address)}|${normalizeText(city)}`;
+  for (let index = 0; index < window.localStorage.length; index += 1) {
+    const storageKey = window.localStorage.key(index);
+    if (!storageKey?.startsWith("iacourtier-mandate-")) continue;
+    try {
+      const property = JSON.parse(window.localStorage.getItem(storageKey) || "{}") as ExistingProperty;
+      if (`${normalizeText(property.address)}|${normalizeText(property.city)}` === key) return property;
+    } catch { /* ignore invalid local records */ }
+  }
+  return null;
 }
