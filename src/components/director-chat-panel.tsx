@@ -30,13 +30,16 @@ const ACTIVE_ID_KEY = "iacourtier_director_active_conversation";
 const QUICK_SUGGESTIONS = [
   { label: "🏠 Nouveau mandat vendeur", prompt: "Je viens d'obtenir un mandat vendeur." },
   { label: "🔑 Nouveau dossier acheteur", prompt: "Je veux créer un nouveau dossier acheteur." },
-  { label: "🏡 Achat + Vente", prompt: "Mon client vend pour acheter. Je veux créer un dossier Achat + Vente." },
-  { label: "✍️ Préparer une offre d'achat", prompt: "Mon client veut préparer une offre d'achat." },
-  { label: "🚀 Préparer une mise en marché", prompt: "Je veux préparer une mise en marché." },
-  { label: "📅 Organiser une visite libre", prompt: "Je veux organiser une visite libre." },
-  { label: "📞 Faire ma prospection", prompt: "Je veux faire ma prospection." },
-  { label: "🤝 Faire mes suivis", prompt: "Je veux faire mes suivis." },
-  { label: "📂 Continuer un dossier", prompt: "Je veux continuer un dossier." },
+  { label: "🏡 Achat + Vente", prompt: "Mon client vend pour acheter." },
+  { label: "✍️ Offre d'achat", prompt: "Mon client veut préparer une offre d'achat." },
+  { label: "📑 Contre-offre", prompt: "Mon client a accepté une contre-offre et je dois préparer la suite." },
+  { label: "🚀 Mise en marché", prompt: "Je veux mettre une propriété en marché." },
+  { label: "🏡 Visite libre", prompt: "Je prépare une visite libre." },
+  { label: "📞 Prospection vendeur", prompt: "Je veux faire de la prospection vendeur." },
+  { label: "📞 Prospection acheteur", prompt: "Je veux faire de la prospection acheteur." },
+  { label: "🤝 Suivi client", prompt: "Je veux faire mes suivis clients." },
+  { label: "📅 Préparer le notaire", prompt: "Je veux préparer un dossier pour le notaire." },
+  { label: "🎉 Après transaction", prompt: "Je veux préparer le suivi après transaction." },
 ] as const;
 
 type SpeechRecognitionResultLike = {
