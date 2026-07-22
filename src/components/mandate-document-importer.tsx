@@ -102,7 +102,10 @@ export function MandateDocumentImporter() {
   function validateAndCreate() {
     const unresolvedContact = contactDuplicates.findIndex((duplicate, index) => duplicate && !contactDecisions[index]);
     if (unresolvedContact >= 0) {
-      setError(`Choisissez comment traiter le doublon de ${sellers[unresolvedContact].firstName} ${sellers[unresolvedContact].lastName}.`);
+      const unresolvedParty = parties[unresolvedContact];
+      setError(unresolvedParty
+        ? `Choisissez comment traiter le doublon de ${unresolvedParty.firstName} ${unresolvedParty.lastName}.`
+        : "Choisissez comment traiter le doublon détecté.");
       return;
     }
     if (existingProperty && !propertyDecision) {
