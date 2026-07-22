@@ -14,6 +14,7 @@ import {
 } from "@/lib/pipeline-intelligence";
 import { contextFromPipelineStatus, getContextualAiActions } from "@/lib/ai-actions";
 import { cn } from "@/lib/utils";
+import { ContactManagement } from "@/components/contact-management";
 import {
   clearAllClientWorkspaceData,
   generateCollectionRequests,
@@ -38,7 +39,7 @@ import {
   type AutomationType,
   type ClientAutomation,
 } from "@/lib/client-automations";
-import { getSoniaProspects } from "@/lib/sonia-beta/storage";
+import { getSoniaProspects, saveSoniaProspects } from "@/lib/sonia-beta/storage";
 import type { ClientImportProfile, SoniaProspect } from "@/lib/sonia-beta/types";
 import {
   IMPORT_FIELD_LABELS,
@@ -63,9 +64,17 @@ export function IntelligentPipelineDashboard({ data }: { data: PipelineDashboard
   const [databaseVersion, setDatabaseVersion] = useState(0);
   const [deletionSummary, setDeletionSummary] = useState({ clients: 0, automations: 0, followUps: 0, histories: 0, duplicates: 0, campaigns: 0 });
   const [storedContacts, setStoredContacts] = useState<SoniaProspect[]>([]);
+  const [editingContact, setEditingContact] = useState<SoniaProspect | null>(null);
 
   function refreshStoredContacts() {
     setStoredContacts(getSoniaProspects().filter((contact) => !contact.id.startsWith("sonia-demo-")));
+  }
+
+  function deleteContact(contact: SoniaProspect) {
+    if (!window.confirm(`Supprimer définitivement ${contact.name}? Cette action ne peut pas être annulée.`)) return;
+    saveSoniaProspects(getSoniaProspects().filter((item) => item.id !== contact.id));
+    setEditingContact(null);
+    refreshStoredContacts();
   }
 
   useEffect(() => {
@@ -101,6 +110,12 @@ export function IntelligentPipelineDashboard({ data }: { data: PipelineDashboard
       </section>
 
       <div className="flex flex-wrap justify-end gap-3">
+        <ContactManagement
+          contacts={storedContacts}
+          editingContact={editingContact}
+          onChanged={refreshStoredContacts}
+          onEditingClosed={() => setEditingContact(null)}
+        />
         <button
           type="button"
           onClick={() => { setDeletionSummary(getWorkspaceDeletionSummary()); setResetComplete(false); setClearStep(1); }}
@@ -188,7 +203,7 @@ export function IntelligentPipelineDashboard({ data }: { data: PipelineDashboard
           <PipelineLane title="Parcours acheteur" icon={Users} statuses={buyerPipelineStatuses} clients={buyerClients} selectedId={selected?.id} onSelect={setSelectedId} />
         </section>
 
-        {selected ? <ClientPanel client={selected} importProfile={importedProfiles.get(selected.id)} activeActions={activeActions.filter((action) => action.client.id === selected.id)} /> : null}
+        {selected ? <ClientPanel client={selected} sourceContact={storedContacts.find((contact) => contact.id === selected.id)} importProfile={importedProfiles.get(selected.id)} activeActions={activeActions.filter((action) => action.client.id === selected.id)} onEdit={setEditingContact} onDelete={deleteContact} /> : null}
       </div>
     </div>
   );
@@ -797,12 +812,18 @@ function PipelineLane({
 
 function ClientPanel({
   client,
+  sourceContact,
   importProfile,
   activeActions,
+  onEdit,
+  onDelete,
 }: {
   client: PipelineClient;
+  sourceContact?: SoniaProspect;
   importProfile?: ClientImportProfile;
   activeActions: Array<PipelineClient["actions"][number] & { client: PipelineClient }>;
+  onEdit: (contact: SoniaProspect) => void;
+  onDelete: (contact: SoniaProspect) => void;
 }) {
   const [callStatus, setCallStatus] = useState("");
   const aiContext = contextFromPipelineStatus(client.status, client.type);
@@ -829,6 +850,22 @@ function ClientPanel({
           <Badge>{client.status}</Badge>
           <PriorityBadge priority={client.priority} />
         </div>
+        {sourceContact ? (
+          <>
+            <div className="mt-4 grid grid-cols-2 gap-2 text-xs sm:grid-cols-3">
+              <InfoMetric label="Créé le" value={formatContactDate(sourceContact.createdAt)} />
+              <InfoMetric label="Dernière modification" value={formatContactDate(sourceContact.updatedAt)} />
+              <InfoMetric label="Dernière communication" value={formatContactDate(sourceContact.history.find((event) => event.type === "call")?.date)} />
+              <InfoMetric label="Communications" value={String(sourceContact.history.filter((event) => event.type === "call").length)} />
+              <InfoMetric label="Automatisations" value={String(getClientAutomations().filter((automation) => automation.clientId === sourceContact.id).length)} />
+              <InfoMetric label="Pipeline actuel" value={client.status} />
+            </div>
+            <div className="mt-4 grid gap-2 sm:grid-cols-2">
+              <button type="button" onClick={() => onEdit(sourceContact)} className="min-h-12 rounded-lg border border-slate-300 px-4 py-3 text-sm font-semibold dark:border-slate-700">✏ Modifier</button>
+              <button type="button" onClick={() => onDelete(sourceContact)} className="min-h-12 rounded-lg border border-red-300 px-4 py-3 text-sm font-semibold text-red-700 dark:border-red-900 dark:text-red-300">🗑 Supprimer</button>
+            </div>
+          </>
+        ) : null}
         <div className="mt-5 rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/50">
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Prochaine étape</p>
           <p className="mt-2 text-sm leading-6 text-slate-700 dark:text-slate-200">{client.nextStep}</p>
@@ -934,6 +971,16 @@ function ClientPanel({
       </section>
     </aside>
   );
+}
+
+function InfoMetric({ label, value }: { label: string; value: string }) {
+  return <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950/50"><p className="font-semibold uppercase tracking-wide text-slate-500">{label}</p><p className="mt-1 text-sm font-semibold text-slate-800 dark:text-slate-100">{value}</p></div>;
+}
+
+function formatContactDate(value?: string) {
+  if (!value) return "Aucune";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat("fr-CA", { dateStyle: "medium" }).format(date);
 }
 
 function Badge({ children }: { children: string }) {
