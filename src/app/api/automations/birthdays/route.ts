@@ -197,7 +197,15 @@ export async function POST(request: Request) {
       const { error } = await admin.from("birthday_contacts").upsert(contacts, { onConflict: "user_id,contact_id" });
       if (error) return Response.json({ error: error.message }, { status: 500 });
     }
-    return Response.json({ ok: true, synced: contacts.length });
+    const activeIds = new Set(contacts.map((contact) => contact.contact_id));
+    const { data: existing } = await admin.from("birthday_contacts").select("contact_id").eq("user_id", user.id);
+    const staleIds = (existing || []).map((contact) => String(contact.contact_id)).filter((id) => !activeIds.has(id));
+    if (staleIds.length) {
+      await Promise.all(staleIds.map((contactId) =>
+        admin.from("birthday_contacts").delete().eq("user_id", user.id).eq("contact_id", contactId)
+      ));
+    }
+    return Response.json({ ok: true, synced: contacts.length, removed: staleIds.length });
   }
 
   if (body.action === "test") {
