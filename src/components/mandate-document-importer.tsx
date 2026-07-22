@@ -53,6 +53,16 @@ export function MandateDocumentImporter() {
   const [propertyDecision, setPropertyDecision] = useState<DuplicateDecision | "">("");
   const [createdId, setCreatedId] = useState("");
 
+  const requestedWorkflow = typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("type");
+  const requestedTransactionType = requestedWorkflow === "buyer"
+    ? "Achat"
+    : requestedWorkflow === "seller"
+      ? "Vente"
+      : requestedWorkflow === "both"
+        ? "Achat + Vente"
+        : "";
+
+
   const contacts = status === "ready" ? getSoniaProspects().filter((contact) => !contact.id.startsWith("sonia-demo-")) : [];
   const parties = useMemo(() => normalizedParties(fields), [fields]);
   const contactDuplicates = parties.map((party) => findContactDuplicate(contacts, party));
@@ -88,7 +98,10 @@ export function MandateDocumentImporter() {
       const response = await fetch("/api/extract-mandate-documents", { method: "POST", body: formData });
       const payload = await response.json() as MandateDocumentExtractionResponse & { error?: string };
       if (!response.ok) throw new Error(payload.error || "L’analyse a échoué.");
-      setFields(payload.fields);
+      setFields({
+        ...payload.fields,
+        transactionType: payload.fields.transactionType || requestedTransactionType,
+      });
       setFileNames(payload.fileNames);
       setContactDecisions({});
       setPropertyDecision("");
@@ -155,7 +168,7 @@ export function MandateDocumentImporter() {
       <section className="space-y-5">
         <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900/72">
           <p className="text-sm font-medium text-teal-700">Création intelligente</p>
-          <h2 className="mt-2 text-2xl font-semibold">Déposez les documents de la propriété</h2>
+          <h2 className="mt-2 text-2xl font-semibold">{requestedTransactionType ? `Nouveau dossier — ${requestedTransactionType}` : "Déposez les documents de la propriété"}</h2>
           <p className="mt-3 text-sm leading-6 text-slate-600 dark:text-slate-300">Actes, certificat, déclaration du vendeur, taxes, évaluation, inspection, plans et photos peuvent être analysés ensemble.</p>
           <input ref={inputRef} type="file" accept=".pdf,.jpg,.jpeg,.png,.heic,application/pdf,image/jpeg,image/png,image/heic" multiple className="hidden" onChange={(event) => addFiles(Array.from(event.target.files || []))} />
           <label onClick={() => inputRef.current?.click()} onDragOver={(event) => event.preventDefault()} onDrop={handleDrop} className="mt-5 flex cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-slate-300 bg-slate-50 px-6 py-10 text-center dark:border-slate-700 dark:bg-slate-950/60">
