@@ -4,6 +4,7 @@ import {
   inferClientCommunicationRequest,
 } from "@/lib/client-communication/engine";
 import { selectDirectorMessage } from "@/lib/director/message-library";
+import { inferCoachJourney } from "@/lib/coach-journeys";
 import { generateWithOpenAI, getOpenAIErrorPayload } from "@/lib/openai";
 
 export const runtime = "nodejs";
@@ -80,68 +81,6 @@ function buildSecondaryActions(primary: DirectorAction): DirectorAction[] {
   return Object.values(ACTIONS).filter((action) => action.href !== primary.href);
 }
 
-type WorkflowIntent = { action: DirectorAction; reply: string };
-
-function inferWorkflowIntent(message: string): WorkflowIntent | null {
-  const normalized = message.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-
-  if (/achat\s*\+\s*vente|acheter.*vend|vend.*acheter/.test(normalized)) {
-    return {
-      action: { label: "Créer le dossier Achat + Vente", href: "/tableau-de-bord/mandats/nouveau?type=both" },
-      reply: "Je vais relier les volets achat et vente dans un seul parcours. Commence par déposer les documents disponibles; je créerai uniquement les fiches absentes et je te demanderai ensuite les informations manquantes.",
-    };
-  }
-  if (/nouveau.*acheteur|dossier.*acheteur|client.*acheteur/.test(normalized)) {
-    return {
-      action: { label: "Créer le dossier acheteur", href: "/tableau-de-bord/mandats/nouveau?type=buyer" },
-      reply: "Commençons le dossier acheteur. Tu pourras rechercher un client existant ou déposer ses documents; le dossier, le pipeline et les prochaines actions seront préparés à partir des informations trouvées.",
-    };
-  }
-  if (/mandat|dossier.*vendeur|obtenu.*vendeur/.test(normalized)) {
-    return {
-      action: { label: "Créer le dossier vendeur", href: "/tableau-de-bord/mandats/nouveau?type=seller" },
-      reply: "Je démarre le dossier vendeur. Dépose les documents que tu possèdes; je vérifierai les doublons, créerai la propriété et relierai les vendeurs avant de te présenter les éléments manquants.",
-    };
-  }
-  if (/offre.*achat|promesse.*achat/.test(normalized)) {
-    return {
-      action: { label: "Préparer l’offre d’achat", href: "/tableau-de-bord/actions" },
-      reply: "Je vais t’aider à préparer l’offre d’achat. Ouvre le centre d’actions, choisis le client et la propriété, puis je structurerai les prochaines étapes du dossier.",
-    };
-  }
-  if (/mise en marche|lancer.*marche|marketing.*propriete/.test(normalized)) {
-    return {
-      action: { label: "Préparer la mise en marché", href: "/tableau-de-bord/actions/generate-marketing-launch" },
-      reply: "Je prépare le parcours de mise en marché. Sélectionne le dossier vendeur; les contenus et actions disponibles seront regroupés au même endroit.",
-    };
-  }
-  if (/visite libre/.test(normalized)) {
-    return {
-      action: { label: "Organiser la visite libre", href: "/tableau-de-bord/actions/generate-marketing-launch" },
-      reply: "Je vais organiser la visite libre à partir du dossier de la propriété. Commence par sélectionner la propriété afin de préparer la promotion et les suivis.",
-    };
-  }
-  if (/prospect|appel/.test(normalized)) {
-    return {
-      action: { label: "Commencer la prospection", href: "/tableau-de-bord/radar-prospection" },
-      reply: "Je t’amène au prochain prospect prioritaire. Le Radar te permettra d’appeler, d’enregistrer le résultat et de créer automatiquement le suivi approprié.",
-    };
-  }
-  if (/suivi|relance/.test(normalized)) {
-    return {
-      action: { label: "Faire mes suivis", href: "/tableau-de-bord/prospects" },
-      reply: "Je te propose de commencer par le suivi le plus ancien. Ouvre les suivis; les dossiers déjà engagés passent avant une nouvelle prospection.",
-    };
-  }
-  if (/continuer.*dossier|reprendre.*dossier/.test(normalized)) {
-    return {
-      action: { label: "Continuer un dossier", href: "/tableau-de-bord/mandats" },
-      reply: "Ouvre tes dossiers en cours et choisis celui à reprendre. Je te montrerai ensuite l’information manquante et la prochaine action utile.",
-    };
-  }
-  return null;
-}
-
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as DirectorChatRequest;
@@ -154,14 +93,16 @@ export async function POST(request: Request) {
       return Response.json({ error: "context is required" }, { status: 400 });
     }
 
-    const workflowIntent = inferWorkflowIntent(message);
+    const workflowIntent = inferCoachJourney(message);
     const communicationRequest = workflowIntent ? null : inferClientCommunicationRequest(message);
     const reply = workflowIntent
-      ? workflowIntent.reply
+      ? `J’ai reconnu le parcours « ${workflowIntent.title} ». ${workflowIntent.summary} Je te guiderai étape par étape et je demanderai uniquement les informations manquantes.`
       : communicationRequest
         ? formatClientCommunication(generateClientCommunication(communicationRequest))
         : await generateDirectorReply(message, body.history || [], body.context);
-    const action = workflowIntent?.action || buildPrimaryAction(body.context);
+    const action = workflowIntent
+      ? { label: `Ouvrir : ${workflowIntent.title}`, href: `/tableau-de-bord/parcours/${workflowIntent.slug}` }
+      : buildPrimaryAction(body.context);
     const secondaryActions = workflowIntent ? [] : buildSecondaryActions(action);
     return Response.json({ reply, action, secondaryActions } satisfies DirectorChatResponse);
   } catch (error) {
