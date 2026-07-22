@@ -142,6 +142,13 @@ export function BattlePlanDashboard() {
     <div className="space-y-7">
       <DirectorChatPanel prospects={workingProspects} plan={plan} />
 
+      <div className="flex justify-end">
+        <Link href="/tableau-de-bord/mandats/nouveau" className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-lg bg-teal-700 px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-teal-800 sm:w-auto">
+          <FileText className="h-4 w-4" />
+          🏠 Nouveau dossier immobilier
+        </Link>
+      </div>
+
       <MissionDuJourSection priority={todayPriority} />
 
       <section className="rounded-lg border border-slate-200 bg-white px-5 py-4 shadow-sm dark:border-slate-800 dark:bg-slate-900/72">
