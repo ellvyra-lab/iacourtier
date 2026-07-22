@@ -28,10 +28,15 @@ const CONVERSATIONS_KEY = "iacourtier_director_conversations";
 const ACTIVE_ID_KEY = "iacourtier_director_active_conversation";
 
 const QUICK_SUGGESTIONS = [
-  "Qu'est-ce qui est prioritaire ?",
-  "Prépare ma journée.",
-  "J'ai reçu une demande Facebook.",
-  "Prépare mon rendez-vous.",
+  { label: "🏠 Nouveau mandat vendeur", prompt: "Je viens d'obtenir un mandat vendeur." },
+  { label: "🔑 Nouveau dossier acheteur", prompt: "Je veux créer un nouveau dossier acheteur." },
+  { label: "🏡 Achat + Vente", prompt: "Mon client vend pour acheter. Je veux créer un dossier Achat + Vente." },
+  { label: "✍️ Préparer une offre d'achat", prompt: "Mon client veut préparer une offre d'achat." },
+  { label: "🚀 Préparer une mise en marché", prompt: "Je veux préparer une mise en marché." },
+  { label: "📅 Organiser une visite libre", prompt: "Je veux organiser une visite libre." },
+  { label: "📞 Faire ma prospection", prompt: "Je veux faire ma prospection." },
+  { label: "🤝 Faire mes suivis", prompt: "Je veux faire mes suivis." },
+  { label: "📂 Continuer un dossier", prompt: "Je veux continuer un dossier." },
 ] as const;
 
 type SpeechRecognitionResultLike = {
@@ -432,9 +437,12 @@ export function DirectorChatPanel({
     <section className="rounded-2xl border border-subtle bg-surface p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-sm font-semibold text-electric-500">Conversation avec le Coach IA</p>
-          <p className="mt-1 text-xs text-muted">
-            Pose une question ou décris une situation. Il répond comme un coach d&apos;agence, pas comme un chatbot général.
+          <p className="text-sm font-semibold text-electric-500">Ton Coach IA</p>
+          <h1 className="mt-2 max-w-3xl text-3xl font-semibold tracking-tight sm:text-4xl">
+            Bonjour {userName}. Qu&apos;est-ce que tu veux accomplir aujourd&apos;hui?
+          </h1>
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-muted">
+            Décris ton objectif comme tu le dirais à un adjoint immobilier. Je construirai le bon parcours et te proposerai la prochaine action.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -541,12 +549,12 @@ export function DirectorChatPanel({
       <div className="mt-4 flex flex-wrap gap-2" aria-label="Suggestions de conversation">
         {QUICK_SUGGESTIONS.map((suggestion) => (
           <button
-            key={suggestion}
+            key={suggestion.label}
             type="button"
-            onClick={() => setInput(suggestion)}
-            className="rounded-full border border-subtle bg-background px-3 py-2 text-left text-xs font-medium transition hover:border-electric-500/40 hover:text-electric-500"
+            onClick={() => setInput(suggestion.prompt)}
+            className="min-h-11 rounded-2xl border border-subtle bg-background px-3 py-2 text-left text-xs font-medium transition hover:border-electric-500/40 hover:text-electric-500"
           >
-            {suggestion}
+            {suggestion.label}
           </button>
         ))}
       </div>
