@@ -251,47 +251,12 @@ export function DailyCoachDashboard() {
 
   return (
     <div className="space-y-7">
-      <section className="rounded-2xl border border-subtle bg-surface-soft p-6 sm:p-7">
-        <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
-          <div>
-            <p className="text-sm font-semibold text-electric-500">Ton Coach IA</p>
-            <h1 className="mt-2 max-w-3xl text-3xl font-semibold tracking-tight sm:text-4xl">
-              Ton Coach IA est avec toi pour faire avancer la journée.
-            </h1>
-            <p className="mt-4 max-w-2xl text-base leading-7 text-muted whitespace-pre-line">{displayCoach.message}</p>
-          </div>
-          <button
-            type="button"
-            onClick={refreshCoach}
-            disabled={isLoadingCoach}
-            className="inline-flex items-center justify-center gap-2 rounded-2xl border border-subtle bg-surface px-4 py-3 text-sm font-semibold hover:border-electric-500/40 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {isLoadingCoach ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Chargement...
-              </>
-            ) : (
-              <>
-                <RefreshCw className="h-4 w-4" />
-                Actualiser le Coach
-              </>
-            )}
-          </button>
-        </div>
-        {coachError && (
-          <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-900 dark:border-red-900 dark:bg-red-950/30 dark:text-red-100">
-            ⚠️ {coachError}
-          </div>
-        )}
-      </section>
+      <DirectorChatPanel prospects={prospects} plan={displayCoach.battlePlan} />
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_390px]">
         <CoachConversation messages={visibleMessages} fallbackAction={coach.firstAction} onStartMission={startProspectingMission} />
         <CoachTaskEngine battlePlan={displayCoach.battlePlan} />
       </div>
-
-      <DirectorChatPanel prospects={prospects} plan={displayCoach.battlePlan} />
 
       {mission?.active ? (
         <ProspectingMissionPanel
