@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAssistantConfig } from "@/data/assistantsConfig";
 import { generateWithOpenAI, getOpenAIErrorPayload } from "@/lib/openai";
 import { getMonthlyLimit } from "@/lib/plans";
+import { formatBrokerProfileForPrompt, normalizeBrokerProfile } from "@/lib/broker-profile";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -101,7 +102,14 @@ export async function POST(req: NextRequest) {
   const sharedContextPrompt = values.ai_context_prompt
     ? `\n\nContexte partage deja connu par IACourtier. Utilise ces donnees pour eviter de demander au courtier de les ressaisir. Ne jamais inventer une donnee absente :\n${values.ai_context_prompt}`
     : "";
-  const userPrompt = `${visiblePrompt}${radarPrompt}${sharedContextPrompt}`;
+  const brokerProfile = normalizeBrokerProfile(user.user_metadata?.broker_profile);
+  const brokerProfilePrompt = formatBrokerProfileForPrompt(brokerProfile);
+  const personalizationPrompt = brokerProfilePrompt
+    ? `\n\nPROFIL PROFESSIONNEL OFFICIEL DU COURTIER :
+${brokerProfilePrompt}
+Utilise automatiquement cette identité, les coordonnées, la signature, les couleurs et les partenaires pertinents. Ne demande jamais de nouveau une information présente ici. N'invente aucune donnée absente.`
+    : "\n\nLe profil professionnel n'est pas encore configuré. N'invente aucun nom, logo, partenaire ou coordonnée.";
+  const userPrompt = `${visiblePrompt}${radarPrompt}${sharedContextPrompt}${personalizationPrompt}`;
 
   try {
     const output = await generateWithOpenAI({
