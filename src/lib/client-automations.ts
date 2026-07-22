@@ -1,4 +1,5 @@
 import { generateClientCommunication } from "@/lib/client-communication/engine";
+import { buildProfessionalSignature, loadBrokerProfile } from "@/lib/broker-profile";
 import { getSoniaProspects, updateSoniaProspect } from "@/lib/sonia-beta/storage";
 import type { SoniaProspect } from "@/lib/sonia-beta/types";
 
@@ -299,13 +300,23 @@ function buildCandidates(contact: SoniaProspect): Candidate[] {
 
 function materialize(contact: SoniaProspect, candidate: Candidate, dedupeKey: string, mode: AutomationMode): ClientAutomation {
   const channel = contact.email ? "courriel" : "texto";
+  const brokerProfile = loadBrokerProfile();
   const generated = generateClientCommunication({
     clientType: contact.clientType === "seller" ? "vendeur" : "acheteur",
     journeyStage: candidate.type,
     channel,
     objective: candidate.objective,
     warmth: "tiède",
-    context: { clientName: contact.name, topic: candidate.objective, propertyAddress: contact.address || undefined },
+    context: {
+      clientName: contact.name,
+      topic: candidate.objective,
+      propertyAddress: contact.address || undefined,
+      brokerName: brokerProfile.fullName || undefined,
+      brokerSignature: buildProfessionalSignature(brokerProfile) || undefined,
+      brokerPhone: brokerProfile.mobile || brokerProfile.phone || undefined,
+      brokerEmail: brokerProfile.email || undefined,
+      brokerWebsite: brokerProfile.website || undefined,
+    },
     tone: candidate.type === "mortgage" ? "stratégique" : "chaleureux",
     length: "standard",
   });
