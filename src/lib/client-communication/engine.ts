@@ -84,9 +84,8 @@ const TEMPLATES: Template[] = [
 
 ${intro} ${wish}
 
-${availability}
-Sonia`,
-        shortVersion: `Bonne fête ${name}! Je te souhaite une magnifique journée remplie de beaux moments. — Sonia`,
+${availability}`,
+        shortVersion: `Bonne fête ${name}! Je te souhaite une magnifique journée remplie de beaux moments.`,
         followUpQuestion: "Aucune question requise : ce message est purement relationnel.",
         recommendedNextAction: "Conserver le contact dans le suivi relationnel, sans relance commerciale.",
       };
@@ -186,10 +185,18 @@ export function generateClientCommunication(input: ClientCommunicationInput): Cl
   const output = template.create(input);
   return {
     ...output,
-    mainMessage: adaptLength(output.mainMessage, input.length),
-    shortVersion: adaptChannel(output.shortVersion, input.channel),
+    mainMessage: applyBrokerIdentity(adaptLength(output.mainMessage, input.length), input, false),
+    shortVersion: applyBrokerIdentity(adaptChannel(output.shortVersion, input.channel), input, true),
     templateId: template.id,
   };
+}
+
+function applyBrokerIdentity(message: string, input: ClientCommunicationInput, short: boolean) {
+  const brokerName = value(input, "brokerName", "");
+  const signature = value(input, "brokerSignature", brokerName);
+  if (input.channel === "téléphone" || (!brokerName && !signature)) return message;
+  if (input.channel === "texto" || short) return brokerName ? `${message} — ${brokerName}` : message;
+  return signature ? `${message}\n\n${signature}` : message;
 }
 
 export function inferClientCommunicationRequest(message: string): ClientCommunicationInput | null {
