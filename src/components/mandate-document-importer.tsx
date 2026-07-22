@@ -212,6 +212,7 @@ function normalizedParties(fields: ExtractedMandateFields): ExtractedParty[] {
       return;
     }
     const current = merged[currentIndex];
+    if (!current) return;
     merged[currentIndex] = {
       firstName: current.firstName || person.firstName,
       lastName: current.lastName || person.lastName,
