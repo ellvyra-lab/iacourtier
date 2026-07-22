@@ -1,37 +1,23 @@
 import { NextResponse } from "next/server";
 import { createRequire } from "node:module";
 
-import { generateWithOpenAI, getOpenAIErrorPayload } from "@/lib/openai";
-import {
-  mandateDocumentExtractionSystemPrompt,
-  normalizeExtractedMandateFields,
-  parseJsonObject,
-} from "@/lib/mandate-document-extraction";
+import { generateWithOpenAI, generateWithOpenAIVision, getOpenAIErrorPayload } from "@/lib/openai";
+import { mandateDocumentExtractionSystemPrompt, normalizeExtractedMandateFields, parseJsonObject } from "@/lib/mandate-document-extraction";
 
 export const runtime = "nodejs";
 
-const MAX_FILES = 8;
+const MAX_FILES = 12;
 const MAX_FILE_BYTES = 12 * 1024 * 1024;
-const MAX_TOTAL_CHARS = 30_000;
+const MAX_TOTAL_CHARS = 36_000;
+const acceptedExtensions = [".pdf", ".jpg", ".jpeg", ".png", ".heic"];
 
-type PDFParseInstance = {
-  getText: () => Promise<{ text: string }>;
-  destroy: () => Promise<void> | void;
-};
-
+type PDFParseInstance = { getText: () => Promise<{ text: string }>; destroy: () => Promise<void> | void };
 type PDFParseConstructor = new (options: { data: Buffer }) => PDFParseInstance;
-
 const requirePdfParse = createRequire(import.meta.url);
 
-function getPDFParse() {
-  return requirePdfParse("pdf-parse").PDFParse as PDFParseConstructor;
-}
-
 async function extractPdfText(file: File) {
-  const buffer = Buffer.from(await file.arrayBuffer());
-  const PDFParse = getPDFParse();
-  const parser = new PDFParse({ data: buffer });
-
+  const PDFParse = requirePdfParse("pdf-parse").PDFParse as PDFParseConstructor;
+  const parser = new PDFParse({ data: Buffer.from(await file.arrayBuffer()) });
   try {
     const result = await parser.getText();
     return result.text.trim().replace(/\s+\n/g, "\n");
@@ -40,80 +26,67 @@ async function extractPdfText(file: File) {
   }
 }
 
+function extension(name: string) {
+  const index = name.lastIndexOf(".");
+  return index >= 0 ? name.slice(index).toLowerCase() : "";
+}
+
 export async function POST(request: Request) {
   try {
-    const contentType = request.headers.get("content-type") || "";
-    if (!contentType.includes("multipart/form-data")) {
+    if (!(request.headers.get("content-type") || "").includes("multipart/form-data")) {
       return NextResponse.json({ error: "Envoyez les documents avec un formulaire multipart." }, { status: 400 });
     }
-
     const formData = await request.formData();
     const files = formData.getAll("files").filter((item): item is File => item instanceof File);
+    if (!files.length) return NextResponse.json({ error: "Déposez au moins un document." }, { status: 400 });
+    if (files.length > MAX_FILES) return NextResponse.json({ error: `Un maximum de ${MAX_FILES} documents est permis.` }, { status: 400 });
 
-    if (!files.length) {
-      return NextResponse.json({ error: "Déposez au moins un document PDF." }, { status: 400 });
-    }
-
-    if (files.length > MAX_FILES) {
-      return NextResponse.json({ error: `Un maximum de ${MAX_FILES} PDF est permis à la fois.` }, { status: 400 });
-    }
-
-    const extractedSections: string[] = [];
+    const textSections: string[] = [];
+    const images: Array<{ dataUrl: string; name: string }> = [];
     const fileNames: string[] = [];
 
     for (const file of files) {
-      if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
-        return NextResponse.json({ error: "Tous les documents doivent être des PDF." }, { status: 400 });
+      const ext = extension(file.name);
+      if (!acceptedExtensions.includes(ext)) {
+        return NextResponse.json({ error: `Format non accepté pour ${file.name}. Utilisez PDF, JPG, JPEG, PNG ou HEIC.` }, { status: 400 });
       }
-
       if (file.size > MAX_FILE_BYTES) {
-        return NextResponse.json({ error: `Le fichier ${file.name} est trop volumineux. Utilisez des PDF de 12 Mo ou moins.` }, { status: 400 });
+        return NextResponse.json({ error: `${file.name} dépasse la limite de 12 Mo.` }, { status: 400 });
       }
-
-      try {
-        const text = await extractPdfText(file);
-        if (text) {
-          fileNames.push(file.name);
-          extractedSections.push(`--- DOCUMENT: ${file.name} ---\n${text}`);
+      fileNames.push(file.name);
+      if (ext === ".pdf") {
+        try {
+          const text = await extractPdfText(file);
+          if (text) textSections.push(`--- DOCUMENT: ${file.name} ---\n${text}`);
+        } catch {
+          textSections.push(`--- DOCUMENT: ${file.name} ---\nPDF numérisé ou sans texte exploitable.`);
         }
-      } catch {
-        return NextResponse.json(
-          { error: "Un des PDF n’a pas pu être lu automatiquement. Essayez un PDF texte ou retirez le document problématique." },
-          { status: 422 },
-        );
+      } else {
+        const mime = file.type || (ext === ".png" ? "image/png" : ext === ".heic" ? "image/heic" : "image/jpeg");
+        const base64 = Buffer.from(await file.arrayBuffer()).toString("base64");
+        images.push({ name: file.name, dataUrl: `data:${mime};base64,${base64}` });
       }
     }
 
-    const extractedText = extractedSections.join("\n\n").slice(0, MAX_TOTAL_CHARS);
+    const extractedText = textSections.join("\n\n").slice(0, MAX_TOTAL_CHARS);
+    const userPrompt = [
+      "Extrais toutes les informations immobilières et tous les vendeurs présents dans ces documents.",
+      `Documents reçus : ${fileNames.join(", ")}.`,
+      extractedText ? `Texte extrait des PDF :\n\n${extractedText}` : "Aucun texte PDF; analyse les images fournies.",
+    ].join("\n\n");
 
-    if (!extractedText.trim()) {
-      return NextResponse.json(
-        { error: "Les PDF n’ont pas pu être lus automatiquement. Essayez des PDF texte ou utilisez la saisie manuelle." },
-        { status: 422 },
-      );
-    }
-
-    const aiText = await generateWithOpenAI({
-      systemPrompt: mandateDocumentExtractionSystemPrompt,
-      userPrompt: `Texte extrait des documents de mandat:\n\n${extractedText}`,
-      maxTokens: 1200,
-      temperature: 0.1,
-    });
-
-    const fields = normalizeExtractedMandateFields(parseJsonObject(aiText));
+    const aiText = images.length
+      ? await generateWithOpenAIVision({ systemPrompt: mandateDocumentExtractionSystemPrompt, userPrompt, images, maxTokens: 1800 })
+      : await generateWithOpenAI({ systemPrompt: mandateDocumentExtractionSystemPrompt, userPrompt, maxTokens: 1800, temperature: 0.1 });
 
     return NextResponse.json({
-      fields,
+      fields: normalizeExtractedMandateFields(parseJsonObject(aiText)),
       fileNames,
       extractedTextPreview: extractedText.slice(0, 4000),
     });
   } catch (error) {
     const openAIError = getOpenAIErrorPayload(error);
-    if (openAIError) {
-      return NextResponse.json(openAIError.body, { status: openAIError.status });
-    }
-
-    const message = error instanceof Error ? error.message : "Une erreur inattendue est survenue.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    if (openAIError) return NextResponse.json(openAIError.body, { status: openAIError.status });
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Une erreur inattendue est survenue." }, { status: 500 });
   }
 }
