@@ -247,6 +247,9 @@ export function DirectorChatPanel({
       tomorrowDate.setDate(tomorrowDate.getDate() + 1);
       const tomorrow = localDateKey(tomorrowDate);
       const prospectsCreatedToday = realProspects.filter((prospect) => localDateKey(prospect.createdAt) === today).length;
+      const buyerSellerContacts = realProspects.filter((prospect) => prospect.importProfile?.relationshipType === "both").length;
+      const investorContacts = realProspects.filter((prospect) => prospect.importProfile?.relationshipType === "investor").length;
+      const multiRoleContacts = realProspects.filter((prospect) => /Rôles\s*:/i.test(prospect.notes) && /Acheteur/i.test(prospect.notes) && /Vendeur/i.test(prospect.notes)).length;
       const callEventsToday = realProspects.flatMap((prospect) =>
         prospect.history
           .filter((event) => event.type === "call" && localDateKey(event.date) === today)
@@ -304,6 +307,9 @@ export function DirectorChatPanel({
             newContacts,
             buyerPipeline: realProspects.filter((prospect) => prospect.clientType === "buyer").length,
             sellerPipeline: realProspects.filter((prospect) => prospect.clientType === "seller").length,
+            buyerSellerContacts,
+            investorContacts,
+            multiRoleContacts,
             automationsReadyToday: automationSummary.ready,
             automationsBlocked: automationSummary.incompleteContacts + automationSummary.blockedByConsent,
             mortgageRenewalsWithin90Days: automationSummary.mortgageWithin90Days,
