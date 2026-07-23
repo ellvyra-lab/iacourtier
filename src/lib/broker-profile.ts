@@ -15,6 +15,7 @@ export type BrokerProfile = {
   fullName: string;
   professionalTitle: string;
   teamName: string;
+  teamWebsite: string;
   teamMode: "solo" | "team";
   agencyName: string;
   agencyBrandId: string;
@@ -55,7 +56,7 @@ export type BrokerProfile = {
 export const BROKER_PROFILE_KEY = "iacourtier_broker_profile";
 
 export const emptyBrokerProfile: BrokerProfile = {
-  fullName: "", professionalTitle: "", teamName: "", teamMode: "solo", agencyName: "", agencyBrandId: "", phone: "", mobile: "", email: "", website: "",
+  fullName: "", professionalTitle: "", teamName: "", teamWebsite: "", teamMode: "solo", agencyName: "", agencyBrandId: "", phone: "", mobile: "", email: "", website: "",
   professionalAddress: "", facebook: "", instagram: "", linkedin: "", tiktok: "", youtube: "",
   languages: "", biography: "", slogan: "", signature: "", bookingUrl: "", primaryColor: "#0f766e",
   secondaryColor: "#0f172a", preferredFont: "", photo: "", logo: "", banner: "", agencyLogo: "", teamLogo: "", teamBanner: "", teamPhoto: "", addressMode: "vous", communicationTones: [], primaryClienteles: [], communicationApproaches: [], businessGoals: [], onboardingCompleted: false, partners: [],
@@ -98,6 +99,7 @@ export function buildProfessionalSignature(profile: Partial<BrokerProfile>) {
     profile.fullName,
     profile.professionalTitle,
     [profile.teamName, profile.agencyName].filter(Boolean).join(" · "),
+    profile.teamWebsite,
     profile.mobile || profile.phone,
     profile.email,
     profile.website,
@@ -112,6 +114,7 @@ export function formatBrokerProfileForPrompt(profile: Partial<BrokerProfile>) {
     profile.fullName && `Nom du courtier : ${profile.fullName}`,
     profile.professionalTitle && `Titre professionnel : ${profile.professionalTitle}`,
     profile.teamName && `Équipe : ${profile.teamName}`,
+    profile.teamWebsite && `Site de l’équipe : ${profile.teamWebsite}`,
     profile.agencyName && `Agence : ${profile.agencyName}`,
     (profile.mobile || profile.phone) && `Téléphone : ${profile.mobile || profile.phone}`,
     profile.email && `Courriel : ${profile.email}`,
