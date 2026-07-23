@@ -74,7 +74,7 @@ export function DashboardSidebar() {
           className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-muted hover:bg-[var(--bg)] hover:text-[var(--fg)]"
         >
           <Settings size={16} />
-          Paramètres
+          Mon identité professionnelle
         </Link>
         <Link
           href="/tableau-de-bord/support"
