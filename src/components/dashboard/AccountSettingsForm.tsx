@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from "react";
+import { useRouter } from "next/navigation";
 import { Check, Loader2, Plus, Trash2, Upload } from "lucide-react";
 
 import {
@@ -14,7 +15,7 @@ import {
   type BrokerProfile,
   type BrokerPartnerCategory,
 } from "@/lib/broker-profile";
-import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { createSupabaseBrowserClient, isSupabaseBrowserConfigured } from "@/lib/supabase/client";
 import { agencyLogoUrl, searchAgencyBrands, type AgencyBrand } from "@/lib/agency-brands";
 
 const PROFILE_FIELDS: Array<{ key: keyof BrokerProfile; label: string; type?: string; wide?: boolean }> = [
@@ -41,6 +42,7 @@ const ASSETS: Array<{ key: ProfileAssetKey; label: string }> = [
 ];
 
 export function AccountSettingsForm() {
+  const router = useRouter();
   const [profile, setProfile] = useState<BrokerProfile>(emptyBrokerProfile);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -50,20 +52,55 @@ export function AccountSettingsForm() {
   const [previewType, setPreviewType] = useState<"email" | "signature" | "facebook" | "buyer-guide" | "seller-guide" | "card">("email");
 
   useEffect(() => {
-    const supabase = createSupabaseBrowserClient();
-    supabase.auth.getUser().then(({ data }) => {
-      const user = data.user;
-      const remote = normalizeBrokerProfile(user?.user_metadata?.broker_profile);
+    let active = true;
+
+    async function loadAuthenticatedProfile() {
+      if (!isSupabaseBrowserConfigured()) {
+        if (active) {
+          setError("L’authentification n’est pas configurée. Vérifiez les variables Supabase sur Vercel.");
+          setLoading(false);
+        }
+        return;
+      }
+
+      const supabase = createSupabaseBrowserClient();
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !sessionData.session) {
+        if (active) {
+          setError("Votre session est absente ou expirée. Vous allez être redirigé vers la connexion.");
+          setLoading(false);
+          window.setTimeout(() => router.replace("/connexion?next=/tableau-de-bord/identite-professionnelle"), 1200);
+        }
+        return;
+      }
+
+      const { data: userData, error: userError } = await supabase.auth.getUser();
+      const user = userData.user;
+      if (userError || !user || user.id !== sessionData.session.user.id) {
+        if (active) {
+          setError("Impossible de confirmer votre identité. Veuillez vous reconnecter.");
+          setLoading(false);
+          window.setTimeout(() => router.replace("/connexion?next=/tableau-de-bord/identite-professionnelle"), 1200);
+        }
+        return;
+      }
+
+      const remote = normalizeBrokerProfile(user.user_metadata?.broker_profile);
       const local = loadBrokerProfile();
       const selected = remote.fullName || remote.agencyName ? remote : local;
-      setProfile({
-        ...selected,
-        fullName: selected.fullName || String(user?.user_metadata?.full_name || ""),
-        email: selected.email || user?.email || "",
-      });
-      setLoading(false);
-    });
-  }, []);
+      if (active) {
+        setProfile({
+          ...selected,
+          fullName: selected.fullName || String(user.user_metadata?.full_name || ""),
+          email: selected.email || user.email || "",
+        });
+        setLoading(false);
+      }
+    }
+
+    void loadAuthenticatedProfile();
+    return () => { active = false; };
+  }, [router]);
 
   const agencyMatches = useMemo(() => searchAgencyBrands(agencyQuery).slice(0, 8), [agencyQuery]);
 
@@ -123,16 +160,44 @@ export function AccountSettingsForm() {
     setSaving(true);
     setSaved(false);
     setError("");
-    saveBrokerProfile(profile);
+    if (!isSupabaseBrowserConfigured()) {
+      setSaving(false);
+      setError("L’authentification n’est pas configurée. Vérifiez les variables Supabase sur Vercel.");
+      return;
+    }
+
     const supabase = createSupabaseBrowserClient();
+    const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError || !sessionData.session) {
+      setSaving(false);
+      setError("Votre session est absente ou expirée. Vous allez être redirigé vers la connexion.");
+      window.setTimeout(() => router.replace("/connexion?next=/tableau-de-bord/identite-professionnelle"), 1200);
+      return;
+    }
+
+    const { data: userData, error: userError } = await supabase.auth.getUser();
+    if (userError || !userData.user || userData.user.id !== sessionData.session.user.id) {
+      setSaving(false);
+      setError("Impossible de confirmer votre identité. Veuillez vous reconnecter.");
+      window.setTimeout(() => router.replace("/connexion?next=/tableau-de-bord/identite-professionnelle"), 1200);
+      return;
+    }
+
     const { error: updateError } = await supabase.auth.updateUser({
       data: { full_name: profile.fullName, broker_profile: profile },
     });
     setSaving(false);
     if (updateError) {
-      setError(updateError.message);
+      const sessionExpired = /auth session|jwt|refresh token|session missing/i.test(updateError.message);
+      setError(sessionExpired
+        ? "Votre session a expiré. Veuillez vous reconnecter pour enregistrer votre profil."
+        : "Le profil n’a pas pu être enregistré. Réessayez dans un instant.");
+      if (sessionExpired) {
+        window.setTimeout(() => router.replace("/connexion?next=/tableau-de-bord/identite-professionnelle"), 1200);
+      }
       return;
     }
+    saveBrokerProfile(profile);
     setSaved(true);
     window.setTimeout(() => setSaved(false), 2500);
   }
