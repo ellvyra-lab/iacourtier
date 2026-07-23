@@ -312,6 +312,7 @@ function materialize(contact: SoniaProspect, candidate: Candidate, dedupeKey: st
       topic: candidate.objective,
       propertyAddress: contact.address || undefined,
       brokerName: brokerProfile.fullName || undefined,
+      brokerAgency: brokerProfile.agencyName || undefined,
       brokerSignature: buildProfessionalSignature(brokerProfile) || undefined,
       brokerPhone: brokerProfile.mobile || brokerProfile.phone || undefined,
       brokerEmail: brokerProfile.email || undefined,
