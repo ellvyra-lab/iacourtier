@@ -15,6 +15,7 @@ export type BrokerProfile = {
   fullName: string;
   professionalTitle: string;
   teamName: string;
+  teamMode: "solo" | "team";
   agencyName: string;
   agencyBrandId: string;
   phone: string;
@@ -41,16 +42,23 @@ export type BrokerProfile = {
   agencyLogo: string;
   teamLogo: string;
   teamBanner: string;
+  teamPhoto: string;
+  addressMode: "tu" | "vous";
+  communicationTones: string[];
+  primaryClienteles: string[];
+  communicationApproaches: string[];
+  businessGoals: string[];
+  onboardingCompleted: boolean;
   partners: BrokerPartner[];
 };
 
 export const BROKER_PROFILE_KEY = "iacourtier_broker_profile";
 
 export const emptyBrokerProfile: BrokerProfile = {
-  fullName: "", professionalTitle: "", teamName: "", agencyName: "", agencyBrandId: "", phone: "", mobile: "", email: "", website: "",
+  fullName: "", professionalTitle: "", teamName: "", teamMode: "solo", agencyName: "", agencyBrandId: "", phone: "", mobile: "", email: "", website: "",
   professionalAddress: "", facebook: "", instagram: "", linkedin: "", tiktok: "", youtube: "",
   languages: "", biography: "", slogan: "", signature: "", bookingUrl: "", primaryColor: "#0f766e",
-  secondaryColor: "#0f172a", preferredFont: "", photo: "", logo: "", banner: "", agencyLogo: "", teamLogo: "", teamBanner: "", partners: [],
+  secondaryColor: "#0f172a", preferredFont: "", photo: "", logo: "", banner: "", agencyLogo: "", teamLogo: "", teamBanner: "", teamPhoto: "", addressMode: "vous", communicationTones: [], primaryClienteles: [], communicationApproaches: [], businessGoals: [], onboardingCompleted: false, partners: [],
 };
 
 export function normalizeBrokerProfile(value: unknown): BrokerProfile {
@@ -60,6 +68,10 @@ export function normalizeBrokerProfile(value: unknown): BrokerProfile {
     ...emptyBrokerProfile,
     ...source,
     partners: Array.isArray(source.partners) ? source.partners : [],
+    communicationTones: Array.isArray(source.communicationTones) ? source.communicationTones : [],
+    primaryClienteles: Array.isArray(source.primaryClienteles) ? source.primaryClienteles : [],
+    communicationApproaches: Array.isArray(source.communicationApproaches) ? source.communicationApproaches : [],
+    businessGoals: Array.isArray(source.businessGoals) ? source.businessGoals : [],
   };
 }
 
@@ -70,6 +82,10 @@ export function loadBrokerProfile(): BrokerProfile {
   } catch {
     return { ...emptyBrokerProfile };
   }
+}
+
+export function isBrokerOnboardingComplete(profile: Partial<BrokerProfile>) {
+  return Boolean(profile.onboardingCompleted && profile.fullName?.trim() && profile.agencyName?.trim() && profile.email?.trim());
 }
 
 export function saveBrokerProfile(profile: BrokerProfile) {
@@ -104,6 +120,11 @@ export function formatBrokerProfileForPrompt(profile: Partial<BrokerProfile>) {
     profile.languages && `Langues : ${profile.languages}`,
     profile.biography && `Biographie : ${profile.biography}`,
     profile.slogan && `Slogan : ${profile.slogan}`,
+    profile.addressMode && `Forme d’adresse préférée : ${profile.addressMode === "tu" ? "tutoiement" : "vouvoiement"}`,
+    profile.communicationTones?.length && `Tons préférés : ${profile.communicationTones.join(", ")}`,
+    profile.primaryClienteles?.length && `Clientèles principales : ${profile.primaryClienteles.join(", ")}`,
+    profile.communicationApproaches?.length && `Approches : ${profile.communicationApproaches.join(", ")}`,
+    profile.businessGoals?.length && `Objectifs : ${profile.businessGoals.join(", ")}`,
     `Signature professionnelle : ${buildProfessionalSignature(profile) || "(non configurée)"}`,
     partners && `Partenaires recommandés : ${partners}`,
     profile.primaryColor && `Couleur principale : ${profile.primaryColor}`,
