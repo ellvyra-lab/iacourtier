@@ -3,12 +3,21 @@ import { NextResponse } from "next/server";
 import { getAssistantConfig } from "@/data/assistantsConfig";
 import { buildBusinessActionPrompt, getBusinessAction, type BusinessActionRunInput } from "@/lib/business-actions";
 import { generateWithOpenAI, getOpenAIErrorPayload } from "@/lib/openai";
+import { CLIENT_BRAND_SAFETY_RULES, formatBrokerProfileForPrompt, normalizeBrokerProfile, sanitizeClientFacingContent } from "@/lib/broker-profile";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as BusinessActionRunInput;
+    const supabase = await createSupabaseServerClient();
+    const { data: userData } = await supabase.auth.getUser();
+    if (!userData.user) {
+      return NextResponse.json({ ok: false, error: "Vous devez être connecté." }, { status: 401 });
+    }
+    const brokerProfile = normalizeBrokerProfile(userData.user.user_metadata?.broker_profile);
+    const brokerContext = formatBrokerProfileForPrompt(brokerProfile);
     const action = getBusinessAction(body.actionId);
 
     if (!action) {
@@ -20,19 +29,20 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false, error: "Aucun service IA n'est associe a cette action." }, { status: 400 });
     }
 
-    const prompt = buildBusinessActionPrompt(action, body.context);
+    const prompt = `${buildBusinessActionPrompt(action, body.context)}\n\nPROFIL OFFICIEL DU COURTIER :\n${brokerContext || "(profil non configuré — ne rien inventer)"}`;
     const results = [];
 
     for (const slug of serviceSlugs) {
       const assistant = getAssistantConfig(slug);
       if (!assistant) continue;
 
-      const output = await generateWithOpenAI({
-        systemPrompt: `${assistant.systemPrompt}\n\nTu es appele comme service interne d'une action metier IACourtier. Ne parle pas d'assistant IA. Produis uniquement la partie utile pour l'action metier.`,
+      const generatedOutput = await generateWithOpenAI({
+        systemPrompt: `${assistant.systemPrompt}\n\nTu es appelé comme service interne d'une action métier. Produis uniquement le contenu final utile.\n\n${CLIENT_BRAND_SAFETY_RULES}`,
         userPrompt: prompt,
         maxTokens: 1200,
         temperature: 0.65,
       });
+      const output = sanitizeClientFacingContent(generatedOutput, brokerProfile);
 
       results.push({
         slug,
