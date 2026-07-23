@@ -5,6 +5,7 @@ import { Check, Loader2, Plus, Trash2, Upload } from "lucide-react";
 
 import {
   buildBuyerGuideExample,
+  buildProfessionalSignature,
   emptyBrokerProfile,
   loadBrokerProfile,
   normalizeBrokerProfile,
@@ -18,7 +19,7 @@ import { agencyLogoUrl, searchAgencyBrands, type AgencyBrand } from "@/lib/agenc
 
 const PROFILE_FIELDS: Array<{ key: keyof BrokerProfile; label: string; type?: string; wide?: boolean }> = [
   { key: "fullName", label: "Nom complet *" }, { key: "professionalTitle", label: "Titre professionnel *" },
-  { key: "teamName", label: "Nom de l’équipe" }, { key: "phone", label: "Téléphone", type: "tel" },
+  { key: "teamName", label: "Nom de l’équipe" }, { key: "teamWebsite", label: "Site de l’équipe", type: "url" }, { key: "phone", label: "Téléphone", type: "tel" },
   { key: "mobile", label: "Cellulaire", type: "tel" }, { key: "email", label: "Courriel *", type: "email" },
   { key: "website", label: "Site Web", type: "url" }, { key: "professionalAddress", label: "Adresse professionnelle", wide: true },
   { key: "facebook", label: "Facebook", type: "url" }, { key: "instagram", label: "Instagram", type: "url" },
@@ -46,6 +47,7 @@ export function AccountSettingsForm() {
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
   const [agencyQuery, setAgencyQuery] = useState("");
+  const [previewType, setPreviewType] = useState<"email" | "signature" | "facebook" | "buyer-guide" | "seller-guide" | "card">("email");
 
   useEffect(() => {
     const supabase = createSupabaseBrowserClient();
@@ -151,7 +153,7 @@ export function AccountSettingsForm() {
             const value = profile[field.key];
             if (typeof value !== "string") return null;
             const isLong = field.key === "biography" || field.key === "signature";
-            return <label key={field.key} className={field.wide ? "md:col-span-2" : ""}><span className="mb-2 block text-sm font-medium">{field.label}</span>{isLong ? <textarea rows={4} value={value} onChange={(event) => update(field.key, event.target.value)} className="w-full rounded-xl border border-subtle bg-surface px-4 py-3 text-sm outline-none focus:border-electric-500" /> : <input type={field.type || "text"} value={value} onChange={(event) => update(field.key, event.target.value)} className="min-h-11 w-full rounded-xl border border-subtle bg-surface px-4 text-sm outline-none focus:border-electric-500" />}</label>;
+            return <label key={field.key} className={field.wide ? "md:col-span-2" : ""}><span className="mb-2 block text-sm font-medium">{field.label}</span>{field.key === "professionalTitle" ? <select value={value} onChange={(event) => update(field.key, event.target.value)} className="min-h-11 w-full rounded-xl border border-subtle bg-surface px-4 text-sm"><option value="">Choisir un titre</option><option>Courtier immobilier résidentiel</option><option>Courtier immobilier commercial</option><option>Courtier hypothécaire</option><option>Autre</option></select> : isLong ? <textarea rows={4} value={value} onChange={(event) => update(field.key, event.target.value)} className="w-full rounded-xl border border-subtle bg-surface px-4 py-3 text-sm outline-none focus:border-electric-500" /> : <input type={field.type || "text"} value={value} onChange={(event) => update(field.key, event.target.value)} className="min-h-11 w-full rounded-xl border border-subtle bg-surface px-4 text-sm outline-none focus:border-electric-500" />}</label>;
           })}
         </div>
       </section>
@@ -171,7 +173,7 @@ export function AccountSettingsForm() {
         <div className="mt-5 grid gap-4 sm:grid-cols-3"><label className="text-sm font-medium">Couleur principale<input type="color" value={profile.primaryColor} onChange={(event) => update("primaryColor", event.target.value)} className="mt-2 h-11 w-full rounded-lg" /></label><label className="text-sm font-medium">Couleur secondaire<input type="color" value={profile.secondaryColor} onChange={(event) => update("secondaryColor", event.target.value)} className="mt-2 h-11 w-full rounded-lg" /></label><label className="text-sm font-medium">Police préférée<input value={profile.preferredFont} onChange={(event) => update("preferredFont", event.target.value)} className="mt-2 min-h-11 w-full rounded-xl border border-subtle bg-surface px-4" /></label></div>
       </section>
 
-      <section className="rounded-2xl border border-subtle bg-surface-soft p-6">
+      <section id="partenaires" className="scroll-mt-24 rounded-2xl border border-subtle bg-surface-soft p-6">
         <div className="flex items-center justify-between gap-3"><div><h2 className="text-xl font-semibold">Bibliothèque de partenaires</h2><p className="mt-1 text-sm text-muted">Le Coach recommandera le partenaire pertinent selon l’étape du dossier.</p></div><button type="button" onClick={addPartner} className="inline-flex items-center gap-2 rounded-full border border-subtle px-4 py-2 text-sm font-semibold"><Plus className="h-4 w-4" />Ajouter</button></div>
         <div className="mt-5 space-y-4">{profile.partners.map((partner) => <div key={partner.id} className="grid gap-3 rounded-xl border border-subtle bg-background p-4 md:grid-cols-3"><input placeholder="Nom" value={partner.name} onChange={(e) => updatePartner(partner.id, { name: e.target.value })} className="rounded-lg border border-subtle bg-surface px-3 py-2" /><input placeholder="Entreprise" value={partner.company} onChange={(e) => updatePartner(partner.id, { company: e.target.value })} className="rounded-lg border border-subtle bg-surface px-3 py-2" /><select value={partner.category} onChange={(e) => updatePartner(partner.id, { category: e.target.value as BrokerPartnerCategory })} className="rounded-lg border border-subtle bg-surface px-3 py-2"><option value="hypothèque">Courtier hypothécaire</option><option value="inspection">Inspecteur</option><option value="notaire">Notaire</option><option value="assurance">Assureur</option><option value="arpenteur">Arpenteur</option><option value="entrepreneur">Entrepreneur</option><option value="photographe">Photographe</option><option value="vidéaste">Vidéaste</option><option value="home-staging">Home staging</option><option value="déménagement">Déménageur</option><option value="autre">Autre</option></select><input placeholder="Téléphone" value={partner.phone} onChange={(e) => updatePartner(partner.id, { phone: e.target.value })} className="rounded-lg border border-subtle bg-surface px-3 py-2" /><input placeholder="Courriel" value={partner.email} onChange={(e) => updatePartner(partner.id, { email: e.target.value })} className="rounded-lg border border-subtle bg-surface px-3 py-2" /><div className="flex gap-2"><input placeholder="Site Web" value={partner.website} onChange={(e) => updatePartner(partner.id, { website: e.target.value })} className="min-w-0 flex-1 rounded-lg border border-subtle bg-surface px-3 py-2" /><button type="button" aria-label="Supprimer le partenaire" onClick={() => setProfile((current) => ({ ...current, partners: current.partners.filter((item) => item.id !== partner.id) }))} className="rounded-lg border border-subtle p-2"><Trash2 className="h-4 w-4" /></button></div></div>)}</div>
       </section>
@@ -179,14 +181,15 @@ export function AccountSettingsForm() {
       <section className="overflow-hidden rounded-2xl border border-subtle bg-surface-soft">
         <div className="h-3" style={{ background: `linear-gradient(90deg, ${profile.primaryColor}, ${profile.secondaryColor})` }} />
         <div className="p-6">
-          <h2 className="text-xl font-semibold">Aperçu automatique — Guide acheteur</h2>
+          <h2 className="text-xl font-semibold">Prévisualisation en direct</h2>
+          <div className="mt-4 flex flex-wrap gap-2">{([["email", "Courriel"], ["signature", "Signature"], ["facebook", "Publication Facebook"], ["buyer-guide", "Guide Acheteur"], ["seller-guide", "Guide Vendeur"], ["card", "Carte professionnelle"]] as const).map(([value, label]) => <button key={value} type="button" onClick={() => setPreviewType(value)} className={`rounded-full border px-3 py-2 text-xs font-semibold ${previewType === value ? "border-electric-500 bg-electric-500 text-white" : "border-subtle bg-background"}`}>{label}</button>)}</div>
           <div className="mt-5 flex flex-wrap items-center gap-4 border-b border-subtle pb-5">
             {profile.agencyLogo || profile.logo ? <img src={profile.agencyLogo || profile.logo} alt="" className="h-16 w-20 rounded-lg object-contain" /> : null}
             {profile.teamLogo ? <img src={profile.teamLogo} alt="" className="h-16 w-20 rounded-lg object-contain" /> : null}
             {profile.photo ? <img src={profile.photo} alt="" className="ml-auto h-20 w-20 rounded-full object-cover" /> : null}
             <div><p className="text-lg font-semibold">{profile.fullName || "Nom du courtier"}</p><p className="text-sm text-muted">{[profile.professionalTitle, profile.agencyName, profile.teamName].filter(Boolean).join(" · ")}</p></div>
           </div>
-          <pre className="mt-4 whitespace-pre-wrap rounded-xl bg-background p-4 text-sm leading-6">{buildBuyerGuideExample(profile)}</pre>
+          <pre className="mt-4 whitespace-pre-wrap rounded-xl bg-background p-4 text-sm leading-6">{buildIdentityPreview(profile, previewType)}</pre>
         </div>
       </section>
 
@@ -194,4 +197,15 @@ export function AccountSettingsForm() {
       <button type="submit" disabled={saving || loading} className="inline-flex min-h-12 items-center gap-2 rounded-full bg-gradient-to-r from-electric-500 to-cyan-500 px-6 py-3 font-semibold text-white disabled:opacity-50">{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : saved ? <Check className="h-4 w-4" /> : null}{saved ? "Profil enregistré" : "Enregistrer mon profil professionnel"}</button>
     </form>
   );
+}
+
+function buildIdentityPreview(profile: BrokerProfile, type: "email" | "signature" | "facebook" | "buyer-guide" | "seller-guide" | "card") {
+  const signature = buildProfessionalSignature(profile);
+  if (type === "signature") return signature || "Votre signature apparaîtra ici.";
+  if (type === "buyer-guide") return buildBuyerGuideExample(profile);
+  if (type === "seller-guide") return [`GUIDE VENDEUR — ${profile.fullName || "Votre courtier"}`, profile.slogan || "Préparer, positionner et présenter votre propriété avec méthode.", "", "Votre stratégie de mise en marché", "1. Clarifier vos objectifs et votre échéancier.", "2. Analyser le marché et choisir un positionnement défendable.", "3. Préparer la propriété et les documents.", "4. Lancer la mise en marché et analyser les réactions.", "", signature].filter(Boolean).join("\n");
+  if (type === "facebook") return `Vous réfléchissez à votre prochain projet immobilier? Je peux vous préparer un portrait clair des options dans votre secteur, sans pression. Écrivez-moi pour en discuter.\n\n${signature}`;
+  if (type === "card") return [profile.fullName || "Nom du courtier", profile.professionalTitle, profile.teamName, profile.agencyName, profile.mobile || profile.phone, profile.email, profile.website].filter(Boolean).join("\n");
+  const greeting = profile.addressMode === "tu" ? "Bonjour Marie,\n\nMerci pour ton message. Je vais t'aider à clarifier ton projet et la prochaine étape la plus utile." : "Bonjour Marie,\n\nMerci pour votre message. Je vais vous aider à clarifier votre projet et la prochaine étape la plus utile.";
+  return `${greeting}\n\n${signature}`;
 }
