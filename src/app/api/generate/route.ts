@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAssistantConfig } from "@/data/assistantsConfig";
 import { generateWithOpenAI, getOpenAIErrorPayload } from "@/lib/openai";
 import { getMonthlyLimit } from "@/lib/plans";
-import { formatBrokerProfileForPrompt, normalizeBrokerProfile } from "@/lib/broker-profile";
+import { CLIENT_BRAND_SAFETY_RULES, formatBrokerProfileForPrompt, normalizeBrokerProfile, sanitizeClientFacingContent } from "@/lib/broker-profile";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -112,10 +112,11 @@ Utilise automatiquement cette identité, les coordonnées, la signature, les cou
   const userPrompt = `${visiblePrompt}${radarPrompt}${sharedContextPrompt}${personalizationPrompt}`;
 
   try {
-    const output = await generateWithOpenAI({
-      systemPrompt: assistant.systemPrompt,
+    const generatedOutput = await generateWithOpenAI({
+      systemPrompt: `${assistant.systemPrompt}\n\n${CLIENT_BRAND_SAFETY_RULES}`,
       userPrompt,
     });
+    const output = sanitizeClientFacingContent(generatedOutput, brokerProfile);
 
     await supabase.from("generations").insert({
       user_id: user.id,
