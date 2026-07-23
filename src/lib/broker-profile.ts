@@ -1,4 +1,4 @@
-export type BrokerPartnerCategory = "hypothèque" | "inspection" | "notaire" | "assurance" | "autre";
+export type BrokerPartnerCategory = "hypothèque" | "inspection" | "notaire" | "assurance" | "arpenteur" | "entrepreneur" | "photographe" | "vidéaste" | "home-staging" | "déménagement" | "autre";
 
 export type BrokerPartner = {
   id: string;
@@ -13,8 +13,10 @@ export type BrokerPartner = {
 
 export type BrokerProfile = {
   fullName: string;
+  professionalTitle: string;
   teamName: string;
   agencyName: string;
+  agencyBrandId: string;
   phone: string;
   mobile: string;
   email: string;
@@ -36,16 +38,19 @@ export type BrokerProfile = {
   photo: string;
   logo: string;
   banner: string;
+  agencyLogo: string;
+  teamLogo: string;
+  teamBanner: string;
   partners: BrokerPartner[];
 };
 
 export const BROKER_PROFILE_KEY = "iacourtier_broker_profile";
 
 export const emptyBrokerProfile: BrokerProfile = {
-  fullName: "", teamName: "", agencyName: "", phone: "", mobile: "", email: "", website: "",
+  fullName: "", professionalTitle: "", teamName: "", agencyName: "", agencyBrandId: "", phone: "", mobile: "", email: "", website: "",
   professionalAddress: "", facebook: "", instagram: "", linkedin: "", tiktok: "", youtube: "",
   languages: "", biography: "", slogan: "", signature: "", bookingUrl: "", primaryColor: "#0f766e",
-  secondaryColor: "#0f172a", preferredFont: "", photo: "", logo: "", banner: "", partners: [],
+  secondaryColor: "#0f172a", preferredFont: "", photo: "", logo: "", banner: "", agencyLogo: "", teamLogo: "", teamBanner: "", partners: [],
 };
 
 export function normalizeBrokerProfile(value: unknown): BrokerProfile {
@@ -75,6 +80,7 @@ export function buildProfessionalSignature(profile: Partial<BrokerProfile>) {
   if (profile.signature?.trim()) return profile.signature.trim();
   return [
     profile.fullName,
+    profile.professionalTitle,
     [profile.teamName, profile.agencyName].filter(Boolean).join(" · "),
     profile.mobile || profile.phone,
     profile.email,
@@ -88,6 +94,7 @@ export function formatBrokerProfileForPrompt(profile: Partial<BrokerProfile>) {
   ).join("; ");
   return [
     profile.fullName && `Nom du courtier : ${profile.fullName}`,
+    profile.professionalTitle && `Titre professionnel : ${profile.professionalTitle}`,
     profile.teamName && `Équipe : ${profile.teamName}`,
     profile.agencyName && `Agence : ${profile.agencyName}`,
     (profile.mobile || profile.phone) && `Téléphone : ${profile.mobile || profile.phone}`,
@@ -101,6 +108,10 @@ export function formatBrokerProfileForPrompt(profile: Partial<BrokerProfile>) {
     partners && `Partenaires recommandés : ${partners}`,
     profile.primaryColor && `Couleur principale : ${profile.primaryColor}`,
     profile.secondaryColor && `Couleur secondaire : ${profile.secondaryColor}`,
+    profile.agencyLogo && "Logo officiel de l’agence disponible : oui",
+    profile.teamLogo && "Logo de l’équipe disponible : oui",
+    profile.photo && "Photo professionnelle disponible : oui",
+    (profile.teamBanner || profile.banner) && "Bannière disponible : oui",
   ].filter(Boolean).join("\n");
 }
 
@@ -109,6 +120,7 @@ export function buildBuyerGuideExample(profile: BrokerProfile) {
   const inspector = profile.partners.find((partner) => partner.category === "inspection");
   return [
     `GUIDE ACHETEUR — ${profile.fullName || "Votre courtier"}`,
+    [profile.professionalTitle, profile.agencyName, profile.teamName].filter(Boolean).join(" · "),
     profile.slogan || "Un accompagnement clair, du projet jusqu’aux clés.",
     "",
     "Bienvenue",
