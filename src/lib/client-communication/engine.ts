@@ -1,3 +1,5 @@
+import { sanitizeClientFacingContent } from "@/lib/broker-profile";
+
 export type ClientType = "acheteur" | "vendeur" | "les_deux";
 export type CommunicationChannel = "courriel" | "texto" | "téléphone" | "messenger";
 export type LeadWarmth = "froid" | "tiède" | "chaud";
@@ -183,10 +185,14 @@ export function generateClientCommunication(input: ClientCommunicationInput): Cl
   validateInput(input);
   const template = [...TEMPLATES].sort((a, b) => b.matches(input) - a.matches(input))[0];
   const output = template.create(input);
+  const brokerIdentity = {
+    fullName: value(input, "brokerName", ""),
+    agencyName: value(input, "brokerAgency", ""),
+  };
   return {
     ...output,
-    mainMessage: applyBrokerIdentity(adaptLength(output.mainMessage, input.length), input, false),
-    shortVersion: applyBrokerIdentity(adaptChannel(output.shortVersion, input.channel), input, true),
+    mainMessage: sanitizeClientFacingContent(applyBrokerIdentity(adaptLength(output.mainMessage, input.length), input, false), brokerIdentity),
+    shortVersion: sanitizeClientFacingContent(applyBrokerIdentity(adaptChannel(output.shortVersion, input.channel), input, true), brokerIdentity),
     templateId: template.id,
   };
 }
