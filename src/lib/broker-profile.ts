@@ -126,3 +126,21 @@ export function buildBuyerGuideExample(profile: BrokerProfile) {
     buildProfessionalSignature(profile),
   ].filter((line) => line !== "").join("\n");
 }
+
+export const CLIENT_BRAND_SAFETY_RULES = `RÈGLE DE MARQUE ABSOLUE POUR TOUT CONTENU DESTINÉ AU CLIENT :
+- Le contenu provient exclusivement du courtier et de son agence.
+- Ne jamais écrire IACourtier, Coach IA, Assistant IA, intelligence artificielle, généré par IA ou Propulsé par IACourtier.
+- Ne jamais présenter le courtier comme travaillant pour IACourtier.
+- Utiliser uniquement le nom, l'agence, les coordonnées et la signature du profil professionnel.
+- Si une information du profil est absente, l'omettre sans l'inventer.`;
+
+export function sanitizeClientFacingContent(content: string, profile: Partial<BrokerProfile> = {}) {
+  const identity = profile.agencyName?.trim() || profile.fullName?.trim() || "";
+  return content
+    .replace(/^.*(?:Propuls[ée] par IACourtier|g[ée]n[ée]r[ée] par (?:une )?IA).*$(?:\r?\n)?/gim, "")
+    .replace(/\b(?:de|par|avec|chez)\s+(?:IACourtier|le Coach IA|un Assistant IA)\b/gi, "")
+    .replace(/\b(?:IACourtier|Coach IA|Assistant IA)\b/gi, identity)
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/ {2,}/g, " ")
+    .trim();
+}
