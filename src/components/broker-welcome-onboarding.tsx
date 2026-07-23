@@ -15,7 +15,7 @@ import {
   type BrokerPartnerCategory,
   type BrokerProfile,
 } from "@/lib/broker-profile";
-import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { createSupabaseBrowserClient, isSupabaseBrowserConfigured } from "@/lib/supabase/client";
 
 const STEPS = ["Qui êtes-vous?", "Agence", "Identité visuelle", "Coordonnées", "Équipe", "Partenaires", "Personnalité", "Objectifs", "Résumé"];
 const TONES = ["chaleureux", "professionnel", "dynamique", "haut de gamme"];
@@ -92,11 +92,41 @@ export function BrokerWelcomeOnboarding() {
     setSaving(true);
     setError("");
     const completed = { ...profile, signature: profile.signature || buildProfessionalSignature(profile), onboardingCompleted: true };
-    saveBrokerProfile(completed);
+
+    if (!isSupabaseBrowserConfigured()) {
+      setSaving(false);
+      setError("L’authentification n’est pas configurée. Vérifiez les variables Supabase sur Vercel.");
+      return;
+    }
+
     const supabase = createSupabaseBrowserClient();
+    const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError || !sessionData.session) {
+      setSaving(false);
+      setError("Votre session est absente ou expirée. Vous allez être redirigé vers la connexion.");
+      window.setTimeout(() => router.replace("/connexion?next=/bienvenue"), 1200);
+      return;
+    }
+
+    const { data: userData, error: userError } = await supabase.auth.getUser();
+    if (userError || !userData.user || userData.user.id !== sessionData.session.user.id) {
+      setSaving(false);
+      setError("Impossible de confirmer votre identité. Veuillez vous reconnecter.");
+      window.setTimeout(() => router.replace("/connexion?next=/bienvenue"), 1200);
+      return;
+    }
+
     const { error: updateError } = await supabase.auth.updateUser({ data: { full_name: completed.fullName, broker_profile: completed } });
     setSaving(false);
-    if (updateError) return setError(updateError.message);
+    if (updateError) {
+      const sessionExpired = /auth session|jwt|refresh token|session missing/i.test(updateError.message);
+      setError(sessionExpired
+        ? "Votre session a expiré. Veuillez vous reconnecter pour enregistrer votre profil."
+        : "Le profil n’a pas pu être enregistré. Réessayez dans un instant.");
+      if (sessionExpired) window.setTimeout(() => router.replace("/connexion?next=/bienvenue"), 1200);
+      return;
+    }
+    saveBrokerProfile(completed);
     router.push("/tableau-de-bord");
     router.refresh();
   }
