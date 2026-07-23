@@ -70,7 +70,7 @@ export function DashboardSidebar() {
 
       <div className="flex flex-col gap-1 border-t border-subtle px-3 py-4">
         <Link
-          href="/tableau-de-bord/parametres"
+          href="/tableau-de-bord/identite-professionnelle"
           className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-muted hover:bg-[var(--bg)] hover:text-[var(--fg)]"
         >
           <Settings size={16} />
