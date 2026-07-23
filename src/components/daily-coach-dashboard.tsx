@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   ArrowRight,
   BarChart3,
@@ -32,6 +33,7 @@ import {
 } from "@/lib/sonia-beta";
 import type { CoachDataResponse } from "@/app/api/coach/route";
 import { Loader2 } from "lucide-react";
+import { loadBrokerProfile } from "@/lib/broker-profile";
 
 type CoachMessage = {
   id: string;
@@ -64,6 +66,7 @@ const conversationKey = () => `iacourtier_coach_conversation_${todayKey()}`;
 const missionKey = () => `iacourtier_coach_mission_${todayKey()}`;
 
 export function DailyCoachDashboard() {
+  const router = useRouter();
   const [prospects, setProspects] = useState<SoniaProspect[]>([]);
   const [messages, setMessages] = useState<CoachMessage[]>([]);
   const [mission, setMission] = useState<ProspectingMission | null>(null);
@@ -113,10 +116,15 @@ export function DailyCoachDashboard() {
 
   // Load prospects on mount only
   useEffect(() => {
+    const brokerProfile = loadBrokerProfile();
+    if (!brokerProfile.fullName.trim() && !brokerProfile.agencyName.trim()) {
+      router.replace("/tableau-de-bord/bienvenue");
+      return;
+    }
     console.log("[DailyCoach] Component mounted, loading prospects");
     const freshProspects = getSoniaProspects();
     setProspects(freshProspects);
-  }, []);
+  }, [router]);
 
   useEffect(() => {
     setMessages(loadConversation());
