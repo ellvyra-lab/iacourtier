@@ -128,14 +128,18 @@ export async function generateWithOpenAIVision({
   userPrompt,
   images,
   maxTokens = 1600,
+  model: requestedModel,
+  timeoutMs = 60_000,
 }: {
   systemPrompt: string;
   userPrompt: string;
   images: Array<{ dataUrl: string; name: string }>;
   maxTokens?: number;
+  model?: string;
+  timeoutMs?: number;
 }): Promise<string> {
   const apiKey = readOpenAIKey();
-  const model = readOpenAIModel();
+  const model = requestedModel?.trim() || readOpenAIModel();
   let response: Response;
   try {
     response = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -156,7 +160,7 @@ export async function generateWithOpenAIVision({
           },
         ],
       }),
-      signal: AbortSignal.timeout(60_000),
+      signal: AbortSignal.timeout(timeoutMs),
     });
   } catch (error) {
     throw new AIUnavailableError({
@@ -186,6 +190,90 @@ export async function generateWithOpenAIVision({
       statusCode: 502,
     });
   }
+  return text.trim();
+}
+
+export async function generateWithOpenAIFile({
+  systemPrompt,
+  userPrompt,
+  file,
+  maxTokens = 4500,
+  model: requestedModel,
+}: {
+  systemPrompt: string;
+  userPrompt: string;
+  file: { dataUrl: string; name: string };
+  maxTokens?: number;
+  model?: string;
+}): Promise<string> {
+  const apiKey = readOpenAIKey();
+  const model = requestedModel?.trim() || readOpenAIModel();
+  let response: Response;
+
+  try {
+    response = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model,
+        instructions: systemPrompt,
+        max_output_tokens: maxTokens,
+        store: false,
+        input: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "input_file",
+                filename: file.name,
+                file_data: file.dataUrl,
+                detail: "high",
+              },
+              { type: "input_text", text: userPrompt },
+            ],
+          },
+        ],
+      }),
+      signal: AbortSignal.timeout(120_000),
+    });
+  } catch (error) {
+    throw new AIUnavailableError({
+      diagnostic: "openai_network_error",
+      message: error instanceof Error ? error.message : "Network error calling OpenAI file analysis",
+      publicMessage: "L’analyse visuelle du PDF a échoué avant de recevoir une réponse.",
+      publicDetail: "Le document n’a pas été marqué comme analysé. Réessayez dans quelques instants.",
+      statusCode: 503,
+    });
+  }
+
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    throw new AIUnavailableError({
+      diagnostic: response.status === 401 ? "invalid_api_key" : response.status === 429 ? "openai_rate_limited" : "openai_api_error",
+      message: `OpenAI file analysis error ${response.status}: ${detail.slice(0, 500)}`,
+      publicMessage: "L’analyse visuelle du PDF a échoué.",
+      publicDetail: `Statut OpenAI: ${response.status}`,
+      statusCode: response.status === 401 ? 500 : 503,
+    });
+  }
+
+  const data = await response.json() as {
+    output_text?: unknown;
+    output?: Array<{ content?: Array<{ text?: unknown }> }>;
+  };
+  const text = typeof data.output_text === "string"
+    ? data.output_text
+    : data.output?.flatMap((item) => item.content || []).map((item) => item.text).find((value): value is string => typeof value === "string");
+
+  if (!text) {
+    throw new AIUnavailableError({
+      diagnostic: "openai_empty_response",
+      message: "Empty response from OpenAI file analysis",
+      publicMessage: "OpenAI a répondu sans extraction PDF exploitable.",
+      statusCode: 502,
+    });
+  }
+
   return text.trim();
 }
 

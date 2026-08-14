@@ -109,9 +109,22 @@ export const LISTING_FACT_DEFINITIONS = [
   { key: "features", label: "Caractéristiques documentées", required: false, question: "Quelles caractéristiques de la propriété peuvent être confirmées?" },
   { key: "certificateInfo", label: "Certificat de localisation", required: false, question: "Quelles informations du certificat doivent être validées?" },
   { key: "sellerDeclaration", label: "Déclaration du vendeur", required: false, question: "Quels éléments de la déclaration du vendeur restent à confirmer?" },
+  { key: "acquisitionDate", label: "Date d’acquisition", required: false, question: "Quelle est la date d’acquisition indiquée dans l’acte?" },
+  { key: "acquisitionPrice", label: "Prix d’acquisition", required: false, question: "Quel est le prix d’acquisition indiqué dans l’acte?" },
+  { key: "notary", label: "Notaire", required: false, question: "Quel notaire a reçu l’acte?" },
+  { key: "buildings", label: "Bâtiments", required: false, question: "Quels bâtiments sont montrés au certificat de localisation?" },
+  { key: "garage", label: "Garage", required: false, question: "La présence et le type de garage doivent-ils être confirmés?" },
+  { key: "pool", label: "Piscine", required: false, question: "La présence et le type de piscine doivent-ils être confirmés?" },
+  { key: "encroachments", label: "Empiètements", required: false, question: "Le certificat relève-t-il un empiètement?" },
   { key: "askingPrice", label: "Prix demandé", required: true, question: "Quel prix demandé a été convenu?" },
   { key: "marketDate", label: "Date de mise en marché", required: false, question: "Quelle est la date prévue de mise en marché?" },
   { key: "occupancyDate", label: "Date d’occupation", required: true, question: "Quelle date ou modalité d’occupation doit être publiée?" },
+  { key: "availability", label: "Disponibilité", required: false, question: "Quel délai ou quelle modalité de disponibilité est prévu?" },
+  { key: "conditions", label: "Conditions", required: false, question: "Quelles conditions contractuelles utiles doivent être validées?" },
+  { key: "inclusions", label: "Inclusions", required: false, question: "Quelles inclusions sont prévues au contrat?" },
+  { key: "exclusions", label: "Exclusions", required: false, question: "Quelles exclusions sont prévues au contrat?" },
+  { key: "modifiedInfo", label: "Informations modifiées", required: false, question: "Quelles informations ont été modifiées au contrat?" },
+  { key: "importantInfo", label: "Remarques importantes", required: false, question: "Quelles mentions importantes du dossier doivent être validées?" },
 ] as const;
 
 export const SELLER_AUTOMATION_TEMPLATES = [
@@ -143,7 +156,10 @@ export const SELLER_TASK_TEMPLATES = [
 export const DOCUMENT_TYPES = [
   "Acte de vente",
   "Certificat de localisation",
+  "Modification",
+  "Contrat",
   "Déclaration du vendeur",
+  "Taxes",
   "Taxes municipales",
   "Taxes scolaires",
   "Acte ou prêt hypothécaire",

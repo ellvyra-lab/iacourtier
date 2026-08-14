@@ -2,12 +2,14 @@
 
 import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Check, FileSearch, Loader2, Plus, Search, UploadCloud, UserPlus, Users } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Check, FileSearch, FileText, Loader2, Plus, Search, UploadCloud, UserPlus, Users } from "lucide-react";
 
 import {
   emptyExtractedMandateFields,
   type ExtractedMandateFields,
+  type MandateDocumentAnalysis,
   type MandateDocumentExtractionResponse,
+  type MandateExtractionSummary,
 } from "@/lib/mandate-document-extraction";
 import {
   LISTING_FACT_DEFINITIONS,
@@ -33,6 +35,8 @@ export function NewSellerListing() {
   const [facts, setFacts] = useState<ListingFact[]>([]);
   const [files, setFiles] = useState<File[]>([]);
   const [documentTypes, setDocumentTypes] = useState<Array<{ name: string; type: string }>>([]);
+  const [documentAnalyses, setDocumentAnalyses] = useState<MandateDocumentAnalysis[]>([]);
+  const [extractionSummary, setExtractionSummary] = useState<MandateExtractionSummary | null>(null);
   const [status, setStatus] = useState<"idle" | "analyzing" | "saving">("idle");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -62,7 +66,7 @@ export function NewSellerListing() {
 
   function addFiles(next: File[]) {
     const supported = next.filter((file) => /\.(pdf|jpe?g|png|heic|heif|webp)$/i.test(file.name));
-    setFiles((current) => [...current, ...supported].slice(0, 20));
+    setFiles((current) => [...current, ...supported].slice(0, 12));
     setError(supported.length === next.length ? "" : "Certains fichiers ont été ignorés. Formats acceptés : PDF, JPG, PNG, HEIC et WEBP.");
   }
 
@@ -91,6 +95,8 @@ export function NewSellerListing() {
       })) : [blankSeller()]);
       setFacts(completeReviewFacts(payload.facts || []));
       setDocumentTypes(payload.documentTypes || []);
+      setDocumentAnalyses(payload.documents || []);
+      setExtractionSummary(payload.summary || null);
       setMode("review");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "L’analyse documentaire a échoué.");
@@ -192,7 +198,7 @@ export function NewSellerListing() {
           <div onClick={() => inputRef.current?.click()} onDragOver={(event) => event.preventDefault()} onDrop={handleDrop} className="mt-6 flex min-h-52 cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 p-8 text-center dark:border-slate-700 dark:bg-slate-950">
             <UploadCloud className="h-10 w-10 text-teal-600" />
             <p className="mt-3 font-semibold">Choisir ou glisser plusieurs PDF et images</p>
-            <p className="mt-1 text-xs text-slate-500">Jusqu’à 20 fichiers, 12 Mo chacun pour l’analyse</p>
+            <p className="mt-1 text-xs text-slate-500">Jusqu’à 12 fichiers, 12 Mo chacun pour l’analyse</p>
           </div>
           {files.length ? <div className="mt-4 grid gap-2 sm:grid-cols-2">{files.map((file, index) => <div key={`${file.name}-${index}`} className="flex items-center justify-between rounded-xl border border-slate-200 px-3 py-2 text-sm dark:border-slate-700"><span className="truncate">{file.name}</span><button type="button" className="ml-2 text-xs text-red-600" onClick={() => setFiles((current) => current.filter((_, fileIndex) => fileIndex !== index))}>Retirer</button></div>)}</div> : null}
           {error ? <ErrorNotice text={error} /> : null}
@@ -214,8 +220,9 @@ export function NewSellerListing() {
           <h1 className="mt-2 text-3xl font-semibold">Confirme ce que les documents disent vraiment</h1>
           <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">Le Coach te demande seulement les données absentes, ambiguës ou contradictoires.</p>
         </header>
+        <DocumentAnalysisReview documents={documentAnalyses} summary={extractionSummary} />
         <SellerEditors sellers={sellers} updateSeller={updateSeller} addSeller={() => setSellers((current) => [...current, blankSeller()].slice(0, 2))} removeSeller={(index) => setSellers((current) => current.filter((_, sellerIndex) => sellerIndex !== index))} />
-        <PropertyEditor fields={fields} updateField={updateField} />
+        <PropertyEditor fields={fields} updateField={updateField} includePreparationFields />
         <FactGroup title="Informations confirmées" tone="green" facts={reviewGroups.confirmed} allFacts={facts} updateFact={updateFact} />
         <FactGroup title="À confirmer" tone="amber" facts={reviewGroups.toConfirm} allFacts={facts} updateFact={updateFact} />
         <FactGroup title="Informations manquantes" tone="slate" facts={reviewGroups.missing} allFacts={facts} updateFact={updateFact} />
@@ -266,6 +273,92 @@ function SellerEditors({ sellers, updateSeller, addSeller, removeSeller }: { sel
 
 function PropertyEditor({ fields, updateField, includePreparationFields = false }: { fields: ExtractedMandateFields; updateField: <K extends keyof ExtractedMandateFields>(key: K, value: ExtractedMandateFields[K]) => void; includePreparationFields?: boolean }) {
   return <section className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900"><p className="text-sm font-semibold text-teal-700">Propriété</p><h2 className="mt-1 text-xl font-semibold">Fiche de la propriété</h2><div className="mt-5 grid gap-3 md:grid-cols-2"><Input label="Adresse *" value={fields.address} onChange={(value) => updateField("address", value)} /><Input label="Ville *" value={fields.city} onChange={(value) => updateField("city", value)} /><Input label="Code postal" value={fields.postalCode} onChange={(value) => updateField("postalCode", value)} /><Input label="Type de propriété" value={fields.propertyType} onChange={(value) => updateField("propertyType", value)} /><Input label="Numéro de lot" value={fields.lotNumber} onChange={(value) => updateField("lotNumber", value)} />{includePreparationFields ? <><Input label="Prix demandé" value={fields.askingPrice} onChange={(value) => updateField("askingPrice", value)} /><Input label="Date ou modalité d’occupation" value={fields.occupancyDate} onChange={(value) => updateField("occupancyDate", value)} /></> : null}</div></section>;
+}
+
+function DocumentAnalysisReview({ documents, summary }: { documents: MandateDocumentAnalysis[]; summary: MandateExtractionSummary | null }) {
+  if (!summary) return null;
+  const modeLabel = (mode: MandateDocumentAnalysis["analysisMode"]) => mode === "pdf_visual_ocr"
+    ? "Analyse visuelle / OCR"
+    : mode === "pdf_text_and_vision"
+      ? "Texte + analyse visuelle"
+      : "Analyse visuelle";
+
+  return (
+    <section className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="text-sm font-semibold text-teal-700">Analyse réelle des documents</p>
+          <h2 className="mt-1 text-xl font-semibold">Résumé document par document</h2>
+        </div>
+        <FileSearch className="h-6 w-6 text-teal-700" />
+      </div>
+
+      <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <SummaryMetric label="Documents analysés" value={String(summary.totalDocuments)} />
+        <SummaryMetric label="Informations extraites" value={String(summary.totalInformation)} />
+        <SummaryMetric label="Contacts identifiés" value={String(summary.contactsIdentified.length)} />
+        <SummaryMetric label="Contradictions" value={String(summary.contradictions.length)} warning={summary.contradictions.length > 0} />
+      </div>
+
+      {summary.contactsIdentified.length ? (
+        <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm dark:border-emerald-900 dark:bg-emerald-950/20">
+          <p className="font-semibold text-emerald-800 dark:text-emerald-200">Contacts propriétaires identifiés</p>
+          <p className="mt-1 text-emerald-700 dark:text-emerald-300">{summary.contactsIdentified.map((contact) => `${contact.firstName} ${contact.lastName}`.trim()).filter(Boolean).join(" · ")}</p>
+        </div>
+      ) : null}
+
+      <div className="mt-5 grid gap-4 xl:grid-cols-2">
+        {documents.map((document) => (
+          <article key={document.name} className="rounded-2xl border border-slate-200 p-4 dark:border-slate-700">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="flex items-center gap-2 font-semibold"><FileText className="h-4 w-4 shrink-0 text-teal-700" /><span className="truncate">{document.name}</span></p>
+                <p className="mt-1 text-xs text-slate-500">{modeLabel(document.analysisMode)}{document.pageCount ? ` · ${document.pageCount} page${document.pageCount > 1 ? "s" : ""}` : ""}</p>
+              </div>
+              <span className="shrink-0 rounded-full bg-teal-50 px-3 py-1 text-xs font-semibold text-teal-800 dark:bg-teal-950 dark:text-teal-200">{document.type}</span>
+            </div>
+
+            {document.facts.length ? (
+              <div className="mt-4 space-y-2">
+                {document.facts.map((fact, index) => (
+                  <div key={`${document.name}-${fact.key}-${index}`} className="rounded-lg bg-slate-50 px-3 py-2 text-sm dark:bg-slate-950">
+                    <p><span className="font-semibold text-emerald-700">✓ {fact.label} :</span> {fact.value}</p>
+                    <p className="mt-1 text-xs text-slate-500">Source : {fact.sourceLabel}</p>
+                  </div>
+                ))}
+              </div>
+            ) : <p className="mt-4 text-sm text-amber-700">Aucune information fiable n’a été extraite de ce document.</p>}
+
+            {document.missing.length ? (
+              <div className="mt-4 border-t border-slate-200 pt-3 text-xs text-slate-500 dark:border-slate-700">
+                <span className="font-semibold">Non trouvé dans ce document :</span> {document.missing.map((item) => item.label).join(" · ")}
+              </div>
+            ) : null}
+          </article>
+        ))}
+      </div>
+
+      {summary.contradictions.length ? (
+        <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950/20">
+          <p className="flex items-center gap-2 font-semibold text-amber-900 dark:text-amber-100"><AlertTriangle className="h-4 w-4" />Informations contradictoires</p>
+          <div className="mt-3 space-y-2 text-sm text-amber-900 dark:text-amber-100">
+            {summary.contradictions.map((contradiction) => (
+              <p key={contradiction.key}><span className="font-semibold">{contradiction.label} :</span> {contradiction.values.map((item) => `${item.value} — ${item.sourceLabel}`).join("; ")}</p>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      <div className="mt-5 grid gap-4 border-t border-slate-200 pt-4 text-sm dark:border-slate-700 md:grid-cols-2">
+        <div><p className="font-semibold">Informations manquantes</p><p className="mt-1 text-slate-500">{summary.missing.length ? summary.missing.map((item) => item.label).join(" · ") : "Aucune dans la grille d’extraction."}</p></div>
+        <div><p className="font-semibold">Sources utilisées</p><p className="mt-1 text-slate-500">{summary.sources.map((source) => `${source.name} (${source.type})`).join(" · ")}</p></div>
+      </div>
+    </section>
+  );
+}
+
+function SummaryMetric({ label, value, warning = false }: { label: string; value: string; warning?: boolean }) {
+  return <div className={`rounded-xl border p-3 ${warning ? "border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/20" : "border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-950"}`}><p className="text-2xl font-semibold">{value}</p><p className="mt-1 text-xs text-slate-500">{label}</p></div>;
 }
 
 function FactGroup({ title, tone, facts, allFacts, updateFact }: { title: string; tone: "green" | "amber" | "slate"; facts: ListingFact[]; allFacts: ListingFact[]; updateFact: (index: number, updates: Partial<ListingFact>) => void }) {
