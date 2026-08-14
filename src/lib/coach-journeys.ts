@@ -40,7 +40,7 @@ export function inferCoachJourney(message: string): CoachJourney | null {
     /offre.*achat|promesse.*achat/.test(value) ? "offre-achat" :
     /achat\s*\+\s*vente|acheter.*vend|vend.*acheter/.test(value) ? "achat-vente" :
     /nouveau.*acheteur|dossier.*acheteur/.test(value) ? "dossier-acheteur" :
-    /mandat|dossier.*vendeur/.test(value) ? "mandat-vendeur" :
+    /nouvelle?.*inscription.*vendeur|inscription.*vendeur|mandat|dossier.*vendeur/.test(value) ? "mandat-vendeur" :
     /visite libre/.test(value) ? "visite-libre" :
     /mise en marche|lancement.*propriete/.test(value) ? "mise-en-marche" :
     /prospect.*acheteur/.test(value) ? "prospection-acheteur" :

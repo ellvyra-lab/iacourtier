@@ -28,7 +28,7 @@ const CONVERSATIONS_KEY = "iacourtier_director_conversations";
 const ACTIVE_ID_KEY = "iacourtier_director_active_conversation";
 
 const QUICK_SUGGESTIONS = [
-  { label: "🏠 Nouveau mandat vendeur", prompt: "Je viens d'obtenir un mandat vendeur." },
+  { label: "🏠 Nouvelle inscription vendeur", prompt: "J'ai une nouvelle inscription vendeur." },
   { label: "🔑 Nouveau dossier acheteur", prompt: "Je veux créer un nouveau dossier acheteur." },
   { label: "🏡 Achat + Vente", prompt: "Mon client vend pour acheter." },
   { label: "✍️ Offre d'achat", prompt: "Mon client veut préparer une offre d'achat." },

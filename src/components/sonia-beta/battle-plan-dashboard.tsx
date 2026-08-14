@@ -143,9 +143,9 @@ export function BattlePlanDashboard() {
       <DirectorChatPanel prospects={workingProspects} plan={plan} />
 
       <div className="flex justify-end">
-        <Link href="/tableau-de-bord/mandats/nouveau" className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-lg bg-teal-700 px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-teal-800 sm:w-auto">
+        <Link href="/tableau-de-bord/inscriptions/nouvelle" className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-lg bg-teal-700 px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-teal-800 sm:w-auto">
           <FileText className="h-4 w-4" />
-          🏠 Nouveau dossier immobilier
+          🏠 Nouvelle inscription vendeur
         </Link>
       </div>
 

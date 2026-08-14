@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { createRequire } from "node:module";
 
 import { generateWithOpenAI, generateWithOpenAIVision, getOpenAIErrorPayload } from "@/lib/openai";
-import { mandateDocumentExtractionSystemPrompt, normalizeExtractedMandateFields, parseJsonObject } from "@/lib/mandate-document-extraction";
+import { mandateDocumentExtractionSystemPrompt, normalizeMandateDocumentExtraction, parseJsonObject } from "@/lib/mandate-document-extraction";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 
@@ -33,6 +34,10 @@ function extension(name: string) {
 
 export async function POST(request: Request) {
   try {
+    const supabase = await createSupabaseServerClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return NextResponse.json({ error: "Vous devez être connecté pour analyser des documents clients." }, { status: 401 });
+
     if (!(request.headers.get("content-type") || "").includes("multipart/form-data")) {
       return NextResponse.json({ error: "Envoyez les documents avec un formulaire multipart." }, { status: 400 });
     }
@@ -70,17 +75,19 @@ export async function POST(request: Request) {
 
     const extractedText = textSections.join("\n\n").slice(0, MAX_TOTAL_CHARS);
     const userPrompt = [
-      "Extrais toutes les informations immobilières et tous les vendeurs présents dans ces documents.",
+      "Extrais uniquement les informations immobilières réellement présentes et tous les vendeurs clairement identifiés dans ces documents.",
       `Documents reçus : ${fileNames.join(", ")}.`,
       extractedText ? `Texte extrait des PDF :\n\n${extractedText}` : "Aucun texte PDF; analyse les images fournies.",
     ].join("\n\n");
 
     const aiText = images.length
-      ? await generateWithOpenAIVision({ systemPrompt: mandateDocumentExtractionSystemPrompt, userPrompt, images, maxTokens: 1800 })
-      : await generateWithOpenAI({ systemPrompt: mandateDocumentExtractionSystemPrompt, userPrompt, maxTokens: 1800, temperature: 0.1 });
+      ? await generateWithOpenAIVision({ systemPrompt: mandateDocumentExtractionSystemPrompt, userPrompt, images, maxTokens: 3500 })
+      : await generateWithOpenAI({ systemPrompt: mandateDocumentExtractionSystemPrompt, userPrompt, maxTokens: 3500, temperature: 0.1 });
+
+    const extraction = normalizeMandateDocumentExtraction(parseJsonObject(aiText));
 
     return NextResponse.json({
-      fields: normalizeExtractedMandateFields(parseJsonObject(aiText)),
+      ...extraction,
       fileNames,
       extractedTextPreview: extractedText.slice(0, 4000),
     });

@@ -95,13 +95,18 @@ export async function POST(request: Request) {
 
     const workflowIntent = inferCoachJourney(message);
     const communicationRequest = workflowIntent ? null : inferClientCommunicationRequest(message);
+    const isSellerListing = workflowIntent?.slug === "mandat-vendeur";
     const reply = workflowIntent
-      ? `J’ai reconnu le parcours « ${workflowIntent.title} ». ${workflowIntent.summary} Je te guiderai étape par étape et je demanderai uniquement les informations manquantes.`
+      ? isSellerListing
+        ? "Parfait. Je vais préparer une vraie inscription vendeur avec toi. Commence par rechercher un client existant, créer un nouveau vendeur ou déposer les documents pour identifier automatiquement le ou les propriétaires."
+        : `J’ai reconnu le parcours « ${workflowIntent.title} ». ${workflowIntent.summary} Je te guiderai étape par étape et je demanderai uniquement les informations manquantes.`
       : communicationRequest
         ? formatClientCommunication(generateClientCommunication(communicationRequest))
         : await generateDirectorReply(message, body.history || [], body.context);
     const action = workflowIntent
-      ? { label: `Ouvrir : ${workflowIntent.title}`, href: `/tableau-de-bord/parcours/${workflowIntent.slug}` }
+      ? isSellerListing
+        ? { label: "Créer mon inscription vendeur", href: "/tableau-de-bord/inscriptions/nouvelle" }
+        : { label: `Ouvrir : ${workflowIntent.title}`, href: `/tableau-de-bord/parcours/${workflowIntent.slug}` }
       : buildPrimaryAction(body.context);
     const secondaryActions = workflowIntent ? [] : buildSecondaryActions(action);
     return Response.json({ reply, action, secondaryActions } satisfies DirectorChatResponse);
