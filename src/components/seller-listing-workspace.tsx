@@ -58,6 +58,15 @@ export function SellerListingWorkspace({ id }: { id: string }) {
 
   useEffect(() => { load(); }, [load]);
 
+  useEffect(() => {
+    const key = `iacourtier-listing-notice-${id}`;
+    const savedNotice = window.sessionStorage.getItem(key);
+    if (savedNotice) {
+      setNotice(savedNotice);
+      window.sessionStorage.removeItem(key);
+    }
+  }, [id]);
+
   async function patch(body: Record<string, unknown>, busyKey: string, success?: string) {
     setBusy(busyKey);
     setError("");

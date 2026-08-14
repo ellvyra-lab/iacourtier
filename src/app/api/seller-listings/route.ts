@@ -129,6 +129,7 @@ export async function POST(request: Request) {
       .eq("user_id", user.id)
       .eq("property_id", propertyId)
       .in("status", ["draft", "review", "prepared"])
+      .limit(1)
       .maybeSingle();
 
     let listingId = activeListing?.id as string | undefined;

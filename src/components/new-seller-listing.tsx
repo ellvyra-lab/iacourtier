@@ -146,7 +146,12 @@ export function NewSellerListing() {
         const uploadResponse = await fetch(`/api/seller-listings/${payload.id}/documents`, { method: "POST", body: documentForm });
         if (!uploadResponse.ok) {
           const uploadPayload = await uploadResponse.json().catch(() => null) as { error?: string } | null;
-          throw new Error(`Le dossier a été créé, mais les documents n’ont pas tous été sauvegardés : ${uploadPayload?.error || "erreur de téléversement"}`);
+          window.sessionStorage.setItem(
+            `iacourtier-listing-notice-${payload.id}`,
+            `Le dossier est sauvegardé, mais les documents doivent être téléversés de nouveau : ${uploadPayload?.error || "erreur de téléversement"}`,
+          );
+          router.push(`/tableau-de-bord/inscriptions/${payload.id}`);
+          return;
         }
       }
       router.push(`/tableau-de-bord/inscriptions/${payload.id}`);
