@@ -158,15 +158,17 @@ export function SellerListingWorkspace({ id }: { id: string }) {
   const content = data.listing.generated_content;
   const hasContent = Boolean(content.listing.publicDescription || content.marketing.facebook);
   const cover = data.media.find((media) => media.is_cover);
+  const sellerNames = data.parties.map((party) => { const contact = Array.isArray(party.contact) ? party.contact[0] : party.contact; return contact ? `${contact.first_name} ${contact.last_name}`.trim() : ""; }).filter(Boolean).join(" et ");
+  const nextAnchor = data.missingQuestions.some((item) => item.required) ? "dossier" : !hasContent ? "inscription" : "suivis";
 
   return <div className="space-y-7">
     <Link href="/tableau-de-bord" className="text-sm font-semibold text-slate-600 dark:text-slate-300">← Retour au Coach IA</Link>
     <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
       <div className="grid gap-6 p-6 lg:grid-cols-[1fr_auto] lg:items-start">
-        <div><p className="text-sm font-semibold text-teal-700">Inscription vendeur réelle · Validation requise</p><h1 className="mt-2 text-3xl font-semibold tracking-tight">{property?.address || "Adresse à confirmer"}</h1><p className="mt-2 text-slate-600 dark:text-slate-300">{[property?.city, property?.postal_code, property?.property_type].filter(Boolean).join(" · ")}</p></div>
+        <div><p className="text-sm font-semibold text-teal-700">Dossier maître · Validation requise</p><h1 className="mt-2 text-3xl font-semibold tracking-tight">{property?.address || "Adresse à confirmer"}</h1><p className="mt-2 text-slate-600 dark:text-slate-300">Vendeur : {sellerNames || "à confirmer"} · Mandat vendeur</p><div className="mt-5 rounded-xl border border-teal-200 bg-teal-50 p-4 text-sm text-teal-950 dark:border-teal-900 dark:bg-teal-950/20 dark:text-teal-100"><strong>Prochaine action :</strong> {data.coachMessage}</div><a href={`#${nextAnchor}`} className="mt-4 inline-flex min-h-12 items-center justify-center rounded-xl bg-teal-700 px-5 font-semibold text-white">Continuer le dossier</a></div>
         <div className="min-w-52 rounded-2xl bg-slate-950 p-5 text-white dark:bg-white dark:text-slate-950"><p className="text-xs font-semibold uppercase tracking-wide opacity-70">Préparation</p><p className="mt-1 text-4xl font-semibold">{data.readiness} %</p><div className="mt-3 h-2 overflow-hidden rounded-full bg-white/20 dark:bg-slate-900/20"><div className="h-full rounded-full bg-teal-400" style={{ width: `${data.readiness}%` }} /></div></div>
       </div>
-      <nav className="flex gap-2 overflow-x-auto border-t border-slate-200 px-4 py-3 text-sm font-semibold dark:border-slate-800">{[["dossier","Dossier"],["inscription","Inscription"],["marketing","Marketing"],["photos","Photos"],["suivis","Suivis"],["coach","Coach"]].map(([href,label]) => <a key={href} href={`#${href}`} className="whitespace-nowrap rounded-full px-3 py-2 hover:bg-slate-100 dark:hover:bg-slate-800">{label}</a>)}</nav>
+      <nav className="flex flex-wrap gap-2 border-t border-slate-200 px-4 py-3 text-sm font-semibold dark:border-slate-800">{[["dossier","Résumé"],["dossier","Client"],["dossier","Propriété"],["dossier","Documents"],["suivis","Étapes"],["marketing","Marketing"],["suivis","Communications"],["suivis","Transaction"]].map(([href,label]) => <a key={label} href={`#${href}`} className="rounded-full px-3 py-2 hover:bg-slate-100 dark:hover:bg-slate-800">{label}</a>)}</nav>
     </section>
 
     {error ? <Alert tone="red" text={error} /> : null}

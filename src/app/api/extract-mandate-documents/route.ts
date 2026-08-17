@@ -161,7 +161,7 @@ export async function POST(request: Request) {
   try {
     const supabase = await createSupabaseServerClient();
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Vous devez être connecté pour analyser des documents clients." }, { status: 401 });
+    if (!user) return NextResponse.json({ error: "Ta session a expiré.", reconnectUrl: "/connexion" }, { status: 401 });
 
     if (!(request.headers.get("content-type") || "").includes("multipart/form-data")) {
       return NextResponse.json({ error: "Envoyez les documents avec un formulaire multipart." }, { status: 400 });

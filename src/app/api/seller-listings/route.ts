@@ -28,6 +28,7 @@ type ContactRow = {
   email: string | null;
   phone: string | null;
   mailing_address: string | null;
+  roles?: string[] | null;
 };
 
 type PropertyRow = ListingPropertyInput & { id: string; address: string; city: string; postal_code: string | null; property_type: string | null; lot_number: string | null };
@@ -36,7 +37,7 @@ export async function GET() {
   try {
     const supabase = await createSupabaseServerClient();
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Vous devez être connecté." }, { status: 401 });
+    if (!user) return expiredSession();
 
     const { data, error } = await supabase
       .from("seller_listings")
@@ -60,11 +61,11 @@ export async function POST(request: Request) {
 
     const supabase = await createSupabaseServerClient();
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Vous devez être connecté." }, { status: 401 });
+    if (!user) return expiredSession();
 
     const { data: existingContactsData, error: contactsError } = await supabase
       .from("seller_contacts")
-      .select("id,first_name,last_name,email,phone,mailing_address")
+      .select("id,first_name,last_name,email,phone,mailing_address,roles")
       .eq("user_id", user.id);
     if (contactsError) return NextResponse.json({ error: databaseMessage(contactsError.message) }, { status: 500 });
 
@@ -80,6 +81,8 @@ export async function POST(request: Request) {
       if (duplicate) {
         if (!contactIds.includes(duplicate.id)) contactIds.push(duplicate.id);
         deduplicated.push(`${duplicate.first_name} ${duplicate.last_name}`.trim());
+        const roles = Array.from(new Set([...(duplicate.roles || []), "seller"]));
+        await supabase.from("seller_contacts").update({ roles, updated_at: new Date().toISOString() }).eq("id", duplicate.id).eq("user_id", user.id);
         continue;
       }
       const { data: inserted, error } = await supabase.from("seller_contacts").insert({
@@ -89,7 +92,8 @@ export async function POST(request: Request) {
         email: seller.email.trim() || null,
         phone: seller.phone.trim() || null,
         mailing_address: seller.mailingAddress.trim() || null,
-      }).select("id,first_name,last_name,email,phone,mailing_address").single();
+        roles: ["seller"],
+      }).select("id,first_name,last_name,email,phone,mailing_address,roles").single();
       if (error || !inserted) return NextResponse.json({ error: databaseMessage(error?.message || "Création du vendeur impossible.") }, { status: 500 });
       const contact = inserted as ContactRow;
       existingContacts.push(contact);
@@ -241,4 +245,8 @@ function databaseMessage(message: string) {
     return "La migration Supabase du dossier vendeur n’est pas encore appliquée.";
   }
   return message;
+}
+
+function expiredSession() {
+  return NextResponse.json({ error: "Ta session a expiré.", reconnectUrl: "/connexion" }, { status: 401 });
 }

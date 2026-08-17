@@ -7,11 +7,14 @@ import { Bell, ChevronDown, LayoutDashboard, Settings, Sparkles, Star, Users } f
 import { ThemeToggle } from "@/components/layout/ThemeToggle";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { LogoutButton } from "@/components/dashboard/LogoutButton";
+import { UniversalSearch } from "@/components/dashboard/UniversalSearch";
 
 const titles: Record<string, string> = {
-  "/tableau-de-bord": "Ma journée",
-  "/tableau-de-bord/pipeline": "Parcours clients",
-  "/tableau-de-bord/coach": "M'entraîner",
+  "/tableau-de-bord": "Accueil",
+  "/tableau-de-bord/clients": "Clients & dossiers",
+  "/tableau-de-bord/acheteurs/nouveau": "Nouvel acheteur",
+  "/tableau-de-bord/pipeline": "Clients & dossiers",
+  "/tableau-de-bord/coach": "Coach IA",
   "/tableau-de-bord/coach/appels": "Faire mes appels",
   "/tableau-de-bord/prospects": "Faire mes suivis",
   "/tableau-de-bord/formations": "Formations",
@@ -47,9 +50,10 @@ export function DashboardTopbar() {
   }, []);
 
   return (
-    <header className="flex h-18 items-center justify-between border-b border-subtle bg-surface px-6 py-3">
-      <h1 className="text-lg font-semibold tracking-tight">{title}</h1>
-      <div className="flex items-center gap-4">
+    <header className="flex min-h-18 items-center gap-4 border-b border-subtle bg-surface px-4 py-3 sm:px-6">
+      <h1 className="hidden min-w-32 text-lg font-semibold tracking-tight xl:block">{title}</h1>
+      <UniversalSearch />
+      <div className="ml-auto flex items-center gap-2 sm:gap-4">
         <button
           aria-label="Notifications"
           className="flex h-9 w-9 items-center justify-center rounded-full border border-subtle text-muted hover:border-electric-500 hover:text-electric-500"
@@ -87,7 +91,9 @@ function titleFromPath(pathname: string) {
   if (pathname.startsWith("/tableau-de-bord/actions/")) return "Mission de travail";
   if (pathname.startsWith("/tableau-de-bord/mandats")) return "Mes propriétés";
   if (pathname.startsWith("/tableau-de-bord/prospects")) return "Faire mes suivis";
-  return "Ma journée";
+  if (pathname.startsWith("/tableau-de-bord/acheteurs")) return "Dossier acheteur";
+  if (pathname.startsWith("/tableau-de-bord/clients")) return "Clients & dossiers";
+  return "Accueil";
 }
 
 

@@ -96,9 +96,10 @@ export async function POST(request: Request) {
     const workflowIntent = inferCoachJourney(message);
     const communicationRequest = workflowIntent ? null : inferClientCommunicationRequest(message);
     const isSellerListing = workflowIntent?.slug === "mandat-vendeur";
+    const isBuyerCase = workflowIntent?.slug === "dossier-acheteur";
     const reply = workflowIntent
       ? isSellerListing
-        ? "Parfait. Je vais préparer une vraie inscription vendeur avec toi. Commence par rechercher un client existant, créer un nouveau vendeur ou déposer les documents pour identifier automatiquement le ou les propriétaires."
+        ? "Parfait. Je vais préparer une vraie inscription vendeur avec toi. Commence avec les documents si tu les as; sinon, donne-moi seulement les informations du client."
         : `J’ai reconnu le parcours « ${workflowIntent.title} ». ${workflowIntent.summary} Je te guiderai étape par étape et je demanderai uniquement les informations manquantes.`
       : communicationRequest
         ? formatClientCommunication(generateClientCommunication(communicationRequest))
@@ -106,6 +107,8 @@ export async function POST(request: Request) {
     const action = workflowIntent
       ? isSellerListing
         ? { label: "Créer mon inscription vendeur", href: "/tableau-de-bord/inscriptions/nouvelle" }
+        : isBuyerCase
+          ? { label: "Créer mon dossier acheteur", href: "/tableau-de-bord/acheteurs/nouveau" }
         : { label: `Ouvrir : ${workflowIntent.title}`, href: `/tableau-de-bord/parcours/${workflowIntent.slug}` }
       : buildPrimaryAction(body.context);
     const secondaryActions = workflowIntent ? [] : buildSecondaryActions(action);

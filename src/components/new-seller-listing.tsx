@@ -40,8 +40,12 @@ export function NewSellerListing() {
   const [status, setStatus] = useState<"idle" | "analyzing" | "saving">("idle");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [session, setSession] = useState<"checking" | "active" | "expired">("checking");
 
   useEffect(() => {
+    fetch("/api/auth/session", { cache: "no-store" })
+      .then((response) => setSession(response.ok ? "active" : "expired"))
+      .catch(() => setSession("expired"));
     fetch("/api/seller-contacts")
       .then(async (response) => ({ ok: response.ok, payload: await response.json() as { contacts?: ContactRow[]; error?: string } }))
       .then(({ ok, payload }) => {
@@ -84,6 +88,10 @@ export function NewSellerListing() {
       files.forEach((file) => formData.append("files", file));
       const response = await fetch("/api/extract-mandate-documents", { method: "POST", body: formData });
       const payload = await response.json() as MandateDocumentExtractionResponse & { error?: string };
+      if (response.status === 401) {
+        setSession("expired");
+        throw new Error("Ta session a expiré — reconnecte-toi avant d’importer des documents.");
+      }
       if (!response.ok) throw new Error(payload.error || "L’analyse documentaire a échoué.");
       setFields(payload.fields);
       setSellers(payload.fields.sellers.length ? payload.fields.sellers.map((seller) => ({
@@ -173,13 +181,13 @@ export function NewSellerListing() {
       <div className="space-y-6">
         <header>
           <p className="text-sm font-semibold text-teal-700">Coach IA · Nouvelle inscription vendeur</p>
-          <h1 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">Comment veux-tu démarrer?</h1>
-          <p className="mt-3 max-w-3xl text-slate-600 dark:text-slate-300">Le Coach créera le vendeur, la propriété et leur dossier commun sans t’envoyer vers un écran générique.</p>
+          <h1 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">Comment veux-tu commencer?</h1>
+          <p className="mt-3 max-w-3xl text-slate-600 dark:text-slate-300">Le Coach identifiera d’abord la personne et les doublons, puis créera ou reliera le client avant la propriété et le mandat.</p>
         </header>
-        <div className="grid gap-4 lg:grid-cols-3">
-          <ChoiceCard icon={Search} title="Rechercher un client existant" text="Relier un vendeur déjà enregistré à cette propriété." onClick={() => chooseMode("existing")} />
-          <ChoiceCard icon={UserPlus} title="Créer un nouveau vendeur" text="Créer un ou deux propriétaires, puis leur propriété." onClick={() => chooseMode("new")} />
-          <ChoiceCard icon={FileSearch} title="Déposer les documents" text="Identifier ou créer automatiquement les vendeurs à partir des vraies pièces du dossier." onClick={() => chooseMode("documents")} featured />
+        {session === "expired" ? <p className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">Ta session a expiré — reconnecte-toi avant d’importer des documents.</p> : null}
+        <div className="grid gap-4 lg:grid-cols-2">
+          <ChoiceCard icon={FileSearch} title="J’ai des documents" text="Dépose l’acte de vente, le certificat, le contrat, MO, CCV, déclaration du vendeur, taxes ou autres pièces. Le client sera identifié automatiquement." onClick={() => chooseMode("documents")} featured disabled={session !== "active"} />
+          <ChoiceCard icon={UserPlus} title="J’ai seulement les informations du client" text="Saisis les informations disponibles. IACourtier recherchera quand même les doublons avant de créer une fiche." onClick={() => chooseMode("new")} />
         </div>
         {notice ? <Notice text={notice} /> : null}
       </div>
@@ -263,8 +271,8 @@ export function NewSellerListing() {
   );
 }
 
-function ChoiceCard({ icon: Icon, title, text, onClick, featured = false }: { icon: typeof Search; title: string; text: string; onClick: () => void; featured?: boolean }) {
-  return <button type="button" onClick={onClick} className={`min-h-56 rounded-2xl border p-6 text-left transition hover:-translate-y-1 hover:shadow-lg ${featured ? "border-teal-400 bg-teal-50 dark:border-teal-800 dark:bg-teal-950/30" : "border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900"}`}><Icon className="h-7 w-7 text-teal-700" /><h2 className="mt-8 text-xl font-semibold">{title}</h2><p className="mt-3 text-sm leading-6 text-slate-600 dark:text-slate-300">{text}</p></button>;
+function ChoiceCard({ icon: Icon, title, text, onClick, featured = false, disabled = false }: { icon: typeof Search; title: string; text: string; onClick: () => void; featured?: boolean; disabled?: boolean }) {
+  return <button type="button" disabled={disabled} onClick={onClick} className={`relative min-h-56 rounded-2xl border p-6 text-left transition hover:-translate-y-1 hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-50 ${featured ? "border-teal-400 bg-teal-50 dark:border-teal-800 dark:bg-teal-950/30" : "border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900"}`}>{featured ? <span className="absolute right-4 top-4 rounded-full bg-teal-700 px-3 py-1 text-xs font-semibold text-white">Recommandé</span> : null}<Icon className="h-7 w-7 text-teal-700" /><h2 className="mt-8 text-xl font-semibold">{title}</h2><p className="mt-3 text-sm leading-6 text-slate-600 dark:text-slate-300">{text}</p></button>;
 }
 
 function SellerEditors({ sellers, updateSeller, addSeller, removeSeller }: { sellers: SellerContactInput[]; updateSeller: (index: number, key: keyof SellerContactInput, value: string) => void; addSeller: () => void; removeSeller: (index: number) => void }) {

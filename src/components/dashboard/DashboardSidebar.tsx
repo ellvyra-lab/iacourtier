@@ -1,90 +1,38 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import {
-  LayoutDashboard,
-  FolderKanban,
-  Radar,
-  CalendarCheck,
-  Megaphone,
-  Workflow,
-  Settings,
-  Sparkles,
-  CreditCard,
-  LifeBuoy,
-  Trophy,
-  Phone,
-  UserRound,
-} from "lucide-react";
+import { BarChart3, Bot, CalendarDays, FileText, LayoutDashboard, Megaphone, Radar, Settings, ShieldCheck, Sparkles, UsersRound, Workflow } from "lucide-react";
+
 import { cn } from "@/lib/utils";
+import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { LogoutButton } from "./LogoutButton";
 
-const navItems = [
-  { href: "/tableau-de-bord", label: "Ma journée", icon: LayoutDashboard },
-  { href: "/tableau-de-bord/radar-prospection", label: "Trouver des vendeurs", icon: Radar },
-  { href: "/tableau-de-bord/prospects", label: "Faire mes suivis", icon: UserRound },
-  { href: "/tableau-de-bord/coach/appels", label: "Faire mes appels", icon: Phone },
-  { href: "/tableau-de-bord/actions/prepare-market-analysis", label: "Préparer un rendez-vous", icon: CalendarCheck },
-  { href: "/tableau-de-bord/mandats", label: "Mes propriétés", icon: FolderKanban },
-  { href: "/tableau-de-bord/actions/generate-marketing-launch", label: "Mettre en marché", icon: Megaphone },
-  { href: "/tableau-de-bord/pipeline", label: "Parcours clients", icon: Workflow },
-  { href: "/tableau-de-bord/coach", label: "M'entraîner", icon: Trophy },
-  { href: "/tableau-de-bord/abonnement", label: "Abonnement", icon: CreditCard },
+const main = [
+  { href: "/tableau-de-bord", label: "Accueil", icon: LayoutDashboard },
+  { href: "/tableau-de-bord/clients", label: "Clients & dossiers", icon: UsersRound },
+  { href: "/tableau-de-bord/radar-prospection", label: "Prospection", icon: Radar },
+  { href: "/tableau-de-bord/actions/prepare-market-analysis", label: "Calendrier", icon: CalendarDays },
+  { href: "/tableau-de-bord/coach", label: "Coach IA", icon: Bot },
+];
+const tools = [
+  { href: "/tableau-de-bord/actions/generate-marketing-launch", label: "Marketing", icon: Megaphone },
+  { href: "/tableau-de-bord/automatisations", label: "Automatisations", icon: Workflow },
+  { href: "/tableau-de-bord/telechargements", label: "Documents", icon: FileText },
+  { href: "/tableau-de-bord/historique", label: "Rapports", icon: BarChart3 },
 ];
 
 export function DashboardSidebar() {
   const pathname = usePathname();
-
-  return (
-    <aside className="hidden w-64 shrink-0 flex-col border-r border-subtle bg-surface-soft lg:flex">
-      <div className="flex h-18 items-center gap-2 border-b border-subtle px-6">
-        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-electric-500 to-cyan-500 text-white">
-          <Sparkles size={16} />
-        </span>
-        <span className="font-semibold tracking-tight">
-          IA<span className="text-gradient">Courtier</span>
-        </span>
-      </div>
-
-      <nav className="flex flex-1 flex-col gap-1 px-3 py-6">
-        {navItems.map((item) => {
-          const active = pathname === item.href;
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={cn(
-                "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors",
-                active
-                  ? "bg-electric-500/10 font-medium text-electric-500"
-                  : "text-muted hover:bg-[var(--bg)] hover:text-[var(--fg)]"
-              )}
-            >
-              <item.icon size={16} />
-              {item.label}
-            </Link>
-          );
-        })}
-      </nav>
-
-      <div className="flex flex-col gap-1 border-t border-subtle px-3 py-4">
-        <Link
-          href="/tableau-de-bord/identite-professionnelle"
-          className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-muted hover:bg-[var(--bg)] hover:text-[var(--fg)]"
-        >
-          <Settings size={16} />
-          Mon identité professionnelle
-        </Link>
-        <Link
-          href="/tableau-de-bord/support"
-          className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-muted hover:bg-[var(--bg)] hover:text-[var(--fg)]"
-        >
-          <LifeBuoy size={16} />
-          Support
-        </Link>
-        <LogoutButton />
-      </div>
-    </aside>
-  );
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+  useEffect(() => { createSupabaseBrowserClient().auth.getUser().then(({ data }) => setIsSuperAdmin(data.user?.user_metadata?.role === "super_admin")); }, []);
+  return <aside className="hidden w-64 shrink-0 flex-col border-r border-subtle bg-surface-soft lg:flex">
+    <div className="flex h-18 items-center gap-2 border-b border-subtle px-6"><span className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-electric-500 to-cyan-500 text-white"><Sparkles size={16} /></span><span className="font-semibold tracking-tight">IA<span className="text-gradient">Courtier</span></span></div>
+    <nav className="flex-1 overflow-y-auto px-3 py-5"><NavGroup items={main} pathname={pathname} /><p className="mb-2 mt-7 px-3 text-[11px] font-semibold uppercase tracking-widest text-muted">Outils</p><NavGroup items={tools} pathname={pathname} /></nav>
+    <div className="space-y-1 border-t border-subtle px-3 py-4"><NavLink href="/tableau-de-bord/parametres" label="Paramètres" icon={Settings} active={pathname.startsWith("/tableau-de-bord/parametres")} />{isSuperAdmin ? <NavLink href="/tableau-de-bord/administration" label="Administration" icon={ShieldCheck} active={pathname.startsWith("/tableau-de-bord/administration")} /> : null}<LogoutButton /></div>
+  </aside>;
 }
+
+function NavGroup({ items, pathname }: { items: typeof main; pathname: string }) { return <div className="space-y-1">{items.map((item) => <NavLink key={item.href} {...item} active={item.href === "/tableau-de-bord" ? pathname === item.href : pathname.startsWith(item.href)} />)}</div>; }
+function NavLink({ href, label, icon: Icon, active }: { href: string; label: string; icon: typeof LayoutDashboard; active: boolean }) { return <Link href={href} className={cn("flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors", active ? "bg-electric-500/10 font-medium text-electric-500" : "text-muted hover:bg-[var(--bg)] hover:text-[var(--fg)]")}><Icon size={16} />{label}</Link>; }

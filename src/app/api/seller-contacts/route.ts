@@ -8,11 +8,11 @@ export async function GET() {
   try {
     const supabase = await createSupabaseServerClient();
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Vous devez être connecté." }, { status: 401 });
+    if (!user) return NextResponse.json({ error: "Ta session a expiré.", reconnectUrl: "/connexion" }, { status: 401 });
 
     const { data, error } = await supabase
       .from("seller_contacts")
-      .select("id,first_name,last_name,email,phone,mailing_address,updated_at")
+      .select("id,first_name,last_name,email,phone,mailing_address,roles,updated_at")
       .eq("user_id", user.id)
       .order("updated_at", { ascending: false });
 

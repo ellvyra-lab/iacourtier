@@ -1,5 +1,5 @@
-import { BattlePlanDashboard } from "@/components/sonia-beta/battle-plan-dashboard";
+import { GuidedHomeDashboard } from "@/components/guided-home-dashboard";
 
 export default function DashboardOverviewPage() {
-  return <BattlePlanDashboard />;
+  return <GuidedHomeDashboard />;
 }
