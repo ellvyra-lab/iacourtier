@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { LogIn, Mail, Lock, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { createSupabaseBrowserClient, isSupabaseBrowserConfigured } from "@/lib/supabase/client";
 
 export function LoginForm() {
   const router = useRouter();
@@ -20,8 +20,11 @@ export function LoginForm() {
     setError("");
 
     try {
+      if (!isSupabaseBrowserConfigured()) {
+        throw new Error("auth_configuration");
+      }
       const supabase = createSupabaseBrowserClient();
-      const { error: signInError } = await supabase.auth.signInWithPassword({
+      const { data, error: signInError } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
@@ -36,8 +39,26 @@ export function LoginForm() {
         return;
       }
 
-      const next = searchParams.get("next") || "/tableau-de-bord";
-      router.push(next);
+      if (!data.session) {
+        setLoading(false);
+        setError("La connexion n’a pas retourné de session valide.");
+        return;
+      }
+
+      // signInWithPassword writes the same @supabase/ssr cookies consumed by
+      // middleware and API routes. Verify once before navigating so the first
+      // protected upload cannot race cookie persistence.
+      await supabase.auth.getUser();
+      await fetch("/api/auth/session", {
+        cache: "no-store",
+        credentials: "same-origin",
+      }).catch(() => null);
+
+      const requestedPath = searchParams.get("next");
+      const next = requestedPath?.startsWith("/") && !requestedPath.startsWith("//")
+        ? requestedPath
+        : "/tableau-de-bord";
+      router.replace(next);
       router.refresh();
     } catch {
       setLoading(false);

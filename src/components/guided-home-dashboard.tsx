@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ArrowRight, CalendarCheck, CheckCircle2, Home, KeyRound, Loader2, Megaphone, Phone, Search, Send, Sparkles } from "lucide-react";
 
 import { buildSoniaBattlePlan, getSoniaProspects, type SoniaProspect } from "@/lib/sonia-beta";
+import { useDashboardAuth } from "@/components/auth/DashboardAuthProvider";
 
 type ClientCase = { id: string; type: "seller" | "buyer"; status: string; progress?: number; property?: { address?: string } | Array<{ address?: string }> };
 type RecentClient = { id: string; name: string; cases: ClientCase[] };
@@ -20,6 +21,7 @@ const actions: Array<{ icon: ElementType; label: string; href: string; primary?:
 ];
 
 export function GuidedHomeDashboard() {
+  const { status: authStatus, user, authenticatedFetch } = useDashboardAuth();
   const [firstName, setFirstName] = useState("Courtier");
   const [prospects, setProspects] = useState<SoniaProspect[]>([]);
   const [clients, setClients] = useState<RecentClient[]>([]);
@@ -29,9 +31,13 @@ export function GuidedHomeDashboard() {
 
   useEffect(() => {
     setProspects(getSoniaProspects().filter((item) => !item.id.startsWith("sonia-demo-")));
-    fetch("/api/auth/session", { cache: "no-store" }).then((response) => response.json()).then((payload) => { if (payload.firstName || payload.user?.firstName) setFirstName(payload.firstName || payload.user.firstName); }).catch(() => undefined);
-    fetch("/api/clients", { cache: "no-store" }).then((response) => response.json()).then((payload: { clients?: RecentClient[] }) => setClients(payload.clients || [])).catch(() => undefined);
   }, []);
+
+  useEffect(() => {
+    if (user) setFirstName(String(user.user_metadata?.full_name || user.email || "Courtier").split(/\s+/)[0]);
+    if (authStatus !== "authenticated") return;
+    authenticatedFetch("/api/clients", { cache: "no-store" }).then((response) => response.json()).then((payload: { clients?: RecentClient[] }) => setClients(payload.clients || [])).catch(() => undefined);
+  }, [authStatus, authenticatedFetch, user]);
 
   const plan = useMemo(() => buildSoniaBattlePlan(prospects), [prospects]);
   const recentCases = useMemo(() => clients.flatMap((client) => client.cases.map((item) => ({ ...item, clientName: client.name }))).slice(0, 3), [clients]);
@@ -54,7 +60,7 @@ export function GuidedHomeDashboard() {
         appointmentsToday: 0, appointmentsTomorrow: 0, pendingMarketAnalyses: plan.marketAnalysesToPrepare.length, newContacts: 0,
         buyerPipeline: prospects.filter((item) => item.clientType === "buyer").length, sellerPipeline: prospects.filter((item) => item.clientType === "seller").length,
       };
-      const response = await fetch("/api/coach/director", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: prompt, context }) });
+      const response = await authenticatedFetch("/api/coach/director", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: prompt, context }) });
       const payload = await response.json() as CoachAnswer & { error?: string };
       setAnswer(response.ok ? payload : { reply: payload.error || "Le Coach est temporairement indisponible.", action: { label: "Voir ma journée", href: "/tableau-de-bord" } });
       setPrompt("");

@@ -7,6 +7,7 @@ import { ArrowDown, ArrowUp, Check, FileText, ImagePlus, Loader2, Megaphone, Sav
 
 import { loadBrokerProfile } from "@/lib/broker-profile";
 import { PHOTO_CATEGORIES, type ListingGeneratedContent, type ListingFactStatus } from "@/lib/seller-listings";
+import { useDashboardAuth } from "@/components/auth/DashboardAuthProvider";
 
 type Fact = { id: string; key: string; label: string; value: string; status: ListingFactStatus; sourceLabel: string; sourceDocumentId?: string | null; confidence?: number | null; note?: string };
 type Media = { id: string; name: string; url: string; category: string; position: number; is_cover: boolean; is_virtual_staging: boolean };
@@ -35,6 +36,7 @@ type WorkspaceData = {
 };
 
 export function SellerListingWorkspace({ id }: { id: string }) {
+  const { authenticatedFetch } = useDashboardAuth();
   const [data, setData] = useState<WorkspaceData | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState("");
@@ -44,7 +46,7 @@ export function SellerListingWorkspace({ id }: { id: string }) {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const response = await fetch(`/api/seller-listings/${id}`, { cache: "no-store" });
+      const response = await authenticatedFetch(`/api/seller-listings/${id}`, { cache: "no-store" });
       const payload = await response.json() as WorkspaceData & { error?: string };
       if (!response.ok) throw new Error(payload.error || "Le dossier n’a pas pu être chargé.");
       setData(payload);
@@ -54,7 +56,7 @@ export function SellerListingWorkspace({ id }: { id: string }) {
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [authenticatedFetch, id]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -71,7 +73,7 @@ export function SellerListingWorkspace({ id }: { id: string }) {
     setBusy(busyKey);
     setError("");
     try {
-      const response = await fetch(`/api/seller-listings/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const response = await authenticatedFetch(`/api/seller-listings/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const payload = await response.json() as { error?: string };
       if (!response.ok) throw new Error(payload.error || "La mise à jour a échoué.");
       if (success) setNotice(success);
@@ -90,7 +92,7 @@ export function SellerListingWorkspace({ id }: { id: string }) {
     try {
       const formData = new FormData();
       Array.from(files).forEach((file) => formData.append("files", file));
-      const response = await fetch(`/api/seller-listings/${id}/${kind}`, { method: "POST", body: formData });
+      const response = await authenticatedFetch(`/api/seller-listings/${id}/${kind}`, { method: "POST", body: formData });
       const payload = await response.json() as { error?: string };
       if (!response.ok) throw new Error(payload.error || "Le téléversement a échoué.");
       setNotice(kind === "documents" ? "Documents sauvegardés dans le dossier de la propriété." : "Photos sauvegardées sans modification matérielle.");
@@ -106,7 +108,7 @@ export function SellerListingWorkspace({ id }: { id: string }) {
     setBusy("prepare");
     setError("");
     try {
-      const response = await fetch(`/api/seller-listings/${id}/prepare`, {
+      const response = await authenticatedFetch(`/api/seller-listings/${id}/prepare`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ brokerProfile: loadBrokerProfile() }),
@@ -132,8 +134,8 @@ export function SellerListingWorkspace({ id }: { id: string }) {
     setBusy(`media-${media.id}`);
     try {
       await Promise.all([
-        fetch(`/api/seller-listings/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "media", mediaId: media.id, position: neighbor.position }) }),
-        fetch(`/api/seller-listings/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "media", mediaId: neighbor.id, position: media.position }) }),
+        authenticatedFetch(`/api/seller-listings/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "media", mediaId: media.id, position: neighbor.position }) }),
+        authenticatedFetch(`/api/seller-listings/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "media", mediaId: neighbor.id, position: media.position }) }),
       ]);
       await load();
     } finally {

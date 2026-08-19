@@ -1,5 +1,6 @@
 import { generateWithOpenAI, getOpenAIErrorPayload } from "@/lib/openai";
 import type { SoniaBattlePlan } from "@/lib/sonia-beta";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 
@@ -25,6 +26,10 @@ export type CoachMessageResponse = {
 
 export async function POST(request: Request) {
   try {
+    const supabase = await createSupabaseServerClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return Response.json({ error: "Authentification requise." }, { status: 401 });
+
     const body = (await request.json()) as CoachMessageRequest;
     const { userName = "Sonia", plan } = body;
 

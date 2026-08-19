@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { Check, FileText, Loader2, Search, Sparkles, UploadCloud, UserRound, WalletCards } from "lucide-react";
+import { useDashboardAuth } from "@/components/auth/DashboardAuthProvider";
 
 type BuyerData = {
   case: {
@@ -28,6 +29,7 @@ type BuyerData = {
 };
 
 export function BuyerCaseWorkspace({ id }: { id: string }) {
+  const { authenticatedFetch } = useDashboardAuth();
   const [data, setData] = useState<BuyerData | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState("");
@@ -37,7 +39,7 @@ export function BuyerCaseWorkspace({ id }: { id: string }) {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const response = await fetch(`/api/buyer-cases/${id}`, { cache: "no-store" });
+      const response = await authenticatedFetch(`/api/buyer-cases/${id}`, { cache: "no-store" });
       const payload = await response.json() as BuyerData & { error?: string };
       if (!response.ok) throw new Error(payload.error || "Le dossier acheteur n’a pas pu être chargé.");
       setData(payload);
@@ -47,7 +49,7 @@ export function BuyerCaseWorkspace({ id }: { id: string }) {
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [authenticatedFetch, id]);
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
@@ -60,7 +62,7 @@ export function BuyerCaseWorkspace({ id }: { id: string }) {
     setBusy(key);
     setError("");
     try {
-      const response = await fetch(`/api/buyer-cases/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const response = await authenticatedFetch(`/api/buyer-cases/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const payload = await response.json() as { error?: string };
       if (!response.ok) throw new Error(payload.error || "La mise à jour a échoué.");
       if (success) setNotice(success);
@@ -76,7 +78,7 @@ export function BuyerCaseWorkspace({ id }: { id: string }) {
     try {
       const form = new FormData();
       Array.from(files).forEach((file) => form.append("files", file));
-      const response = await fetch(`/api/buyer-cases/${id}/documents`, { method: "POST", body: form });
+      const response = await authenticatedFetch(`/api/buyer-cases/${id}/documents`, { method: "POST", body: form });
       const payload = await response.json() as { error?: string };
       if (!response.ok) throw new Error(payload.error || "Le téléversement a échoué.");
       setNotice("Les documents sont classés dans ce dossier acheteur.");

@@ -11,10 +11,23 @@ export async function middleware(request: NextRequest) {
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const { pathname, search } = request.nextUrl;
+  const isDashboard = pathname.startsWith("/tableau-de-bord");
+  const isAuthPage = pathname === "/connexion" || pathname === "/inscription";
+  const isHomePage = pathname === "/";
 
-  // Auth isn't configured yet (no Supabase project linked) — let every
-  // request through untouched rather than locking the dashboard out.
+  // Never silently expose the private dashboard when the production Auth
+  // configuration is incomplete. Public pages can still render an explicit
+  // configuration error from their own UI.
   if (!supabaseUrl || !supabaseAnonKey) {
+    if (isDashboard) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/connexion";
+      url.search = "";
+      url.searchParams.set("next", `${pathname}${search}`);
+      url.searchParams.set("error", "auth_configuration");
+      return NextResponse.redirect(url);
+    }
     return response;
   }
 
@@ -36,40 +49,41 @@ export async function middleware(request: NextRequest) {
   const { data } = await supabase.auth.getUser();
   const isLoggedIn = !!data.user;
 
-  const { pathname } = request.nextUrl;
-  const isDashboard = pathname.startsWith("/tableau-de-bord");
-  const isAuthPage = pathname === "/connexion" || pathname === "/inscription";
-  const isHomePage = pathname === "/";
-
   if (isDashboard && !isLoggedIn) {
     const url = request.nextUrl.clone();
     url.pathname = "/connexion";
-    url.searchParams.set("next", pathname);
-    return NextResponse.redirect(url);
+    url.search = "";
+    url.searchParams.set("next", `${pathname}${search}`);
+    return redirectWithRefreshedCookies(url, response);
   }
 
   if (isAuthPage && isLoggedIn) {
     const url = request.nextUrl.clone();
     url.pathname = "/tableau-de-bord";
     url.search = "";
-    return NextResponse.redirect(url);
+    return redirectWithRefreshedCookies(url, response);
   }
 
   if (isHomePage && isLoggedIn) {
     const url = request.nextUrl.clone();
     url.pathname = "/tableau-de-bord";
     url.search = "";
-    return NextResponse.redirect(url);
+    return redirectWithRefreshedCookies(url, response);
   }
 
   return response;
 }
 
+function redirectWithRefreshedCookies(url: URL, response: NextResponse) {
+  const redirect = NextResponse.redirect(url);
+  response.cookies.getAll().forEach((cookie) => redirect.cookies.set(cookie));
+  return redirect;
+}
+
 export const config = {
   matcher: [
-    "/tableau-de-bord/:path*",
-    "/",
-    "/connexion",
-    "/inscription",
+    // Refresh the cookie for page navigation and protected API calls,
+    // including multipart document uploads. Static assets are excluded.
+    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };

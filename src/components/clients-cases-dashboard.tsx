@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowRight, Home, KeyRound, Loader2, Search, UserRound } from "lucide-react";
+import { SessionStatusNotice, useDashboardAuth } from "@/components/auth/DashboardAuthProvider";
 
 type ClientCase = {
   id: string;
@@ -18,6 +19,7 @@ type Filter = "all" | "seller" | "buyer" | "prospect" | "transaction" | "after-s
 const filters: Array<[Filter,string]> = [["all","Tous"],["seller","Vendeurs"],["buyer","Acheteurs"],["prospect","Prospects"],["transaction","Transactions"],["after-sale","Après-vente"]];
 
 export function ClientsCasesDashboard() {
+  const { status: authStatus, authenticatedFetch } = useDashboardAuth();
   const [clients, setClients] = useState<Client[]>([]);
   const [filter, setFilter] = useState<Filter>("all");
   const [query, setQuery] = useState("");
@@ -26,9 +28,10 @@ export function ClientsCasesDashboard() {
   const [warning, setWarning] = useState("");
 
   const load = useCallback(async () => {
+    if (authStatus !== "authenticated") return;
     setLoading(true);
     try {
-      const response = await fetch(`/api/clients${query.trim() ? `?q=${encodeURIComponent(query.trim())}` : ""}`, { cache: "no-store" });
+      const response = await authenticatedFetch(`/api/clients${query.trim() ? `?q=${encodeURIComponent(query.trim())}` : ""}`, { cache: "no-store" });
       const payload = await response.json() as { clients?: Client[]; error?: string; warning?: string };
       if (!response.ok) throw new Error(payload.error || "Chargement impossible.");
       setClients(payload.clients || []);
@@ -36,7 +39,7 @@ export function ClientsCasesDashboard() {
       setError("");
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Chargement impossible."); }
     finally { setLoading(false); }
-  }, [query]);
+  }, [authStatus, authenticatedFetch, query]);
 
   useEffect(() => { const timeout = window.setTimeout(load, 220); return () => window.clearTimeout(timeout); }, [load]);
 
@@ -50,6 +53,7 @@ export function ClientsCasesDashboard() {
 
   return <div className="space-y-6">
     <header className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between"><div><p className="text-sm font-semibold text-teal-700">CRM unifié</p><h1 className="mt-2 text-3xl font-semibold tracking-tight">Clients & dossiers</h1><p className="mt-2 max-w-2xl text-slate-600 dark:text-slate-300">Une personne, une fiche client, plusieurs dossiers dans le temps.</p></div><div className="flex flex-wrap gap-2"><Link href="/tableau-de-bord/inscriptions/nouvelle" className="rounded-xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white dark:bg-white dark:text-slate-950">Nouveau vendeur</Link><Link href="/tableau-de-bord/acheteurs/nouveau" className="rounded-xl bg-teal-700 px-4 py-3 text-sm font-semibold text-white">Nouvel acheteur</Link></div></header>
+    <SessionStatusNotice />
     <div className="relative"><Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Rechercher un client, une adresse ou un dossier" className="min-h-13 w-full rounded-2xl border border-slate-200 bg-white pl-12 pr-4 shadow-sm dark:border-slate-800 dark:bg-slate-900" /></div>
     <nav className="flex flex-wrap gap-2">{filters.map(([key,label]) => <button key={key} type="button" onClick={() => setFilter(key)} className={`rounded-full border px-4 py-2 text-sm font-semibold ${filter === key ? "border-teal-700 bg-teal-700 text-white" : "border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900"}`}>{label}</button>)}</nav>
     {warning ? <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">{warning}</div> : null}{error ? <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{error}</div> : null}

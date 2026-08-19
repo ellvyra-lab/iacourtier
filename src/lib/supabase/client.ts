@@ -14,6 +14,21 @@ export function isSupabaseBrowserConfigured() {
 export function createSupabaseBrowserClient() {
   return createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL || "https://placeholder.supabase.co",
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "placeholder-anon-key"
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "placeholder-anon-key",
+    {
+      // @supabase/ssr already caches the browser client. Keeping these
+      // settings explicit documents the contract shared by login and every
+      // dashboard feature: one cookie-backed session, persisted and refreshed
+      // by the SDK rather than component-local auth state.
+      // Do not cache during server rendering: a server singleton could leak
+      // auth state between requests. In the browser, every caller receives
+      // the one shared client maintained by @supabase/ssr.
+      isSingleton: typeof window !== "undefined",
+      auth: {
+        autoRefreshToken: true,
+        persistSession: true,
+        detectSessionInUrl: true,
+      },
+    },
   );
 }

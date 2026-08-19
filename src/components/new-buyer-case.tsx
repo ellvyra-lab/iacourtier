@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
+import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Check, Contact, FileText, Loader2, MessageSquareText, PenLine, UploadCloud, WalletCards } from "lucide-react";
 
 import type { MandateDocumentExtractionResponse } from "@/lib/mandate-document-extraction";
 import type { BuyerContactInput, BuyerCriteriaInput, BuyerSource } from "@/lib/buyer-cases";
+import { SessionStatusNotice, useDashboardAuth } from "@/components/auth/DashboardAuthProvider";
 
 type Mode = "choice" | "manual" | "message" | "identity" | "preapproval" | "document" | "review";
 
@@ -15,6 +15,7 @@ const emptyCriteria: BuyerCriteriaInput = { budget: "", preapprovalStatus: "miss
 
 export function NewBuyerCase() {
   const router = useRouter();
+  const { status: authStatus, authenticatedFetch } = useDashboardAuth();
   const fileInput = useRef<HTMLInputElement>(null);
   const [mode, setMode] = useState<Mode>("choice");
   const [source, setSource] = useState<BuyerSource>("manual");
@@ -22,16 +23,9 @@ export function NewBuyerCase() {
   const [criteria, setCriteria] = useState<BuyerCriteriaInput>(emptyCriteria);
   const [message, setMessage] = useState("");
   const [files, setFiles] = useState<File[]>([]);
-  const [session, setSession] = useState<"checking" | "active" | "expired">("checking");
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-
-  useEffect(() => {
-    fetch("/api/auth/session", { cache: "no-store" })
-      .then((response) => setSession(response.ok ? "active" : "expired"))
-      .catch(() => setSession("expired"));
-  }, []);
 
   const missing = useMemo(() => [
     !criteria.budget && "budget",
@@ -64,17 +58,16 @@ export function NewBuyerCase() {
   }
 
   async function analyzeFiles() {
-    if (session !== "active") return setError("Ta session a expiré — reconnecte-toi avant d’importer un document.");
+    if (authStatus !== "authenticated") return setError("Ta session doit être vérifiée avant d’importer un document.");
     if (!files.length) return setError("Ajoute au moins un document.");
     setBusy("analyze");
     setError("");
     try {
       const form = new FormData();
       files.forEach((file) => form.append("files", file));
-      const response = await fetch("/api/extract-mandate-documents", { method: "POST", body: form });
+      const response = await authenticatedFetch("/api/extract-mandate-documents", { method: "POST", body: form });
       const payload = await response.json() as MandateDocumentExtractionResponse & { error?: string };
       if (response.status === 401) {
-        setSession("expired");
         throw new Error("Ta session a expiré — reconnecte-toi avant d’importer un document.");
       }
       if (!response.ok) throw new Error(payload.error || "L’analyse du document a échoué.");
@@ -101,7 +94,7 @@ export function NewBuyerCase() {
     setBusy("save");
     setError("");
     try {
-      const response = await fetch("/api/buyer-cases", {
+      const response = await authenticatedFetch("/api/buyer-cases", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ contact, criteria, source }),
@@ -113,7 +106,7 @@ export function NewBuyerCase() {
       if (files.length) {
         const form = new FormData();
         files.forEach((file) => form.append("files", file));
-        const upload = await fetch(`/api/buyer-cases/${payload.id}/documents`, { method: "POST", body: form });
+        const upload = await authenticatedFetch(`/api/buyer-cases/${payload.id}/documents`, { method: "POST", body: form });
         if (!upload.ok) window.sessionStorage.setItem(`iacourtier-buyer-notice-${payload.id}`, "Le dossier est créé, mais les documents devront être téléversés de nouveau.");
       }
       router.push(`/tableau-de-bord/acheteurs/${payload.id}`);
@@ -126,19 +119,19 @@ export function NewBuyerCase() {
 
   if (mode === "choice") return <div className="space-y-6">
     <header><p className="text-sm font-semibold text-teal-700">Coach IA · Nouveau dossier acheteur</p><h1 className="mt-2 text-3xl font-semibold tracking-tight">Comment veux-tu commencer?</h1><p className="mt-3 max-w-3xl text-slate-600 dark:text-slate-300">Choisis la donnée que tu as déjà. IACourtier identifie la personne, recherche les doublons, relie la fiche client et crée le parcours.</p></header>
-    {session === "expired" ? <SessionExpired /> : null}
+    <SessionStatusNotice />
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
       <Choice icon={PenLine} title="Entrer ses informations" onClick={() => start("manual", "manual")} />
-      <Choice icon={Contact} title="Pièce d’identité" onClick={() => start("identity", "identity")} disabled={session !== "active"} />
-      <Choice icon={WalletCards} title="Préapprobation" onClick={() => start("preapproval", "preapproval")} disabled={session !== "active"} />
-      <Choice icon={FileText} title="Autre document" onClick={() => start("document", "document")} disabled={session !== "active"} />
+      <Choice icon={Contact} title="Pièce d’identité" onClick={() => start("identity", "identity")} disabled={authStatus !== "authenticated"} />
+      <Choice icon={WalletCards} title="Préapprobation" onClick={() => start("preapproval", "preapproval")} disabled={authStatus !== "authenticated"} />
+      <Choice icon={FileText} title="Autre document" onClick={() => start("document", "document")} disabled={authStatus !== "authenticated"} />
       <Choice icon={MessageSquareText} title="Texto ou message" onClick={() => start("message", "message")} />
     </div>
   </div>;
 
   if (mode === "message") return <div className="space-y-6"><Back onClick={() => setMode("choice")} /><Panel title="Colle le message reçu" text="Je vais extraire uniquement ce qui est présent."><textarea value={message} onChange={(event) => setMessage(event.target.value)} rows={9} placeholder="Marie veut acheter une maison à Repentigny…" className="mt-5 w-full rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-950" /><Primary onClick={parseMessage} disabled={!message.trim()}>Extraire les informations</Primary></Panel></div>;
 
-  if (["identity", "preapproval", "document"].includes(mode)) return <div className="space-y-6"><Back onClick={() => setMode("choice")} />{session === "expired" ? <SessionExpired /> : <Panel title="Dépose le document" text="La session est vérifiée avant l’import. PDF et images, 12 fichiers maximum."><input ref={fileInput} type="file" multiple accept=".pdf,.jpg,.jpeg,.png,.heic,.heif,.webp" className="hidden" onChange={(event) => setFiles(Array.from(event.target.files || []).slice(0, 12))} /><button type="button" onClick={() => fileInput.current?.click()} className="mt-5 flex min-h-44 w-full flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 p-6 dark:border-slate-700 dark:bg-slate-950"><UploadCloud className="h-8 w-8 text-teal-700" /><span className="mt-3 font-semibold">Choisir les documents</span></button>{files.length ? <p className="mt-3 text-sm text-slate-500">{files.map((file) => file.name).join(" · ")}</p> : null}<Primary onClick={analyzeFiles} disabled={!files.length || busy === "analyze"}>{busy === "analyze" ? "Analyse en cours…" : "Analyser et identifier l’acheteur"}</Primary></Panel>}{error ? <ErrorBox text={error} /> : null}</div>;
+  if (["identity", "preapproval", "document"].includes(mode)) return <div className="space-y-6"><Back onClick={() => setMode("choice")} /><SessionStatusNotice /><Panel title="Dépose le document" text="La session est vérifiée avant l’import. PDF et images, 12 fichiers maximum."><input ref={fileInput} type="file" multiple accept=".pdf,.jpg,.jpeg,.png,.heic,.heif,.webp" className="hidden" onChange={(event) => setFiles(Array.from(event.target.files || []).slice(0, 12))} /><button type="button" onClick={() => fileInput.current?.click()} className="mt-5 flex min-h-44 w-full flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 p-6 dark:border-slate-700 dark:bg-slate-950"><UploadCloud className="h-8 w-8 text-teal-700" /><span className="mt-3 font-semibold">Choisir les documents</span></button>{files.length ? <p className="mt-3 text-sm text-slate-500">{files.map((file) => file.name).join(" · ")}</p> : null}<Primary onClick={analyzeFiles} disabled={authStatus !== "authenticated" || !files.length || busy === "analyze"}>{busy === "analyze" ? "Analyse en cours…" : "Analyser et identifier l’acheteur"}</Primary></Panel>{error ? <ErrorBox text={error} /> : null}</div>;
 
   return <div className="space-y-6"><Back onClick={() => setMode(mode === "review" ? "choice" : "choice")} />
     <header><p className="text-sm font-semibold text-teal-700">Vérification guidée</p><h1 className="mt-2 text-3xl font-semibold">Confirme l’acheteur et ce qui manque</h1><p className="mt-3 text-slate-600 dark:text-slate-300">Une seule fiche client sera utilisée. Si le nom, le courriel ou le téléphone existe déjà, IACourtier la reliera automatiquement.</p></header>
@@ -156,4 +149,3 @@ function Select({ label, value, onChange, options }: { label: string; value: str
 function Back({ onClick }: { onClick: () => void }) { return <button type="button" onClick={onClick} className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600"><ArrowLeft className="h-4 w-4" />Retour</button>; }
 function Primary({ onClick, disabled, children }: { onClick: () => void; disabled?: boolean; children: React.ReactNode }) { return <button type="button" onClick={onClick} disabled={disabled} className="mt-6 inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-teal-700 px-6 font-semibold text-white disabled:opacity-50"><Check className="h-4 w-4" />{children}</button>; }
 function ErrorBox({ text }: { text: string }) { return <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/20 dark:text-red-200">{text}</div>; }
-function SessionExpired() { return <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-100">Ta session a expiré. <Link href="/connexion?next=/tableau-de-bord/acheteurs/nouveau" className="font-semibold underline">Se reconnecter</Link></div>; }

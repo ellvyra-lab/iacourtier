@@ -17,6 +17,7 @@ import {
   type ListingFactStatus,
   type SellerContactInput,
 } from "@/lib/seller-listings";
+import { SessionStatusNotice, useDashboardAuth } from "@/components/auth/DashboardAuthProvider";
 
 type EntryMode = "choice" | "existing" | "new" | "documents" | "review";
 type ContactRow = { id: string; first_name: string; last_name: string; email: string | null; phone: string | null; mailing_address: string | null };
@@ -26,6 +27,7 @@ const accepted = ".pdf,.jpg,.jpeg,.png,.heic,.heif,.webp,application/pdf,image/j
 
 export function NewSellerListing() {
   const router = useRouter();
+  const { status: authStatus, authenticatedFetch } = useDashboardAuth();
   const inputRef = useRef<HTMLInputElement>(null);
   const [mode, setMode] = useState<EntryMode>("choice");
   const [contacts, setContacts] = useState<ContactRow[]>([]);
@@ -40,20 +42,17 @@ export function NewSellerListing() {
   const [status, setStatus] = useState<"idle" | "analyzing" | "saving">("idle");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [session, setSession] = useState<"checking" | "active" | "expired">("checking");
 
   useEffect(() => {
-    fetch("/api/auth/session", { cache: "no-store" })
-      .then((response) => setSession(response.ok ? "active" : "expired"))
-      .catch(() => setSession("expired"));
-    fetch("/api/seller-contacts")
+    if (authStatus !== "authenticated") return;
+    authenticatedFetch("/api/seller-contacts", { cache: "no-store" })
       .then(async (response) => ({ ok: response.ok, payload: await response.json() as { contacts?: ContactRow[]; error?: string } }))
       .then(({ ok, payload }) => {
         if (ok) setContacts(payload.contacts || []);
         else setNotice(payload.error || "Les vendeurs existants ne peuvent pas être chargés.");
       })
       .catch(() => setNotice("Les vendeurs existants ne peuvent pas être chargés pour le moment."));
-  }, []);
+  }, [authStatus, authenticatedFetch]);
 
   const reviewGroups = useMemo(() => ({
     confirmed: facts.filter((fact) => fact.status === "confirmed" && fact.value),
@@ -86,10 +85,9 @@ export function NewSellerListing() {
     try {
       const formData = new FormData();
       files.forEach((file) => formData.append("files", file));
-      const response = await fetch("/api/extract-mandate-documents", { method: "POST", body: formData });
+      const response = await authenticatedFetch("/api/extract-mandate-documents", { method: "POST", body: formData });
       const payload = await response.json() as MandateDocumentExtractionResponse & { error?: string };
       if (response.status === 401) {
-        setSession("expired");
         throw new Error("Ta session a expiré — reconnecte-toi avant d’importer des documents.");
       }
       if (!response.ok) throw new Error(payload.error || "L’analyse documentaire a échoué.");
@@ -133,7 +131,7 @@ export function NewSellerListing() {
     setError("");
     try {
       const allFacts = mergeManualFacts(facts, fields, normalizedSellers, existingIds.length > 0);
-      const response = await fetch("/api/seller-listings", {
+      const response = await authenticatedFetch("/api/seller-listings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -157,7 +155,7 @@ export function NewSellerListing() {
         const documentForm = new FormData();
         files.forEach((file) => documentForm.append("files", file));
         documentForm.append("documentTypes", JSON.stringify(documentTypes));
-        const uploadResponse = await fetch(`/api/seller-listings/${payload.id}/documents`, { method: "POST", body: documentForm });
+        const uploadResponse = await authenticatedFetch(`/api/seller-listings/${payload.id}/documents`, { method: "POST", body: documentForm });
         if (!uploadResponse.ok) {
           const uploadPayload = await uploadResponse.json().catch(() => null) as { error?: string } | null;
           window.sessionStorage.setItem(
@@ -184,9 +182,9 @@ export function NewSellerListing() {
           <h1 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">Comment veux-tu commencer?</h1>
           <p className="mt-3 max-w-3xl text-slate-600 dark:text-slate-300">Le Coach identifiera d’abord la personne et les doublons, puis créera ou reliera le client avant la propriété et le mandat.</p>
         </header>
-        {session === "expired" ? <p className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">Ta session a expiré — reconnecte-toi avant d’importer des documents.</p> : null}
+        <SessionStatusNotice />
         <div className="grid gap-4 lg:grid-cols-2">
-          <ChoiceCard icon={FileSearch} title="J’ai des documents" text="Dépose l’acte de vente, le certificat, le contrat, MO, CCV, déclaration du vendeur, taxes ou autres pièces. Le client sera identifié automatiquement." onClick={() => chooseMode("documents")} featured disabled={session !== "active"} />
+          <ChoiceCard icon={FileSearch} title="J’ai des documents" text="Dépose l’acte de vente, le certificat, le contrat, MO, CCV, déclaration du vendeur, taxes ou autres pièces. Le client sera identifié automatiquement." onClick={() => chooseMode("documents")} featured disabled={authStatus !== "authenticated"} />
           <ChoiceCard icon={UserPlus} title="J’ai seulement les informations du client" text="Saisis les informations disponibles. IACourtier recherchera quand même les doublons avant de créer une fiche." onClick={() => chooseMode("new")} />
         </div>
         {notice ? <Notice text={notice} /> : null}
@@ -198,6 +196,7 @@ export function NewSellerListing() {
     return (
       <div className="space-y-6">
         <BackButton onClick={() => setMode("choice")} />
+        <SessionStatusNotice />
         <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
           <p className="text-sm font-semibold text-teal-700">Identification intelligente</p>
           <h1 className="mt-2 text-3xl font-semibold">Dépose les documents de la propriété</h1>
@@ -210,7 +209,7 @@ export function NewSellerListing() {
           </div>
           {files.length ? <div className="mt-4 grid gap-2 sm:grid-cols-2">{files.map((file, index) => <div key={`${file.name}-${index}`} className="flex items-center justify-between rounded-xl border border-slate-200 px-3 py-2 text-sm dark:border-slate-700"><span className="truncate">{file.name}</span><button type="button" className="ml-2 text-xs text-red-600" onClick={() => setFiles((current) => current.filter((_, fileIndex) => fileIndex !== index))}>Retirer</button></div>)}</div> : null}
           {error ? <ErrorNotice text={error} /> : null}
-          <button type="button" onClick={analyzeDocuments} disabled={!files.length || status === "analyzing"} className="mt-6 inline-flex min-h-12 items-center gap-2 rounded-xl bg-teal-700 px-5 font-semibold text-white disabled:opacity-50">
+          <button type="button" onClick={analyzeDocuments} disabled={authStatus !== "authenticated" || !files.length || status === "analyzing"} className="mt-6 inline-flex min-h-12 items-center gap-2 rounded-xl bg-teal-700 px-5 font-semibold text-white disabled:opacity-50">
             {status === "analyzing" ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSearch className="h-4 w-4" />}
             {status === "analyzing" ? "Analyse en cours…" : "Analyser les documents"}
           </button>

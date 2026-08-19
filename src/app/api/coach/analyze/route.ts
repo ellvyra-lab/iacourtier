@@ -1,11 +1,16 @@
 import { generateWithOpenAI, getOpenAIErrorPayload } from "@/lib/openai";
 import { getCoachScenario, type CoachScenarioId } from "@/lib/prospecting-coach";
 import type { CoachFeedback } from "@/lib/prospecting-coach/types";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
   try {
+    const supabase = await createSupabaseServerClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return Response.json({ error: "Authentification requise." }, { status: 401 });
+
     const body = await request.json();
     const { response, scenarioId } = body as {
       response?: string;
