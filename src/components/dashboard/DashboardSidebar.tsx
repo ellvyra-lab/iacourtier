@@ -35,4 +35,3 @@ export function DashboardSidebar() {
 
 function NavGroup({ items, pathname }: { items: typeof main; pathname: string }) { return <div className="space-y-1">{items.map((item) => <NavLink key={item.href} {...item} active={item.href === "/tableau-de-bord" ? pathname === item.href : pathname.startsWith(item.href)} />)}</div>; }
 function NavLink({ href, label, icon: Icon, active }: { href: string; label: string; icon: typeof LayoutDashboard; active: boolean }) { return <Link href={href} className={cn("flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors", active ? "bg-electric-500/10 font-medium text-electric-500" : "text-muted hover:bg-[var(--bg)] hover:text-[var(--fg)]")}><Icon size={16} />{label}</Link>; }
-
