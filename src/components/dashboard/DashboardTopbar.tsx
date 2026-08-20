@@ -91,4 +91,3 @@ function titleFromPath(pathname: string) {
 function TopbarMenuLink({ href, label, icon: Icon, highlighted = false }: { href: string; label: string; icon: typeof Star; highlighted?: boolean }) {
   return <Link href={href} className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition ${highlighted ? "bg-electric-500/10 font-semibold text-electric-500" : "text-muted hover:bg-background hover:text-foreground"}`}><Icon size={16} />{label}</Link>;
 }
-
