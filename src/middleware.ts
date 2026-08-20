@@ -3,7 +3,7 @@ import { createServerClient } from "@supabase/ssr";
 
 // Runs on every request. Two jobs:
 //   1. Keep the Supabase session cookie fresh (required for SSR auth).
-//   2. Redirect signed-out visitors away from /tableau-de-bord to /connexion,
+//   2. Redirect signed-out visitors away from private routes to /connexion,
 //      and signed-in visitors away from /connexion or /inscription to the
 //      dashboard, so they never see a login form while already logged in.
 export async function middleware(request: NextRequest) {
@@ -13,6 +13,8 @@ export async function middleware(request: NextRequest) {
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   const { pathname, search } = request.nextUrl;
   const isDashboard = pathname.startsWith("/tableau-de-bord");
+  const isAdmin = pathname === "/admin" || pathname.startsWith("/admin/");
+  const isPrivatePage = isDashboard || isAdmin;
   const isAuthPage = pathname === "/connexion" || pathname === "/inscription";
   const isHomePage = pathname === "/";
 
@@ -20,7 +22,7 @@ export async function middleware(request: NextRequest) {
   // configuration is incomplete. Public pages can still render an explicit
   // configuration error from their own UI.
   if (!supabaseUrl || !supabaseAnonKey) {
-    if (isDashboard) {
+    if (isPrivatePage) {
       const url = request.nextUrl.clone();
       url.pathname = "/connexion";
       url.search = "";
@@ -50,7 +52,7 @@ export async function middleware(request: NextRequest) {
   if (error && !isSignedOutError(error)) {
     // A transient Supabase/network failure is not a logout. Keep the cookies,
     // but fail closed so no account chrome is rendered without verification.
-    if (isDashboard) {
+    if (isPrivatePage) {
       const url = request.nextUrl.clone();
       url.pathname = "/connexion";
       url.search = "";
@@ -62,7 +64,7 @@ export async function middleware(request: NextRequest) {
   }
   const isLoggedIn = !!data.user;
 
-  if (isDashboard && !isLoggedIn) {
+  if (isPrivatePage && !isLoggedIn) {
     const url = request.nextUrl.clone();
     url.pathname = "/connexion";
     url.search = "";
@@ -71,9 +73,12 @@ export async function middleware(request: NextRequest) {
   }
 
   if (isAuthPage && isLoggedIn) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/tableau-de-bord";
-    url.search = "";
+    const next = safeLocalPath(request.nextUrl.searchParams.get("next"));
+    const url = next ? new URL(next, request.url) : request.nextUrl.clone();
+    if (!next) {
+      url.pathname = "/tableau-de-bord";
+      url.search = "";
+    }
     return redirectWithRefreshedCookies(url, response);
   }
 
@@ -97,6 +102,12 @@ function redirectWithRefreshedCookies(url: URL, response: NextResponse) {
   return redirect;
 }
 
+function safeLocalPath(value: string | null) {
+  if (!value || !value.startsWith("/") || value.startsWith("//")) return null;
+  if (value === "/connexion" || value === "/inscription") return null;
+  return value;
+}
+
 export const config = {
   matcher: [
     // Refresh the cookie for page navigation and protected API calls,
@@ -104,3 +115,4 @@ export const config = {
     "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };
+
