@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Bell, ChevronDown, LayoutDashboard, Settings, Sparkles, Star, Users } from "lucide-react";
+import { Bell, ChevronDown, LayoutDashboard, Settings, ShieldCheck, Sparkles, Star, Users } from "lucide-react";
 import { ThemeToggle } from "@/components/layout/ThemeToggle";
 import { LogoutButton } from "@/components/dashboard/LogoutButton";
 import { UniversalSearch } from "@/components/dashboard/UniversalSearch";
@@ -64,6 +64,7 @@ export function DashboardTopbar() {
               <TopbarMenuLink href="/tableau-de-bord/identite-professionnelle#partenaires" label="Mes partenaires" icon={Users} />
               <TopbarMenuLink href="/tableau-de-bord/assistants" label="Mes modèles IA" icon={Sparkles} />
               <TopbarMenuLink href="/tableau-de-bord/parametres" label="Paramètres" icon={Settings} />
+              {isSuperAdmin ? <TopbarMenuLink href="/admin" label="Administration" icon={ShieldCheck} /> : null}
             </nav>
             <div className="mt-2 border-t border-subtle pt-2"><LogoutButton /></div>
           </div>
@@ -90,3 +91,4 @@ function titleFromPath(pathname: string) {
 function TopbarMenuLink({ href, label, icon: Icon, highlighted = false }: { href: string; label: string; icon: typeof Star; highlighted?: boolean }) {
   return <Link href={href} className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition ${highlighted ? "bg-electric-500/10 font-semibold text-electric-500" : "text-muted hover:bg-background hover:text-foreground"}`}><Icon size={16} />{label}</Link>;
 }
+
