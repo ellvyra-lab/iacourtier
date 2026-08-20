@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { DashboardSidebar } from "@/components/dashboard/DashboardSidebar";
 import { DashboardTopbar } from "@/components/dashboard/DashboardTopbar";
 import { DashboardMobileNav } from "@/components/dashboard/DashboardMobileNav";
-import { DashboardAuthProvider } from "@/components/auth/DashboardAuthProvider";
+import { DashboardAuthGate, DashboardAuthProvider } from "@/components/auth/DashboardAuthProvider";
 
 export const metadata: Metadata = {
   title: "Tableau de bord",
@@ -16,14 +16,16 @@ export default function DashboardLayout({
 }) {
   return (
     <DashboardAuthProvider>
-      <div className="flex min-h-screen bg-surface">
-        <DashboardSidebar />
-        <div className="flex min-w-0 flex-1 flex-col">
-          <DashboardTopbar />
-          <DashboardMobileNav />
-          <main className="min-w-0 flex-1 p-4 sm:p-6">{children}</main>
+      <DashboardAuthGate>
+        <div className="flex min-h-screen bg-surface">
+          <DashboardSidebar />
+          <div className="flex min-w-0 flex-1 flex-col">
+            <DashboardTopbar />
+            <DashboardMobileNav />
+            <main className="min-w-0 flex-1 p-4 sm:p-6">{children}</main>
+          </div>
         </div>
-      </div>
+      </DashboardAuthGate>
     </DashboardAuthProvider>
   );
 }

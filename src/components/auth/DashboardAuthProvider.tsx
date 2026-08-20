@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   createContext,
   useCallback,
@@ -19,6 +19,11 @@ import {
   createSupabaseBrowserClient,
   isSupabaseBrowserConfigured,
 } from "@/lib/supabase/client";
+import {
+  isBrokerOnboardingComplete,
+  normalizeBrokerProfile,
+  setActiveBrokerProfileUser,
+} from "@/lib/broker-profile";
 
 export type DashboardAuthStatus =
   | "checking"
@@ -54,10 +59,12 @@ export function DashboardAuthProvider({ children }: { children: ReactNode }) {
   const mountedRef = useRef(true);
 
   const updateState = useCallback((nextStatus: DashboardAuthStatus, nextUser: User | null) => {
-    statusRef.current = nextStatus;
+    const safeStatus = nextStatus === "authenticated" && !nextUser ? "error" : nextStatus;
+    setActiveBrokerProfileUser(safeStatus === "authenticated" ? nextUser?.id || null : null);
+    statusRef.current = safeStatus;
     userRef.current = nextUser;
     if (!mountedRef.current) return;
-    setStatus(nextStatus);
+    setStatus(safeStatus);
     setUser(nextUser);
   }, []);
 
@@ -67,7 +74,9 @@ export function DashboardAuthProvider({ children }: { children: ReactNode }) {
       return false;
     }
 
-    updateState("checking", userRef.current);
+    // Keep a previously verified user mounted while refreshing in the
+    // background. Only the first read uses the blocking checking screen.
+    if (!userRef.current) updateState("checking", null);
     let browserSignedOutReads = 0;
     let serverSignedOutReads = 0;
     let transientFailure = false;
@@ -108,8 +117,17 @@ export function DashboardAuthProvider({ children }: { children: ReactNode }) {
 
         if (response.ok) {
           const { data: refreshedBrowserSession } = await supabase.auth.getSession();
-          updateState("authenticated", refreshedBrowserSession.session?.user || session?.user || userRef.current);
-          return true;
+          const { data: refreshedUserData } = await supabase.auth.getUser();
+          const verifiedUser = refreshedUserData.user || refreshedBrowserSession.session?.user || session?.user;
+          if (verifiedUser) {
+            updateState("authenticated", verifiedUser);
+            return true;
+          }
+
+          // A 200 response without a browser-verifiable user is not an
+          // authenticated state. In particular, never let the dashboard
+          // render its account chrome with a null user.
+          transientFailure = true;
         }
 
         if (response.status === 401) serverSignedOutReads += 1;
@@ -171,7 +189,7 @@ export function DashboardAuthProvider({ children }: { children: ReactNode }) {
     void verifySession();
 
     const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
-      if (session && ["INITIAL_SESSION", "SIGNED_IN", "TOKEN_REFRESHED", "USER_UPDATED"].includes(event)) {
+      if (session?.user && ["INITIAL_SESSION", "SIGNED_IN", "TOKEN_REFRESHED", "USER_UPDATED"].includes(event)) {
         updateState("authenticated", session.user);
       } else if (event === "SIGNED_OUT") {
         updateState("unauthenticated", null);
@@ -198,6 +216,82 @@ export function useDashboardAuth() {
   const context = useContext(DashboardAuthContext);
   if (!context) throw new Error("useDashboardAuth must be used inside DashboardAuthProvider");
   return context;
+}
+
+export function DashboardAuthGate({ children }: { children: ReactNode }) {
+  const pathname = usePathname();
+  const router = useRouter();
+  const { status, user, verifySession } = useDashboardAuth();
+  const next = `/connexion?next=${encodeURIComponent(pathname)}`;
+  const needsOnboarding = Boolean(
+    user && !isBrokerOnboardingComplete(normalizeBrokerProfile(user.user_metadata?.broker_profile)),
+  );
+
+  useEffect(() => {
+    if (status === "authenticated" && user && needsOnboarding && pathname !== "/tableau-de-bord/bienvenue") {
+      router.replace("/tableau-de-bord/bienvenue");
+    }
+  }, [needsOnboarding, pathname, router, status, user]);
+
+  if (status === "authenticated" && user && (!needsOnboarding || pathname === "/tableau-de-bord/bienvenue")) {
+    return <>{children}</>;
+  }
+
+  if (status === "authenticated" && user && needsOnboarding) {
+    return (
+      <AuthScreen role="status">
+        <Loader2 className="h-6 w-6 animate-spin text-teal-700" />
+        <h1 className="text-xl font-semibold">Préparation de ton profil courtier…</h1>
+        <p className="text-sm text-muted">La première étape est de configurer ton identité professionnelle.</p>
+      </AuthScreen>
+    );
+  }
+
+  if (status === "checking") {
+    return (
+      <AuthScreen role="status">
+        <Loader2 className="h-6 w-6 animate-spin text-teal-700" />
+        <h1 className="text-xl font-semibold">Vérification de ta session…</h1>
+        <p className="text-sm text-muted">IACourtier confirme ton compte Supabase avant d’ouvrir l’espace privé.</p>
+      </AuthScreen>
+    );
+  }
+
+  if (status === "error") {
+    return (
+      <AuthScreen role="alert">
+        <h1 className="text-xl font-semibold">Impossible de confirmer ta session</h1>
+        <p className="text-sm text-muted">L’espace privé reste fermé tant que Supabase n’a pas confirmé ton identité.</p>
+        <div className="flex flex-wrap justify-center gap-3">
+          <button type="button" onClick={() => void verifySession(true)} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-teal-700 px-4 font-semibold text-white">
+            <RefreshCw className="h-4 w-4" /> Réessayer
+          </button>
+          <Link href={next} className="inline-flex min-h-11 items-center rounded-xl border border-subtle px-4 font-semibold">Se connecter</Link>
+        </div>
+      </AuthScreen>
+    );
+  }
+
+  return (
+    <AuthScreen role="alert">
+      <h1 className="text-xl font-semibold">Aucune session active</h1>
+      <p className="text-sm text-muted">Connecte-toi avec un vrai compte Supabase ou crée ton compte pour continuer.</p>
+      <div className="flex flex-wrap justify-center gap-3">
+        <Link href={next} className="inline-flex min-h-11 items-center rounded-xl bg-teal-700 px-4 font-semibold text-white">Se reconnecter</Link>
+        <Link href="/inscription" className="inline-flex min-h-11 items-center rounded-xl border border-subtle px-4 font-semibold">Créer mon compte</Link>
+      </div>
+    </AuthScreen>
+  );
+}
+
+function AuthScreen({ children, role }: { children: ReactNode; role: "status" | "alert" }) {
+  return (
+    <main className="grid min-h-screen place-items-center bg-surface-soft p-6" role={role}>
+      <section className="flex max-w-lg flex-col items-center gap-4 rounded-3xl border border-subtle bg-surface p-8 text-center shadow-card">
+        {children}
+      </section>
+    </main>
+  );
 }
 
 export function SessionStatusNotice() {

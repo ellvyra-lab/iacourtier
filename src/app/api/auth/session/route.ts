@@ -41,7 +41,7 @@ export async function GET() {
     user: {
       id: user.id,
       email: user.email,
-      firstName: String(user.user_metadata?.full_name || user.email || "Courtier").split(/\s+/)[0],
+      firstName: String(user.user_metadata?.full_name || user.email?.split("@")[0] || user.id.slice(0, 8)).split(/\s+/)[0],
     },
   }, { headers: { "Cache-Control": "no-store" } });
 }

@@ -46,7 +46,20 @@ export async function middleware(request: NextRequest) {
     },
   });
 
-  const { data } = await supabase.auth.getUser();
+  const { data, error } = await supabase.auth.getUser();
+  if (error && !isSignedOutError(error)) {
+    // A transient Supabase/network failure is not a logout. Keep the cookies,
+    // but fail closed so no account chrome is rendered without verification.
+    if (isDashboard) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/connexion";
+      url.search = "";
+      url.searchParams.set("next", `${pathname}${search}`);
+      url.searchParams.set("error", "auth_unavailable");
+      return redirectWithRefreshedCookies(url, response);
+    }
+    return response;
+  }
   const isLoggedIn = !!data.user;
 
   if (isDashboard && !isLoggedIn) {
@@ -72,6 +85,10 @@ export async function middleware(request: NextRequest) {
   }
 
   return response;
+}
+
+function isSignedOutError(error: { status?: number; name?: string }) {
+  return error.name === "AuthSessionMissingError" || [400, 401, 403].includes(error.status || 0);
 }
 
 function redirectWithRefreshedCookies(url: URL, response: NextResponse) {

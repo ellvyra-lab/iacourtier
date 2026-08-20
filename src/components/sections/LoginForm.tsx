@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { LogIn, Mail, Lock, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
@@ -13,6 +13,17 @@ export function LoginForm() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    const reason = searchParams.get("error");
+    if (reason === "auth_configuration") {
+      setError("L’authentification Supabase n’est pas configurée sur ce déploiement. Ajoutez les variables Supabase dans Vercel avant de créer ou connecter un compte.");
+    } else if (reason === "auth_callback") {
+      setError("Le lien de confirmation est invalide ou expiré. Recommencez la connexion ou l’inscription.");
+    } else if (reason === "auth_unavailable") {
+      setError("Supabase est temporairement indisponible. Ta session n’a pas été supprimée; réessaie dans un instant.");
+    }
+  }, [searchParams]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -49,10 +60,17 @@ export function LoginForm() {
       // middleware and API routes. Verify once before navigating so the first
       // protected upload cannot race cookie persistence.
       await supabase.auth.getUser();
-      await fetch("/api/auth/session", {
+      const verification = await fetch("/api/auth/session", {
         cache: "no-store",
         credentials: "same-origin",
       }).catch(() => null);
+      if (!verification?.ok) {
+        setLoading(false);
+        setError(verification?.status === 503
+          ? "La session existe, mais le serveur ne peut pas la confirmer pour le moment. Réessaie dans un instant."
+          : "La connexion n’a pas pu être confirmée par le serveur.");
+        return;
+      }
 
       const requestedPath = searchParams.get("next");
       const next = requestedPath?.startsWith("/") && !requestedPath.startsWith("//")

@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { UserPlus, Mail, Lock, User, Loader2, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { createSupabaseBrowserClient, isSupabaseBrowserConfigured } from "@/lib/supabase/client";
 
 export function SignupForm() {
   const router = useRouter();
@@ -21,15 +21,18 @@ export function SignupForm() {
     setError("");
 
     try {
+      if (!isSupabaseBrowserConfigured()) {
+        throw new Error("auth_configuration");
+      }
       const supabase = createSupabaseBrowserClient();
       const { data, error: signUpError } = await supabase.auth.signUp({
-        email,
+        email: email.trim(),
         password,
         options: {
-          data: { full_name: name },
+          data: { full_name: name.trim(), account_type: "courtier" },
           emailRedirectTo:
             typeof window !== "undefined"
-              ? `${window.location.origin}/tableau-de-bord`
+              ? `${window.location.origin}/auth/callback?next=${encodeURIComponent("/tableau-de-bord/bienvenue")}`
               : undefined,
         },
       });
@@ -49,8 +52,8 @@ export function SignupForm() {
       // If Supabase email confirmation is enabled (the default), there's no
       // active session yet — show a "check your inbox" state. If it's
       // disabled, a session comes back immediately and we go straight in.
-      if (data.session) {
-        router.push("/tableau-de-bord");
+      if (data.session && data.user) {
+        router.replace("/tableau-de-bord/bienvenue");
         router.refresh();
       } else {
         setNeedsConfirmation(true);

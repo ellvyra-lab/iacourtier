@@ -18,11 +18,10 @@ export default function InscriptionPage() {
             <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-electric-500 to-cyan-500 text-white">
               <Sparkles size={18} />
             </span>
-            <h1 className="text-2xl font-semibold tracking-tight">
-              Créez votre compte
-            </h1>
+            <p className="text-sm font-semibold text-electric-500">Première utilisation</p>
+            <h1 className="text-2xl font-semibold tracking-tight">Bienvenue dans IACourtier</h1>
             <p className="text-sm text-muted">
-              Accédez à votre tableau de bord membre IACourtier.
+              Crée ton vrai compte Supabase. Tu configureras ensuite ton identité professionnelle avant d’accéder à l’accueil.
             </p>
           </div>
 

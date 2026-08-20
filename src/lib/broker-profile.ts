@@ -54,6 +54,21 @@ export type BrokerProfile = {
 };
 
 export const BROKER_PROFILE_KEY = "iacourtier_broker_profile";
+const ACTIVE_BROKER_USER_KEY = "iacourtier_active_broker_user";
+
+function brokerProfileKey(userId: string) {
+  return `${BROKER_PROFILE_KEY}:${userId}`;
+}
+
+export function setActiveBrokerProfileUser(userId: string | null) {
+  if (typeof window === "undefined") return;
+  // The former unscoped key could leak a previous person's professional
+  // identity into another account. It is deliberately discarded, not
+  // migrated, because it was never tied to a verified Supabase user.
+  window.localStorage.removeItem(BROKER_PROFILE_KEY);
+  if (userId) window.localStorage.setItem(ACTIVE_BROKER_USER_KEY, userId);
+  else window.localStorage.removeItem(ACTIVE_BROKER_USER_KEY);
+}
 
 export const emptyBrokerProfile: BrokerProfile = {
   fullName: "", professionalTitle: "", teamName: "", teamWebsite: "", teamMode: "solo", agencyName: "", agencyBrandId: "", phone: "", mobile: "", email: "", website: "",
@@ -76,10 +91,12 @@ export function normalizeBrokerProfile(value: unknown): BrokerProfile {
   };
 }
 
-export function loadBrokerProfile(): BrokerProfile {
+export function loadBrokerProfile(userId?: string): BrokerProfile {
   if (typeof window === "undefined") return { ...emptyBrokerProfile };
   try {
-    return normalizeBrokerProfile(JSON.parse(window.localStorage.getItem(BROKER_PROFILE_KEY) || "{}"));
+    const ownerId = userId || window.localStorage.getItem(ACTIVE_BROKER_USER_KEY);
+    if (!ownerId) return { ...emptyBrokerProfile };
+    return normalizeBrokerProfile(JSON.parse(window.localStorage.getItem(brokerProfileKey(ownerId)) || "{}"));
   } catch {
     return { ...emptyBrokerProfile };
   }
@@ -89,8 +106,11 @@ export function isBrokerOnboardingComplete(profile: Partial<BrokerProfile>) {
   return Boolean(profile.onboardingCompleted && profile.fullName?.trim() && profile.agencyName?.trim() && profile.email?.trim());
 }
 
-export function saveBrokerProfile(profile: BrokerProfile) {
-  if (typeof window !== "undefined") window.localStorage.setItem(BROKER_PROFILE_KEY, JSON.stringify(profile));
+export function saveBrokerProfile(profile: BrokerProfile, userId?: string) {
+  if (typeof window === "undefined") return;
+  const ownerId = userId || window.localStorage.getItem(ACTIVE_BROKER_USER_KEY);
+  if (!ownerId) return;
+  window.localStorage.setItem(brokerProfileKey(ownerId), JSON.stringify(profile));
 }
 
 export function buildProfessionalSignature(profile: Partial<BrokerProfile>) {

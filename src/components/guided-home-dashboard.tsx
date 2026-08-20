@@ -22,19 +22,20 @@ const actions: Array<{ icon: ElementType; label: string; href: string; primary?:
 
 export function GuidedHomeDashboard() {
   const { status: authStatus, user, authenticatedFetch } = useDashboardAuth();
-  const [firstName, setFirstName] = useState("Courtier");
   const [prospects, setProspects] = useState<SoniaProspect[]>([]);
   const [clients, setClients] = useState<RecentClient[]>([]);
   const [prompt, setPrompt] = useState("");
   const [answer, setAnswer] = useState<CoachAnswer | null>(null);
   const [sending, setSending] = useState(false);
+  const firstName = String(
+    user?.user_metadata?.full_name || user?.email?.split("@")[0] || user?.id.slice(0, 8) || "",
+  ).split(/\s+/)[0];
 
   useEffect(() => {
     setProspects(getSoniaProspects().filter((item) => !item.id.startsWith("sonia-demo-")));
   }, []);
 
   useEffect(() => {
-    if (user) setFirstName(String(user.user_metadata?.full_name || user.email || "Courtier").split(/\s+/)[0]);
     if (authStatus !== "authenticated") return;
     authenticatedFetch("/api/clients", { cache: "no-store" }).then((response) => response.json()).then((payload: { clients?: RecentClient[] }) => setClients(payload.clients || [])).catch(() => undefined);
   }, [authStatus, authenticatedFetch, user]);

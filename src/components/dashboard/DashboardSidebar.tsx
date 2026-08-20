@@ -1,12 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { BarChart3, Bot, CalendarDays, FileText, LayoutDashboard, Megaphone, Radar, Settings, ShieldCheck, Sparkles, UsersRound, Workflow } from "lucide-react";
 
 import { cn } from "@/lib/utils";
-import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { useDashboardAuth } from "@/components/auth/DashboardAuthProvider";
 import { LogoutButton } from "./LogoutButton";
 
 const main = [
@@ -25,8 +24,8 @@ const tools = [
 
 export function DashboardSidebar() {
   const pathname = usePathname();
-  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
-  useEffect(() => { createSupabaseBrowserClient().auth.getUser().then(({ data }) => setIsSuperAdmin(data.user?.user_metadata?.role === "super_admin")); }, []);
+  const { user } = useDashboardAuth();
+  const isSuperAdmin = user?.app_metadata?.role === "super_admin";
   return <aside className="hidden w-64 shrink-0 flex-col border-r border-subtle bg-surface-soft lg:flex">
     <div className="flex h-18 items-center gap-2 border-b border-subtle px-6"><span className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-electric-500 to-cyan-500 text-white"><Sparkles size={16} /></span><span className="font-semibold tracking-tight">IA<span className="text-gradient">Courtier</span></span></div>
     <nav className="flex-1 overflow-y-auto px-3 py-5"><NavGroup items={main} pathname={pathname} /><p className="mb-2 mt-7 px-3 text-[11px] font-semibold uppercase tracking-widest text-muted">Outils</p><NavGroup items={tools} pathname={pathname} /></nav>
