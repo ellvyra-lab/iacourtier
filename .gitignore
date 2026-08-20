@@ -5,3 +5,8 @@ out
 .env*.local
 .DS_Store
 *.log
+.npm-cache/
+.supabase-home/
+.vercel-cli-home/
+supabase/.temp/
+
