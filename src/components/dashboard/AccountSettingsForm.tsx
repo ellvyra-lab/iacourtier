@@ -5,6 +5,10 @@ import { useRouter } from "next/navigation";
 import { Check, Loader2, Plus, Trash2, Upload } from "lucide-react";
 
 import {
+  BROKER_PROFILE_ALLOWED_IMAGE_TYPES,
+  BROKER_PROFILE_ASSET_LABELS,
+  BROKER_PROFILE_IMAGE_ACCEPT,
+  BROKER_PROFILE_MAX_FILE_SIZE,
   buildBuyerGuideExample,
   buildProfessionalSignature,
   emptyBrokerProfile,
@@ -34,7 +38,7 @@ const PROFILE_FIELDS: Array<{ key: keyof BrokerProfile; label: string; type?: st
   { key: "biography", label: "Biographie", wide: true }, { key: "signature", label: "Signature professionnelle", wide: true },
 ];
 
-type ProfileAssetKey = "photo" | "logo" | "banner" | "agencyLogo" | "teamLogo" | "teamBanner";
+type ProfileAssetKey = "photo" | "logo" | "banner" | "agencyLogo" | "teamLogo" | "teamBanner" | "teamPhoto";
 
 const ASSETS: Array<{ key: ProfileAssetKey; label: string }> = [
   { key: "photo", label: "Photo professionnelle" },
@@ -43,6 +47,7 @@ const ASSETS: Array<{ key: ProfileAssetKey; label: string }> = [
   { key: "agencyLogo", label: "Logo de l’agence" },
   { key: "teamLogo", label: "Logo de l’équipe" },
   { key: "teamBanner", label: "Bannière de l’équipe" },
+  { key: "teamPhoto", label: "Photo de l’équipe" },
 ];
 
 export function AccountSettingsForm() {
@@ -128,10 +133,16 @@ export function AccountSettingsForm() {
   function importAsset(key: ProfileAssetKey, event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) return;
-    if (file.size > 2_000_000) {
-      setError("Utilisez une image de moins de 2 Mo.");
+    const label = BROKER_PROFILE_ASSET_LABELS[key];
+    if (!(BROKER_PROFILE_ALLOWED_IMAGE_TYPES as readonly string[]).includes(file.type)) {
+      setError(`Le fichier « ${label} » doit être une image JPEG, PNG, WebP, GIF ou AVIF.`);
       return;
     }
+    if (file.size > BROKER_PROFILE_MAX_FILE_SIZE) {
+      setError(`Le fichier « ${label} » dépasse la limite de 2 Mo.`);
+      return;
+    }
+    setError("");
     const reader = new FileReader();
     reader.onload = () => update(key, typeof reader.result === "string" ? reader.result : "");
     reader.readAsDataURL(file);
@@ -256,7 +267,7 @@ export function AccountSettingsForm() {
 
       <section className="rounded-2xl border border-subtle bg-surface-soft p-6">
         <h2 className="text-xl font-semibold">Identité visuelle</h2>
-        <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{ASSETS.map((asset) => <label key={asset.key} className="rounded-xl border border-dashed border-subtle bg-background p-4 text-sm font-medium"><span>{asset.label}</span>{profile[asset.key] ? <img src={profile[asset.key]} alt="" className="mt-3 h-28 w-full rounded-lg object-contain" /> : <Upload className="mt-5 h-8 w-8 text-muted" />}<input type="file" accept="image/*" onChange={(event) => importAsset(asset.key, event)} className="mt-3 block w-full text-xs" /></label>)}</div>
+        <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{ASSETS.map((asset) => <label key={asset.key} className="rounded-xl border border-dashed border-subtle bg-background p-4 text-sm font-medium"><span>{asset.label}</span>{profile[asset.key] ? <img src={profile[asset.key]} alt="" className="mt-3 h-28 w-full rounded-lg object-contain" /> : <Upload className="mt-5 h-8 w-8 text-muted" />}<input type="file" accept={BROKER_PROFILE_IMAGE_ACCEPT} onChange={(event) => importAsset(asset.key, event)} className="mt-3 block w-full text-xs" /></label>)}</div>
         <div className="mt-5 grid gap-4 sm:grid-cols-3"><label className="text-sm font-medium">Couleur principale<input type="color" value={profile.primaryColor} onChange={(event) => update("primaryColor", event.target.value)} className="mt-2 h-11 w-full rounded-lg" /></label><label className="text-sm font-medium">Couleur secondaire<input type="color" value={profile.secondaryColor} onChange={(event) => update("secondaryColor", event.target.value)} className="mt-2 h-11 w-full rounded-lg" /></label><label className="text-sm font-medium">Police préférée<input value={profile.preferredFont} onChange={(event) => update("preferredFont", event.target.value)} className="mt-2 min-h-11 w-full rounded-xl border border-subtle bg-surface px-4" /></label></div>
       </section>
 

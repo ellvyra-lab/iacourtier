@@ -68,6 +68,26 @@ export const BROKER_PROFILE_ASSET_KEYS = [
 
 export type BrokerProfileAssetKey = (typeof BROKER_PROFILE_ASSET_KEYS)[number];
 
+export const BROKER_PROFILE_ASSET_LABELS: Record<BrokerProfileAssetKey, string> = {
+  photo: "photo du courtier",
+  logo: "logo personnel",
+  banner: "bannière personnelle",
+  agencyLogo: "logo d’agence",
+  teamLogo: "logo d’équipe",
+  teamBanner: "bannière d’équipe",
+  teamPhoto: "photo d’équipe",
+};
+
+export const BROKER_PROFILE_ALLOWED_IMAGE_TYPES = [
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/gif",
+  "image/avif",
+] as const;
+export const BROKER_PROFILE_IMAGE_ACCEPT = BROKER_PROFILE_ALLOWED_IMAGE_TYPES.join(",");
+export const BROKER_PROFILE_MAX_FILE_SIZE = 2_000_000;
+
 export function brokerProfileAssetReference(path: string) {
   return `${BROKER_PROFILE_ASSET_REFERENCE_PREFIX}${path}`;
 }

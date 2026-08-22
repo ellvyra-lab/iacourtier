@@ -6,6 +6,10 @@ import { Check, ChevronLeft, ChevronRight, Loader2, Plus, Upload } from "lucide-
 
 import { agencyLogoUrl, searchAgencyBrands } from "@/lib/agency-brands";
 import {
+  BROKER_PROFILE_ALLOWED_IMAGE_TYPES,
+  BROKER_PROFILE_ASSET_LABELS,
+  BROKER_PROFILE_IMAGE_ACCEPT,
+  BROKER_PROFILE_MAX_FILE_SIZE,
   buildProfessionalSignature,
   emptyBrokerProfile,
   loadBrokerProfile,
@@ -81,7 +85,14 @@ export function BrokerWelcomeOnboarding() {
   function importImage(key: AssetKey, event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) return;
-    if (file.size > 2_000_000) return setError("Utilisez une image de moins de 2 Mo.");
+    const label = BROKER_PROFILE_ASSET_LABELS[key];
+    if (!(BROKER_PROFILE_ALLOWED_IMAGE_TYPES as readonly string[]).includes(file.type)) {
+      return setError(`Le fichier « ${label} » doit être une image JPEG, PNG, WebP, GIF ou AVIF.`);
+    }
+    if (file.size > BROKER_PROFILE_MAX_FILE_SIZE) {
+      return setError(`Le fichier « ${label} » dépasse la limite de 2 Mo.`);
+    }
+    setError("");
     const reader = new FileReader();
     reader.onload = () => update(key, typeof reader.result === "string" ? reader.result : "");
     reader.readAsDataURL(file);
@@ -189,7 +200,7 @@ export function BrokerWelcomeOnboarding() {
 
       {step === 7 ? <div><StepTitle number={8} title="Quels sont vos principaux objectifs?" /><ChoiceGroup title="Sélectionnez tous les objectifs pertinents" values={GOALS} selected={profile.businessGoals} onToggle={(value) => toggleList("businessGoals", value)} /></div> : null}
 
-      {step === 8 ? <div><StepTitle number={9} title="Votre espace est prêt" /><div className="mt-5 grid gap-3 sm:grid-cols-2">{["Profil créé", "Agence configurée", "Logo chargé", "Couleurs appliquées", "Signature créée", "Partenaires enregistrés", "Style configuré", "Automatisations prêtes"].map((item) => <p key={item} className="flex items-center gap-2 rounded-xl bg-background p-4 text-sm font-semibold"><Check className="h-4 w-4 text-electric-500" />{item}</p>)}</div><div className="mt-6 rounded-xl border border-electric-500/30 bg-electric-500/5 p-5"><p className="font-semibold">Parfait!</p><p className="mt-2 text-sm leading-6 text-muted">À partir de maintenant, tous les courriels, PDF, guides, publications, signatures et automatisations utiliseront automatiquement votre image de marque.</p></div></div> : null}
+      {step === 8 ? <div><StepTitle number={9} title="Vérification finale" /><div className="mt-5 grid gap-3 sm:grid-cols-2">{["Profil prêt à enregistrer", "Agence sélectionnée", "Fichiers prêts à téléverser", "Couleurs configurées", "Signature préparée", "Partenaires préparés", "Style configuré", "Objectifs configurés"].map((item) => <p key={item} className="flex items-center gap-2 rounded-xl bg-background p-4 text-sm font-semibold"><Check className="h-4 w-4 text-electric-500" />{item}</p>)}</div><div className="mt-6 rounded-xl border border-electric-500/30 bg-electric-500/5 p-5"><p className="font-semibold">Dernière étape</p><p className="mt-2 text-sm leading-6 text-muted">Cliquez sur « Terminer la configuration ». IACourtier confirmera votre session, téléversera vos fichiers dans Supabase Storage, puis enregistrera votre profil avant d’ouvrir le tableau de bord.</p></div></div> : null}
     </section>
 
     {error ? <p className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p> : null}
@@ -206,7 +217,7 @@ function Field({ label, value, onChange }: { label: string; value: string; onCha
 }
 
 function UploadField({ label, value, onChange }: { label: string; value: string; onChange: (event: ChangeEvent<HTMLInputElement>) => void }) {
-  return <label className="rounded-xl border border-dashed border-subtle bg-background p-4"><span className="text-sm font-medium">{label}</span>{value ? <img src={value} alt="" className="mt-3 h-24 w-full rounded-lg object-contain" /> : <Upload className="mt-4 h-7 w-7 text-muted" />}<input type="file" accept="image/*" onChange={onChange} className="mt-3 block w-full text-xs" /></label>;
+  return <label className="rounded-xl border border-dashed border-subtle bg-background p-4"><span className="text-sm font-medium">{label}</span>{value ? <img src={value} alt="" className="mt-3 h-24 w-full rounded-lg object-contain" /> : <Upload className="mt-4 h-7 w-7 text-muted" />}<input type="file" accept={BROKER_PROFILE_IMAGE_ACCEPT} onChange={onChange} className="mt-3 block w-full text-xs" /></label>;
 }
 
 function ChoiceGroup({ title, values, selected, onToggle }: { title: string; values: string[]; selected: string[]; onToggle: (value: string) => void }) {

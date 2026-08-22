@@ -3,8 +3,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import {
+  BROKER_PROFILE_ALLOWED_IMAGE_TYPES,
   BROKER_PROFILE_ASSET_BUCKET,
   BROKER_PROFILE_ASSET_KEYS,
+  BROKER_PROFILE_ASSET_LABELS,
+  BROKER_PROFILE_MAX_FILE_SIZE,
   brokerProfileAssetPath,
   brokerProfileAssetReference,
   normalizeBrokerProfile,
@@ -34,12 +37,15 @@ async function uploadDataUrl(
   key: (typeof BROKER_PROFILE_ASSET_KEYS)[number],
   value: string,
 ) {
+  const label = BROKER_PROFILE_ASSET_LABELS[key];
   const blob = await fetch(value).then((response) => response.blob());
-  if (!blob.type.startsWith("image/")) {
-    throw new Error(`Le fichier ${key} n’est pas une image valide.`);
+  if (!(BROKER_PROFILE_ALLOWED_IMAGE_TYPES as readonly string[]).includes(blob.type)) {
+    throw new Error(
+      `Le fichier « ${label} » n’est pas dans un format accepté (JPEG, PNG, WebP, GIF ou AVIF).`,
+    );
   }
-  if (blob.size > 2_000_000) {
-    throw new Error(`Le fichier ${key} dépasse la limite de 2 Mo.`);
+  if (blob.size > BROKER_PROFILE_MAX_FILE_SIZE) {
+    throw new Error(`Le fichier « ${label} » dépasse la limite de 2 Mo.`);
   }
 
   const path = `${userId}/${key}`;
@@ -52,7 +58,13 @@ async function uploadDataUrl(
     });
 
   if (error) {
-    throw new Error(`Supabase Storage (${error.name || "upload"}) : ${error.message}`);
+    const status = "statusCode" in error && error.statusCode
+      ? ` · HTTP ${error.statusCode}`
+      : "";
+    throw new Error(
+      `Échec du téléversement de « ${label} » dans le bucket « ${BROKER_PROFILE_ASSET_BUCKET} » `
+      + `(objet « ${path} ») : ${error.name || "StorageApiError"}${status} · ${error.message}`,
+    );
   }
 
   return brokerProfileAssetReference(path);
