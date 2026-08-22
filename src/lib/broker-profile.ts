@@ -88,6 +88,12 @@ export const BROKER_PROFILE_ALLOWED_IMAGE_TYPES = [
 export const BROKER_PROFILE_IMAGE_ACCEPT = BROKER_PROFILE_ALLOWED_IMAGE_TYPES.join(",");
 export const BROKER_PROFILE_MAX_FILE_SIZE = 2_000_000;
 
+export function brokerProfileAssetObjectPath(userId: string, key: BrokerProfileAssetKey) {
+  const ownerFolder = userId.trim();
+  if (!ownerFolder) throw new Error("L’identifiant Supabase du propriétaire est absent.");
+  return `${ownerFolder}/${key}`;
+}
+
 export function brokerProfileAssetReference(path: string) {
   return `${BROKER_PROFILE_ASSET_REFERENCE_PREFIX}${path}`;
 }

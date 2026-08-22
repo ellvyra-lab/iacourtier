@@ -8,6 +8,7 @@ import {
   BROKER_PROFILE_ASSET_KEYS,
   BROKER_PROFILE_ASSET_LABELS,
   BROKER_PROFILE_MAX_FILE_SIZE,
+  brokerProfileAssetObjectPath,
   brokerProfileAssetPath,
   brokerProfileAssetReference,
   normalizeBrokerProfile,
@@ -48,7 +49,7 @@ async function uploadDataUrl(
     throw new Error(`Le fichier « ${label} » dépasse la limite de 2 Mo.`);
   }
 
-  const path = `${userId}/${key}`;
+  const path = brokerProfileAssetObjectPath(userId, key);
   const { error } = await supabase.storage
     .from(BROKER_PROFILE_ASSET_BUCKET)
     .upload(path, blob, {
