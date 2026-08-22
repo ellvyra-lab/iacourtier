@@ -4,7 +4,11 @@ import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { LogIn, Mail, Lock, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import { createSupabaseBrowserClient, isSupabaseBrowserConfigured } from "@/lib/supabase/client";
+import {
+  createSupabaseBrowserClient,
+  describeSupabaseBrowserError,
+  getSupabaseBrowserConfigurationError,
+} from "@/lib/supabase/client";
 
 export function LoginForm() {
   const router = useRouter();
@@ -31,8 +35,9 @@ export function LoginForm() {
     setError("");
 
     try {
-      if (!isSupabaseBrowserConfigured()) {
-        throw new Error("auth_configuration");
+      const configurationError = getSupabaseBrowserConfigurationError();
+      if (configurationError) {
+        throw new Error(configurationError);
       }
       const supabase = createSupabaseBrowserClient();
       const { data, error: signInError } = await supabase.auth.signInWithPassword({
@@ -45,7 +50,10 @@ export function LoginForm() {
         setError(
           signInError.message === "Invalid login credentials"
             ? "Courriel ou mot de passe incorrect."
-            : signInError.message
+            : describeSupabaseBrowserError(
+                signInError,
+                "Supabase n’a pas pu ouvrir la session.",
+              )
         );
         return;
       }
@@ -78,10 +86,13 @@ export function LoginForm() {
         : "/tableau-de-bord";
       router.replace(next);
       router.refresh();
-    } catch {
+    } catch (caughtError) {
       setLoading(false);
       setError(
-        "Le service de connexion n'est pas encore configuré. Contactez l'administrateur du site."
+        describeSupabaseBrowserError(
+          caughtError,
+          "Une erreur inconnue a empêché la connexion.",
+        ),
       );
     }
   }

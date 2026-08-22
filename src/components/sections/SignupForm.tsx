@@ -4,7 +4,11 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { UserPlus, Mail, Lock, User, Loader2, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import { createSupabaseBrowserClient, isSupabaseBrowserConfigured } from "@/lib/supabase/client";
+import {
+  createSupabaseBrowserClient,
+  describeSupabaseBrowserError,
+  getSupabaseBrowserConfigurationError,
+} from "@/lib/supabase/client";
 
 export function SignupForm() {
   const router = useRouter();
@@ -21,8 +25,9 @@ export function SignupForm() {
     setError("");
 
     try {
-      if (!isSupabaseBrowserConfigured()) {
-        throw new Error("auth_configuration");
+      const configurationError = getSupabaseBrowserConfigurationError();
+      if (configurationError) {
+        throw new Error(configurationError);
       }
       const supabase = createSupabaseBrowserClient();
       const { data, error: signUpError } = await supabase.auth.signUp({
@@ -42,7 +47,10 @@ export function SignupForm() {
         setError(
           signUpError.message === "User already registered"
             ? "Un compte existe déjà avec ce courriel."
-            : signUpError.message
+            : describeSupabaseBrowserError(
+                signUpError,
+                "Supabase n’a pas pu créer le compte.",
+              )
         );
         return;
       }
@@ -58,10 +66,13 @@ export function SignupForm() {
       } else {
         setNeedsConfirmation(true);
       }
-    } catch {
+    } catch (caughtError) {
       setLoading(false);
       setError(
-        "Le service d'inscription n'est pas encore configuré. Contactez l'administrateur du site."
+        describeSupabaseBrowserError(
+          caughtError,
+          "Une erreur inconnue a empêché la création du compte.",
+        ),
       );
     }
   }
