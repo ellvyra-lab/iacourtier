@@ -15,6 +15,10 @@ import {
   type BrokerProfile,
   type BrokerPartnerCategory,
 } from "@/lib/broker-profile";
+import {
+  loadBrokerProfileFromSupabase,
+  saveBrokerProfileToSupabase,
+} from "@/lib/broker-profile-persistence";
 import { createSupabaseBrowserClient, isSupabaseBrowserConfigured } from "@/lib/supabase/client";
 import { agencyLogoUrl, searchAgencyBrands, type AgencyBrand } from "@/lib/agency-brands";
 
@@ -85,9 +89,17 @@ export function AccountSettingsForm() {
         return;
       }
 
-      const remote = normalizeBrokerProfile(user.user_metadata?.broker_profile);
-      const local = loadBrokerProfile();
-      const selected = remote.fullName || remote.agencyName ? remote : local;
+      const database = await loadBrokerProfileFromSupabase().catch((loadError) => {
+        console.error("[professional-profile] Settings load failed", loadError);
+        return null;
+      });
+      const legacy = normalizeBrokerProfile(user.user_metadata?.broker_profile);
+      const local = loadBrokerProfile(user.id);
+      const selected = database?.fullName || database?.agencyName
+        ? database
+        : legacy.fullName || legacy.agencyName
+          ? legacy
+          : local;
       if (active) {
         setProfile({
           ...selected,
@@ -183,23 +195,33 @@ export function AccountSettingsForm() {
       return;
     }
 
-    const { error: updateError } = await supabase.auth.updateUser({
-      data: { full_name: profile.fullName, broker_profile: profile },
-    });
-    setSaving(false);
-    if (updateError) {
-      const sessionExpired = /auth session|jwt|refresh token|session missing/i.test(updateError.message);
-      setError(sessionExpired
-        ? "Votre session a expiré. Veuillez vous reconnecter pour enregistrer votre profil."
-        : "Le profil n’a pas pu être enregistré. Réessayez dans un instant.");
-      if (sessionExpired) {
-        window.setTimeout(() => router.replace("/connexion?next=/tableau-de-bord/identite-professionnelle"), 1200);
+    try {
+      const savedProfile = await saveBrokerProfileToSupabase({
+        supabase,
+        userId: userData.user.id,
+        profile,
+      });
+      const { error: metadataError } = await supabase.auth.updateUser({
+        data: {
+          full_name: savedProfile.fullName,
+          onboarding_completed: savedProfile.onboardingCompleted,
+        },
+      });
+      if (metadataError) {
+        console.error("[professional-profile] Auth metadata sync failed", metadataError);
       }
-      return;
+      saveBrokerProfile(savedProfile, userData.user.id);
+      setProfile(savedProfile);
+      setSaving(false);
+      setSaved(true);
+      window.setTimeout(() => setSaved(false), 2500);
+    } catch (saveError) {
+      console.error("[professional-profile] Settings save failed", saveError);
+      setSaving(false);
+      setError(saveError instanceof Error
+        ? saveError.message
+        : "Le profil professionnel n’a pas pu être enregistré.");
     }
-    saveBrokerProfile(profile);
-    setSaved(true);
-    window.setTimeout(() => setSaved(false), 2500);
   }
 
   return (

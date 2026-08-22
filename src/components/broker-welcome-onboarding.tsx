@@ -15,6 +15,10 @@ import {
   type BrokerPartnerCategory,
   type BrokerProfile,
 } from "@/lib/broker-profile";
+import {
+  loadBrokerProfileFromSupabase,
+  saveBrokerProfileToSupabase,
+} from "@/lib/broker-profile-persistence";
 import { createSupabaseBrowserClient, isSupabaseBrowserConfigured } from "@/lib/supabase/client";
 
 const STEPS = ["Qui êtes-vous?", "Agence", "Identité visuelle", "Coordonnées", "Équipe", "Partenaires", "Personnalité", "Objectifs", "Résumé"];
@@ -40,14 +44,27 @@ export function BrokerWelcomeOnboarding() {
   const [error, setError] = useState("");
 
   useEffect(() => {
+    let active = true;
     const supabase = createSupabaseBrowserClient();
-    supabase.auth.getUser().then(({ data }) => {
-      const remote = normalizeBrokerProfile(data.user?.user_metadata?.broker_profile);
-      const local = loadBrokerProfile();
-      const source = remote.fullName || remote.agencyName ? remote : local;
+    async function loadProfile() {
+      const { data } = await supabase.auth.getUser();
+      const database = await loadBrokerProfileFromSupabase().catch((loadError) => {
+        console.error("[professional-profile] Initial load failed", loadError);
+        return null;
+      });
+      const legacy = normalizeBrokerProfile(data.user?.user_metadata?.broker_profile);
+      const local = loadBrokerProfile(data.user?.id);
+      const source = database?.fullName || database?.agencyName
+        ? database
+        : legacy.fullName || legacy.agencyName
+          ? legacy
+          : local;
+      if (!active) return;
       setProfile({ ...source, fullName: source.fullName || String(data.user?.user_metadata?.full_name || ""), email: source.email || data.user?.email || "" });
       setAgencyQuery(source.agencyName);
-    });
+    }
+    void loadProfile();
+    return () => { active = false; };
   }, []);
 
   const agencies = useMemo(() => searchAgencyBrands(agencyQuery).slice(0, 8), [agencyQuery]);
@@ -104,7 +121,7 @@ export function BrokerWelcomeOnboarding() {
     if (sessionError || !sessionData.session) {
       setSaving(false);
       setError("Votre session est absente ou expirée. Vous allez être redirigé vers la connexion.");
-      window.setTimeout(() => router.replace("/connexion?next=/bienvenue"), 1200);
+      window.setTimeout(() => router.replace("/connexion?next=/tableau-de-bord/bienvenue"), 1200);
       return;
     }
 
@@ -112,23 +129,38 @@ export function BrokerWelcomeOnboarding() {
     if (userError || !userData.user || userData.user.id !== sessionData.session.user.id) {
       setSaving(false);
       setError("Impossible de confirmer votre identité. Veuillez vous reconnecter.");
-      window.setTimeout(() => router.replace("/connexion?next=/bienvenue"), 1200);
+      window.setTimeout(() => router.replace("/connexion?next=/tableau-de-bord/bienvenue"), 1200);
       return;
     }
 
-    const { error: updateError } = await supabase.auth.updateUser({ data: { full_name: completed.fullName, broker_profile: completed } });
-    setSaving(false);
-    if (updateError) {
-      const sessionExpired = /auth session|jwt|refresh token|session missing/i.test(updateError.message);
-      setError(sessionExpired
-        ? "Votre session a expiré. Veuillez vous reconnecter pour enregistrer votre profil."
-        : "Le profil n’a pas pu être enregistré. Réessayez dans un instant.");
-      if (sessionExpired) window.setTimeout(() => router.replace("/connexion?next=/bienvenue"), 1200);
-      return;
+    try {
+      const saved = await saveBrokerProfileToSupabase({
+        supabase,
+        userId: userData.user.id,
+        profile: completed,
+      });
+
+      // Keep only the small compatibility/onboarding flags in Auth metadata.
+      // The professional profile itself is sourced from public.profiles.
+      const { error: metadataError } = await supabase.auth.updateUser({
+        data: { full_name: saved.fullName, onboarding_completed: true },
+      });
+      if (metadataError) {
+        console.error("[professional-profile] Auth metadata sync failed", metadataError);
+      }
+
+      saveBrokerProfile(saved, userData.user.id);
+      setSaving(false);
+      router.push("/tableau-de-bord");
+      router.refresh();
+    } catch (saveError) {
+      console.error("[professional-profile] Onboarding save failed", saveError);
+      setSaving(false);
+      const message = saveError instanceof Error
+        ? saveError.message
+        : "Le profil professionnel n’a pas pu être enregistré.";
+      setError(message);
     }
-    saveBrokerProfile(completed);
-    router.push("/tableau-de-bord");
-    router.refresh();
   }
 
   return <div className="mx-auto max-w-5xl space-y-6">

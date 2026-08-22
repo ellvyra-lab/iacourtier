@@ -53,6 +53,44 @@ export type BrokerProfile = {
   partners: BrokerPartner[];
 };
 
+export const BROKER_PROFILE_ASSET_BUCKET = "broker-profile-assets";
+export const BROKER_PROFILE_ASSET_REFERENCE_PREFIX =
+  `supabase-storage://${BROKER_PROFILE_ASSET_BUCKET}/`;
+export const BROKER_PROFILE_ASSET_KEYS = [
+  "photo",
+  "logo",
+  "banner",
+  "agencyLogo",
+  "teamLogo",
+  "teamBanner",
+  "teamPhoto",
+] as const satisfies ReadonlyArray<keyof BrokerProfile>;
+
+export type BrokerProfileAssetKey = (typeof BROKER_PROFILE_ASSET_KEYS)[number];
+
+export function brokerProfileAssetReference(path: string) {
+  return `${BROKER_PROFILE_ASSET_REFERENCE_PREFIX}${path}`;
+}
+
+export function brokerProfileAssetPath(value: string) {
+  if (value.startsWith(BROKER_PROFILE_ASSET_REFERENCE_PREFIX)) {
+    return value.slice(BROKER_PROFILE_ASSET_REFERENCE_PREFIX.length);
+  }
+
+  try {
+    const url = new URL(value);
+    const marker = `/storage/v1/object/sign/${BROKER_PROFILE_ASSET_BUCKET}/`;
+    const markerIndex = url.pathname.indexOf(marker);
+    if (markerIndex >= 0) {
+      return decodeURIComponent(url.pathname.slice(markerIndex + marker.length));
+    }
+  } catch {
+    // Local paths and data URLs are valid profile values, but not Storage refs.
+  }
+
+  return null;
+}
+
 export const BROKER_PROFILE_KEY = "iacourtier_broker_profile";
 const ACTIVE_BROKER_USER_KEY = "iacourtier_active_broker_user";
 

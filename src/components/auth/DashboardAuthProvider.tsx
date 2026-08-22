@@ -22,8 +22,14 @@ import {
 import {
   isBrokerOnboardingComplete,
   normalizeBrokerProfile,
+  saveBrokerProfile,
   setActiveBrokerProfileUser,
+  type BrokerProfile,
 } from "@/lib/broker-profile";
+import {
+  BROKER_PROFILE_SAVED_EVENT,
+  loadBrokerProfileFromSupabase,
+} from "@/lib/broker-profile-persistence";
 
 export type DashboardAuthStatus =
   | "checking"
@@ -223,15 +229,72 @@ export function DashboardAuthGate({ children }: { children: ReactNode }) {
   const router = useRouter();
   const { status, user, verifySession } = useDashboardAuth();
   const next = `/connexion?next=${encodeURIComponent(pathname)}`;
-  const needsOnboarding = Boolean(
-    user && !isBrokerOnboardingComplete(normalizeBrokerProfile(user.user_metadata?.broker_profile)),
-  );
+  const [profileStatus, setProfileStatus] = useState<"checking" | "complete" | "incomplete">("checking");
+
+  useEffect(() => {
+    let active = true;
+    if (status !== "authenticated" || !user) {
+      setProfileStatus("checking");
+      return () => { active = false; };
+    }
+    const authenticatedUser = user;
+
+    async function verifyProfessionalProfile() {
+      try {
+        const databaseProfile = await loadBrokerProfileFromSupabase();
+        if (!active) return;
+        if (databaseProfile) saveBrokerProfile(databaseProfile, authenticatedUser.id);
+        setProfileStatus(
+          databaseProfile && isBrokerOnboardingComplete(databaseProfile)
+            ? "complete"
+            : "incomplete",
+        );
+      } catch (profileError) {
+        console.error("[professional-profile] Dashboard verification failed", profileError);
+        if (!active) return;
+        const legacyProfile = normalizeBrokerProfile(authenticatedUser.user_metadata?.broker_profile);
+        if (isBrokerOnboardingComplete(legacyProfile)) {
+          saveBrokerProfile(legacyProfile, authenticatedUser.id);
+          setProfileStatus("complete");
+        } else {
+          setProfileStatus("incomplete");
+        }
+      }
+    }
+
+    setProfileStatus("checking");
+    void verifyProfessionalProfile();
+    return () => { active = false; };
+  }, [status, user]);
+
+  useEffect(() => {
+    function profileSaved(event: Event) {
+      const profile = (event as CustomEvent<BrokerProfile>).detail;
+      if (!user || !profile) return;
+      saveBrokerProfile(profile, user.id);
+      setProfileStatus(isBrokerOnboardingComplete(profile) ? "complete" : "incomplete");
+    }
+    window.addEventListener(BROKER_PROFILE_SAVED_EVENT, profileSaved);
+    return () => window.removeEventListener(BROKER_PROFILE_SAVED_EVENT, profileSaved);
+  }, [user]);
+
+  const needsOnboarding = profileStatus === "incomplete";
 
   useEffect(() => {
     if (status === "authenticated" && user && needsOnboarding && pathname !== "/tableau-de-bord/bienvenue") {
       router.replace("/tableau-de-bord/bienvenue");
     }
   }, [needsOnboarding, pathname, router, status, user]);
+
+  if (status === "authenticated" && user && profileStatus === "checking") {
+    return (
+      <AuthScreen role="status">
+        <Loader2 className="h-6 w-6 animate-spin text-teal-700" />
+        <h1 className="text-xl font-semibold">Chargement de ton profil professionnel…</h1>
+        <p className="text-sm text-muted">IACourtier vérifie les informations enregistrées dans Supabase.</p>
+      </AuthScreen>
+    );
+  }
 
   if (status === "authenticated" && user && (!needsOnboarding || pathname === "/tableau-de-bord/bienvenue")) {
     return <>{children}</>;

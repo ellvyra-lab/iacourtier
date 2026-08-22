@@ -3,7 +3,8 @@ import { NextResponse } from "next/server";
 import { getAssistantConfig } from "@/data/assistantsConfig";
 import { buildBusinessActionPrompt, getBusinessAction, type BusinessActionRunInput } from "@/lib/business-actions";
 import { generateWithOpenAI, getOpenAIErrorPayload } from "@/lib/openai";
-import { CLIENT_BRAND_SAFETY_RULES, formatBrokerProfileForPrompt, normalizeBrokerProfile, sanitizeClientFacingContent } from "@/lib/broker-profile";
+import { CLIENT_BRAND_SAFETY_RULES, formatBrokerProfileForPrompt, sanitizeClientFacingContent } from "@/lib/broker-profile";
+import { loadBrokerProfileForUser } from "@/lib/broker-profile-server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -16,7 +17,7 @@ export async function POST(request: Request) {
     if (!userData.user) {
       return NextResponse.json({ ok: false, error: "Vous devez être connecté." }, { status: 401 });
     }
-    const brokerProfile = normalizeBrokerProfile(userData.user.user_metadata?.broker_profile);
+    const brokerProfile = await loadBrokerProfileForUser(supabase, userData.user);
     const brokerContext = formatBrokerProfileForPrompt(brokerProfile);
     const action = getBusinessAction(body.actionId);
 

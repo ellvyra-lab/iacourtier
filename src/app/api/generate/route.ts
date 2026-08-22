@@ -55,7 +55,7 @@ export async function POST(req: NextRequest) {
   try {
     const { data, error: profileError } = await supabase
       .from("profiles")
-      .select("plan, generations_used_this_period, current_period_start")
+      .select("plan, generations_used_this_period, current_period_start, professional_profile")
       .eq("id", user.id)
       .single();
 
@@ -102,7 +102,7 @@ export async function POST(req: NextRequest) {
   const sharedContextPrompt = values.ai_context_prompt
     ? `\n\nContexte partage deja connu par IACourtier. Utilise ces donnees pour eviter de demander au courtier de les ressaisir. Ne jamais inventer une donnee absente :\n${values.ai_context_prompt}`
     : "";
-  const brokerProfile = normalizeBrokerProfile(user.user_metadata?.broker_profile);
+  const brokerProfile = normalizeBrokerProfile(profile.professional_profile || user.user_metadata?.broker_profile);
   const brokerProfilePrompt = formatBrokerProfileForPrompt(brokerProfile);
   const personalizationPrompt = brokerProfilePrompt
     ? `\n\nPROFIL PROFESSIONNEL OFFICIEL DU COURTIER :
