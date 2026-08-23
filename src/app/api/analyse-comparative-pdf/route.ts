@@ -1,26 +1,13 @@
 import { NextResponse } from "next/server";
-import { createRequire } from "node:module";
 
 import { generateWithOpenAI, getOpenAIErrorPayload } from "@/lib/openai";
+import { extractPdfContent } from "@/lib/server/pdf-analysis";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 
 const MAX_PDF_BYTES = 12 * 1024 * 1024;
 const MAX_EXTRACTED_CHARS = 24_000;
-
-type PDFParseInstance = {
-  getText: () => Promise<{ text: string }>;
-  destroy: () => Promise<void> | void;
-};
-
-type PDFParseConstructor = new (options: { data: Buffer }) => PDFParseInstance;
-
-const requirePdfParse = createRequire(import.meta.url);
-
-function getPDFParse() {
-  return requirePdfParse("pdf-parse").PDFParse as PDFParseConstructor;
-}
 
 const systemPrompt = `Tu es un courtier immobilier d'expérience au Québec, spécialisé en analyse comparative de marché résidentiel.
 
@@ -138,14 +125,11 @@ export async function POST(request: Request) {
 
     try {
       const buffer = Buffer.from(await file.arrayBuffer());
-      const PDFParse = getPDFParse();
-      const parser = new PDFParse({ data: buffer });
-      const result = await parser.getText();
-      extractedText = result.text.trim().replace(/\s+\n/g, "\n");
-      await parser.destroy();
-    } catch {
+      extractedText = (await extractPdfContent(buffer)).text;
+    } catch (error) {
+      console.error("[analyse-comparative-pdf] PDF extraction failed", error);
       return NextResponse.json(
-        { error: "Le PDF n’a pas pu être lu automatiquement. Essayez un PDF texte ou utilisez la saisie manuelle." },
+        { error: `Le PDF n’a pas pu être lu automatiquement : ${error instanceof Error ? error.message : "erreur PDF inconnue"}` },
         { status: 422 },
       );
     }

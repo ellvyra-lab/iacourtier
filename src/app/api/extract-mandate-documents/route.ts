@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { createRequire } from "node:module";
 
 import { generateWithOpenAIFile, generateWithOpenAIVision, getOpenAIErrorPayload } from "@/lib/openai";
 import {
@@ -10,6 +9,8 @@ import {
   parseJsonObject,
   type MandateDocumentAnalysis,
 } from "@/lib/mandate-document-extraction";
+import { imageDataUrlForVision } from "@/lib/server/image-analysis";
+import { extractPdfContent } from "@/lib/server/pdf-analysis";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -21,45 +22,6 @@ const MAX_TEXT_PREVIEW_CHARS = 4_000;
 const ANALYSIS_CONCURRENCY = 3;
 const DOCUMENT_ANALYSIS_MODEL = process.env.OPENAI_DOCUMENT_MODEL?.trim() || "gpt-4o";
 const acceptedExtensions = [".pdf", ".jpg", ".jpeg", ".png", ".heic", ".heif", ".webp"];
-
-type PDFParseInstance = {
-  getText: () => Promise<{ text: string; total: number }>;
-  getScreenshot: (options: { desiredWidth: number; imageDataUrl: boolean; imageBuffer: boolean }) => Promise<{
-    total: number;
-    pages: Array<{ dataUrl: string }>;
-  }>;
-  destroy: () => Promise<void> | void;
-};
-type PDFParseConstructor = new (options: { data: Buffer }) => PDFParseInstance;
-const requirePdfParse = createRequire(import.meta.url);
-
-async function extractPdfContent(data: Buffer) {
-  const PDFParse = requirePdfParse("pdf-parse").PDFParse as PDFParseConstructor;
-  const parser = new PDFParse({ data });
-  try {
-    let text = "";
-    let pageCount: number | null = null;
-    try {
-      const result = await parser.getText();
-      text = result.text.trim().replace(/\s+\n/g, "\n");
-      pageCount = Number.isFinite(result.total) ? result.total : null;
-    } catch {
-      // A valid image-only PDF can have no locally extractable text.
-    }
-
-    const textPerPage = text.length / Math.max(1, pageCount || 1);
-    const screenshots = textPerPage < 80
-      ? (await parser.getScreenshot({ desiredWidth: 2000, imageDataUrl: true, imageBuffer: false })).pages.map((page) => page.dataUrl)
-      : [];
-    return {
-      text,
-      pageCount,
-      screenshots,
-    };
-  } finally {
-    await parser.destroy();
-  }
-}
 
 function extension(name: string) {
   const index = name.lastIndexOf(".");
@@ -92,7 +54,7 @@ async function analyzeDocument(file: File, textPreviews: string[]): Promise<Mand
   const data = Buffer.from(await file.arrayBuffer());
 
   if (ext === ".pdf") {
-    const extracted = await extractPdfContent(data);
+    const extracted = await extractPdfContent(data, { renderScannedPages: true, desiredWidth: 2000 });
     const { text, pageCount, screenshots } = extracted;
     if (text) textPreviews.push(`--- ${file.name} ---\n${text}`);
 
@@ -123,11 +85,11 @@ async function analyzeDocument(file: File, textPreviews: string[]): Promise<Mand
     });
   }
 
-  const mime = file.type || (ext === ".png" ? "image/png" : ext === ".webp" ? "image/webp" : ext === ".heic" || ext === ".heif" ? "image/heic" : "image/jpeg");
+  const image = await imageDataUrlForVision(file);
   const aiText = await generateWithOpenAIVision({
     systemPrompt: mandateDocumentExtractionSystemPrompt,
     userPrompt: documentPrompt(file.name),
-    images: [{ name: file.name, dataUrl: `data:${mime};base64,${data.toString("base64")}` }],
+    images: [{ name: file.name, dataUrl: image.dataUrl }],
     maxTokens: 4500,
     model: DOCUMENT_ANALYSIS_MODEL,
     timeoutMs: 120_000,

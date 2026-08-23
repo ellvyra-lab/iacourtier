@@ -1,6 +1,8 @@
 packages:
   - "."
 
-onlyBuiltDependencies:
-  - "@sentry/cli"
-  - "unrs-resolver"
+allowBuilds:
+  "@sentry/cli": true
+  "@napi-rs/canvas": true
+  "sharp": true
+  "unrs-resolver": true

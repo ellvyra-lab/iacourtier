@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, type ElementType, type FormEvent } from "react";
 import Link from "next/link";
-import { ArrowRight, CalendarCheck, CheckCircle2, Home, KeyRound, Loader2, Megaphone, Phone, Search, Send, Sparkles } from "lucide-react";
+import { ArrowRight, CalendarCheck, CheckCircle2, FileUp, Home, KeyRound, Loader2, Megaphone, Phone, Search, Send, Sparkles } from "lucide-react";
 
 import { buildSoniaBattlePlan, getSoniaProspects, type SoniaProspect } from "@/lib/sonia-beta";
 import { useDashboardAuth } from "@/components/auth/DashboardAuthProvider";
@@ -12,6 +12,7 @@ type RecentClient = { id: string; name: string; cases: ClientCase[] };
 type CoachAnswer = { reply: string; action: { label: string; href: string } };
 
 const actions: Array<{ icon: ElementType; label: string; href: string; primary?: boolean }> = [
+  { icon: FileUp, label: "Importer un document ou une conversation", href: "/tableau-de-bord/importer", primary: true },
   { icon: Home, label: "J’ai un nouveau vendeur", href: "/tableau-de-bord/inscriptions/nouvelle", primary: true },
   { icon: KeyRound, label: "J’ai un nouvel acheteur", href: "/tableau-de-bord/acheteurs/nouveau", primary: true },
   { icon: Phone, label: "Je veux prospecter", href: "/tableau-de-bord/radar-prospection" },

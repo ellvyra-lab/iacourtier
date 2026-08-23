@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, Bot, CalendarDays, FileText, LayoutDashboard, Megaphone, Radar, Settings, ShieldCheck, Sparkles, UsersRound, Workflow } from "lucide-react";
+import { BarChart3, Bot, CalendarDays, FileInput, FileText, LayoutDashboard, Megaphone, Radar, Settings, ShieldCheck, Sparkles, UsersRound, Workflow } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { useDashboardAuth } from "@/components/auth/DashboardAuthProvider";
@@ -16,6 +16,7 @@ const main = [
   { href: "/tableau-de-bord/coach", label: "Coach IA", icon: Bot },
 ];
 const tools = [
+  { href: "/tableau-de-bord/importer", label: "Importer", icon: FileInput },
   { href: "/tableau-de-bord/actions/generate-marketing-launch", label: "Marketing", icon: Megaphone },
   { href: "/tableau-de-bord/automatisations", label: "Automatisations", icon: Workflow },
   { href: "/tableau-de-bord/telechargements", label: "Documents", icon: FileText },

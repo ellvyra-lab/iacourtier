@@ -6,9 +6,12 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test:universal": "node --test scripts/universal-import.test.mjs",
+    "test:pdf": "node scripts/test-real-pdf.mjs"
   },
   "dependencies": {
+    "@napi-rs/canvas": "0.1.80",
     "@sentry/nextjs": "^10.62.0",
     "@supabase/ssr": "^0.12.0",
     "@supabase/supabase-js": "^2.108.2",
@@ -20,6 +23,7 @@
     "pdf-parse": "^2.4.5",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "sharp": "0.35.3",
     "stripe": "^22.3.0"
   },
   "devDependencies": {
