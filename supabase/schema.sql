@@ -20,6 +20,8 @@ create table if not exists public.profiles (
   stripe_subscription_status text,
   generations_used_this_period integer not null default 0,
   current_period_start timestamptz not null default now(),
+  professional_profile jsonb not null default '{}'::jsonb,
+  onboarding_completed boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -176,3 +178,4 @@ create index if not exists generated_descriptions_mandat_id_idx
 --      essentiel → 200 générations / mois
 --      pro       → illimité
 -- ------------------------------------------------------------
+
