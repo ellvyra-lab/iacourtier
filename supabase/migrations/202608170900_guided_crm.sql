@@ -1,16 +1,16 @@
 -- Parcours guidés vendeur/acheteur partageant une seule fiche client.
 
-alter table public.seller_contacts
+alter table public.clients
   add column if not exists roles text[] not null default array['seller']::text[];
 
-update public.seller_contacts
+update public.clients
 set roles = array['seller']::text[]
 where roles is null or cardinality(roles) = 0;
 
 create table if not exists public.buyer_cases (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
-  contact_id uuid not null references public.seller_contacts(id) on delete cascade,
+  contact_id uuid not null references public.clients(id) on delete cascade,
   status text not null default 'qualification' check (status in ('qualification', 'financing', 'active_search', 'visits', 'offer', 'conditions', 'notary', 'completed')),
   source text not null default 'manual',
   budget text,

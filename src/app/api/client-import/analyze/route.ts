@@ -30,7 +30,7 @@ export async function POST(request: Request) {
     const table = parseClientSpreadsheet(buffer);
 
     const [contactsResult, historyResult] = await Promise.all([
-      supabase.from("seller_contacts").select(CONTACT_COLUMNS).eq("user_id", user.id),
+      supabase.from("clients").select(CONTACT_COLUMNS).eq("user_id", user.id),
       supabase.from("client_imports").select("id,created_at,summary,status").eq("user_id", user.id).eq("file_hash", fingerprint).order("created_at", { ascending: false }).limit(5),
     ]);
     if (contactsResult.error) throw contactsResult.error;

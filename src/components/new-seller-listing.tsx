@@ -45,7 +45,7 @@ export function NewSellerListing() {
 
   useEffect(() => {
     if (authStatus !== "authenticated") return;
-    authenticatedFetch("/api/seller-contacts", { cache: "no-store" })
+    authenticatedFetch("/api/client-options", { cache: "no-store" })
       .then(async (response) => ({ ok: response.ok, payload: await response.json() as { contacts?: ContactRow[]; error?: string } }))
       .then(({ ok, payload }) => {
         if (ok) setContacts(payload.contacts || []);

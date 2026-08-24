@@ -48,7 +48,7 @@ export async function POST(request: Request) {
     const decisions = parseDecisions(formData.get("decisions"));
     const table = parseClientSpreadsheet(fileBuffer);
 
-    const { data: contactsData, error: contactsError } = await supabase.from("seller_contacts").select(CONTACT_COLUMNS).eq("user_id", user.id);
+    const { data: contactsData, error: contactsError } = await supabase.from("clients").select(CONTACT_COLUMNS).eq("user_id", user.id);
     if (contactsError) throw contactsError;
     const plan = buildClientImportPlan(table, (contactsData || []).map((contact) => normalizeExistingClient(contact)));
 
@@ -95,7 +95,7 @@ export async function POST(request: Request) {
     const appliedUpdates = consolidateUpdates(updates);
     for (const batch of chunks(appliedUpdates, 200)) {
       const rows = batch.map((item) => ({ id: item.id, ...contactDatabaseRow(item.data, user.id, importId) }));
-      const { error } = await supabase.from("seller_contacts").upsert(rows, { onConflict: "id" });
+      const { error } = await supabase.from("clients").upsert(rows, { onConflict: "id" });
       if (error) throw error;
       batch.forEach((item) => {
         audit.push({ contact_id: item.id, row_numbers: item.rows.map((row) => row.rowNumber), outcome: item.changed ? (item.rows.length > 1 ? "merged" : "updated") : "unchanged", warnings: item.warnings });
@@ -104,7 +104,7 @@ export async function POST(request: Request) {
 
     let createdCount = 0;
     for (const batch of chunks(creates, 150)) {
-      const { data, error } = await supabase.from("seller_contacts").insert(batch.map((item) => contactDatabaseRow(item.data, user.id, importId))).select("id");
+      const { data, error } = await supabase.from("clients").insert(batch.map((item) => contactDatabaseRow(item.data, user.id, importId))).select("id");
       if (error || !data || data.length !== batch.length) throw error || new Error("Une partie des fiches clients n’a pas pu être créée.");
       data.forEach((created, index) => {
         const item = batch[index];

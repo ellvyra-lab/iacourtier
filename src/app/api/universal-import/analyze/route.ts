@@ -98,7 +98,7 @@ export async function POST(request: Request) {
 
     const analysis = mergeUniversalAnalyses(analyses);
     const [contactsResult, propertiesResult] = await Promise.all([
-      supabase.from("seller_contacts").select("id,first_name,last_name,email,phone,roles").eq("user_id", user.id),
+      supabase.from("clients").select("id,first_name,last_name,email,phone,roles").eq("user_id", user.id),
       supabase.from("properties").select("id,address,city").eq("user_id", user.id),
     ]);
     if (contactsResult.error) return NextResponse.json({ error: contactsResult.error.message }, { status: 500 });

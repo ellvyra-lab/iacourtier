@@ -64,7 +64,7 @@ export async function POST(request: Request) {
     if (!user) return expiredSession();
 
     const { data: existingContactsData, error: contactsError } = await supabase
-      .from("seller_contacts")
+      .from("clients")
       .select("id,first_name,last_name,email,phone,mailing_address,roles")
       .eq("user_id", user.id);
     if (contactsError) return NextResponse.json({ error: databaseMessage(contactsError.message) }, { status: 500 });
@@ -82,10 +82,10 @@ export async function POST(request: Request) {
         if (!contactIds.includes(duplicate.id)) contactIds.push(duplicate.id);
         deduplicated.push(`${duplicate.first_name} ${duplicate.last_name}`.trim());
         const roles = Array.from(new Set([...(duplicate.roles || []), "seller"]));
-        await supabase.from("seller_contacts").update({ roles, updated_at: new Date().toISOString() }).eq("id", duplicate.id).eq("user_id", user.id);
+        await supabase.from("clients").update({ roles, updated_at: new Date().toISOString() }).eq("id", duplicate.id).eq("user_id", user.id);
         continue;
       }
-      const { data: inserted, error } = await supabase.from("seller_contacts").insert({
+      const { data: inserted, error } = await supabase.from("clients").insert({
         user_id: user.id,
         first_name: seller.firstName.trim(),
         last_name: seller.lastName.trim(),

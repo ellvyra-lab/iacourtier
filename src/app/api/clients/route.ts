@@ -22,9 +22,9 @@ export async function GET(request: Request) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ error: "Ta session a expiré.", reconnectUrl: "/connexion" }, { status: 401 });
 
-    const contactsWithRoles = await supabase.from("seller_contacts").select("id,first_name,last_name,email,phone,mailing_address,roles,tags,client_status,updated_at").eq("user_id", user.id).order("updated_at", { ascending: false });
+    const contactsWithRoles = await supabase.from("clients").select("id,first_name,last_name,email,phone,mailing_address,roles,tags,client_status,updated_at").eq("user_id", user.id).order("updated_at", { ascending: false });
     const contactsWithoutRoles = contactsWithRoles.error && /roles|schema cache/i.test(contactsWithRoles.error.message)
-      ? await supabase.from("seller_contacts").select("id,first_name,last_name,email,phone,mailing_address,updated_at").eq("user_id", user.id).order("updated_at", { ascending: false })
+      ? await supabase.from("clients").select("id,first_name,last_name,email,phone,mailing_address,updated_at").eq("user_id", user.id).order("updated_at", { ascending: false })
       : null;
     const contactsError = contactsWithoutRoles?.error || contactsWithRoles.error;
     if (contactsError && !contactsWithoutRoles?.data) return NextResponse.json({ error: contactsError.message }, { status: 500 });

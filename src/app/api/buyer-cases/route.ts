@@ -37,7 +37,7 @@ export async function GET() {
 
     const { data, error } = await supabase
       .from("buyer_cases")
-      .select("*,contact:seller_contacts(id,first_name,last_name,email,phone,mailing_address,roles)")
+      .select("*,contact:clients(id,first_name,last_name,email,phone,mailing_address,roles)")
       .eq("user_id", user.id)
       .order("updated_at", { ascending: false });
 
@@ -56,7 +56,7 @@ export async function POST(request: Request) {
     if (!user) return expiredSession();
 
     const { data: contactsData, error: contactsError } = await supabase
-      .from("seller_contacts")
+      .from("clients")
       .select("id,first_name,last_name,email,phone,mailing_address,roles")
       .eq("user_id", user.id);
     if (contactsError) return NextResponse.json({ error: databaseMessage(contactsError.message) }, { status: 500 });
@@ -71,7 +71,7 @@ export async function POST(request: Request) {
       if (!supplied || (!supplied.firstName.trim() && !supplied.lastName.trim())) {
         return NextResponse.json({ error: "Le nom de l’acheteur est requis avant de créer son dossier." }, { status: 400 });
       }
-      const { data, error } = await supabase.from("seller_contacts").insert({
+      const { data, error } = await supabase.from("clients").insert({
         user_id: user.id,
         first_name: supplied.firstName.trim(),
         last_name: supplied.lastName.trim(),
@@ -90,7 +90,7 @@ export async function POST(request: Request) {
         if (!contact.phone && supplied.phone.trim()) updates.phone = supplied.phone.trim();
         if (!contact.mailing_address && supplied.mailingAddress.trim()) updates.mailing_address = supplied.mailingAddress.trim();
       }
-      const { error } = await supabase.from("seller_contacts").update(updates).eq("id", contact.id).eq("user_id", user.id);
+      const { error } = await supabase.from("clients").update(updates).eq("id", contact.id).eq("user_id", user.id);
       if (error) return NextResponse.json({ error: databaseMessage(error.message) }, { status: 500 });
     }
 

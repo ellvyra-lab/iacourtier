@@ -68,7 +68,7 @@ export async function POST(request: Request) {
     }
 
     const { data: currentContacts, error: contactsError } = await supabase
-      .from("seller_contacts")
+      .from("clients")
       .select("id,first_name,last_name,email,phone,mailing_address,roles")
       .eq("user_id", user.id);
     if (contactsError) throw contactsError;
@@ -99,14 +99,14 @@ export async function POST(request: Request) {
         if (!contact.email && person.email) updates.email = person.email;
         if (!contact.phone && person.phone) updates.phone = person.phone;
         if (!contact.mailing_address && person.mailingAddress) updates.mailing_address = person.mailingAddress;
-        const { error } = await supabase.from("seller_contacts").update(updates).eq("id", contact.id).eq("user_id", user.id);
+        const { error } = await supabase.from("clients").update(updates).eq("id", contact.id).eq("user_id", user.id);
         if (error) throw error;
         contactIds.set(person.id, contact.id);
         reusedContacts.push(personName(person));
         continue;
       }
 
-      const { data, error } = await supabase.from("seller_contacts").insert({
+      const { data, error } = await supabase.from("clients").insert({
         user_id: user.id,
         first_name: person.firstName.trim(),
         last_name: person.lastName.trim(),
@@ -236,16 +236,23 @@ export async function POST(request: Request) {
       }
     }
 
+    let partnersLinked = 0;
+    if (buyerCaseId) {
+      await persistBuyerFinancing(supabase, user.id, buyerCaseId, analysis, buyerDocumentIds);
+      partnersLinked = await linkBuyerPartners(supabase, user.id, buyerCaseId, analysis);
+    }
+
     if (listingId) await insertSellerFacts(supabase, user.id, listingId, analysis, sellerDocumentIds);
     if (buyerCaseId) await insertBuyerFacts(supabase, user.id, buyerCaseId, analysis, buyerDocumentIds);
 
     if (listingId) await supabase.from("seller_listing_activity").insert({ user_id: user.id, listing_id: listingId, event_type: "universal_import_confirmed", title: "Import intelligent confirmé", details: analysis.coachSummary });
     if (buyerCaseId) await supabase.from("buyer_case_activity").insert({ user_id: user.id, case_id: buyerCaseId, event_type: "universal_import_confirmed", title: "Import intelligent confirmé", details: analysis.coachSummary });
 
-    const primaryHref = listingId ? `/tableau-de-bord/inscriptions/${listingId}` : `/tableau-de-bord/acheteurs/${buyerCaseId}`;
+    const firstClientId = contactIds.values().next().value as string | undefined;
+    const primaryHref = listingId ? `/tableau-de-bord/inscriptions/${listingId}` : buyerCaseId ? `/tableau-de-bord/acheteurs/${buyerCaseId}` : `/tableau-de-bord/clients${firstClientId ? `?client=${firstClientId}` : ""}`;
     return NextResponse.json({
       ok: true, listingId, buyerCaseId, primaryHref, createdContacts, reusedContacts, reusedProperty,
-      reusedListing, reusedBuyerCase, uploadedFiles: stored.length,
+      reusedListing, reusedBuyerCase, uploadedFiles: stored.length, partnersLinked,
       summary: analysis.coachSummary,
     });
   } catch (error) {
@@ -261,7 +268,7 @@ export async function POST(request: Request) {
 }
 
 function validateConfirmation(analysis: UniversalAnalysis, files: File[]) {
-  if (analysis.projectType === "unknown") return "Le type de projet doit être confirmé : vendeur, acheteur ou achat + vente.";
+  if (analysis.projectType === "unknown") return "Le type de projet doit être confirmé : vendeur, acheteur, achat + vente, prospect ou autre.";
   if (!analysis.people.length) return "Ajoute ou confirme au moins une personne réelle avant de créer le dossier.";
   if (analysis.people.some((person) => !person.firstName && !person.lastName)) return "Chaque personne doit avoir un nom avant la confirmation.";
   if ((analysis.projectType === "seller" || analysis.projectType === "buy_sell") && (!analysis.property.address || !analysis.property.city)) return "L’adresse et la ville sont requises pour le dossier vendeur.";
@@ -285,11 +292,85 @@ function isDuplicate(person: UniversalPerson, contact: ContactRow) {
 }
 
 function crmRoles(person: UniversalPerson, projectType: UniversalAnalysis["projectType"]) {
-  const roles = person.roles.map((role) => role === "owner" ? "seller" : role);
+  const roles: string[] = person.roles.map((role) => role === "owner" ? "seller" : role);
   if (!roles.length && projectType === "seller") roles.push("seller");
   if (!roles.length && projectType === "buyer") roles.push("buyer");
   if (!roles.length && projectType === "buy_sell") roles.push("seller", "buyer");
+  if (!roles.length && (projectType === "prospect" || projectType === "other")) roles.push("prospect");
   return [...new Set(roles)];
+}
+
+async function persistBuyerFinancing(supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>, userId: string, caseId: string, analysis: UniversalAnalysis, documents: Map<string, string>) {
+  const criteria = analysis.buyerCriteria;
+  const prequalificationSource = analysis.sources.find((source) => source.type === "Préapprobation");
+  const hasFinancing = Boolean(prequalificationSource || criteria.preapprovalStatus !== "missing" || criteria.downPayment || criteria.mortgageAmount || criteria.lender);
+  if (!hasFinancing) return;
+  const { error } = await supabase.from("buyer_financing").upsert({
+    user_id: userId,
+    case_id: caseId,
+    status: criteria.preapprovalStatus || "missing",
+    maximum_purchase_price: moneyValue(criteria.budget),
+    down_payment: moneyValue(criteria.downPayment),
+    mortgage_amount: moneyValue(criteria.mortgageAmount),
+    occupancy_type: criteria.occupancyType || null,
+    lender: criteria.lender || null,
+    preapproval_date: isoDate(criteria.preapprovalDate),
+    expiry_date: isoDate(criteria.expiryDate),
+    source_document_id: prequalificationSource ? documents.get(prequalificationSource.name) || null : null,
+    raw_data: criteria,
+    updated_at: new Date().toISOString(),
+  }, { onConflict: "case_id" });
+  if (error) throw error;
+}
+
+async function linkBuyerPartners(supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>, userId: string, caseId: string, analysis: UniversalAnalysis) {
+  if (!analysis.partners.length) return 0;
+  const { data: existing, error: readError } = await supabase.from("partners").select("id,first_name,last_name,organization,email,phone,partner_type").eq("user_id", userId);
+  if (readError) throw readError;
+  let linked = 0;
+  for (const partner of analysis.partners) {
+    const match = (existing || []).find((candidate) => {
+      const email = normalizeUniversalValue(partner.email);
+      const phone = partner.phone.replace(/\D/g, "");
+      const name = normalizeUniversalValue(`${partner.firstName}${partner.lastName}`);
+      return Boolean((email && email === normalizeUniversalValue(candidate.email)) || (phone && phone === (candidate.phone || "").replace(/\D/g, "")) || (name && name === normalizeUniversalValue(`${candidate.first_name}${candidate.last_name}`)));
+    });
+    let partnerId: string | undefined;
+    if (match) {
+      partnerId = match.id;
+      const { error } = await supabase.from("partners").update({
+        organization: match.organization || partner.organization || null,
+        email: match.email || partner.email || null,
+        phone: match.phone || partner.phone || null,
+        partner_type: match.partner_type === "other" ? partner.partnerType : match.partner_type,
+        updated_at: new Date().toISOString(),
+      }).eq("id", partnerId).eq("user_id", userId);
+      if (error) throw error;
+    } else {
+      const { data, error } = await supabase.from("partners").insert({
+        user_id: userId, first_name: partner.firstName, last_name: partner.lastName,
+        organization: partner.organization || null, email: partner.email || null, phone: partner.phone || null,
+        partner_type: partner.partnerType,
+      }).select("id").single();
+      if (error || !data) throw error || new Error("Création du partenaire impossible.");
+      partnerId = data.id;
+    }
+    const { error: linkError } = await supabase.from("buyer_case_partners").upsert({ user_id: userId, case_id: caseId, partner_id: partnerId, role: partner.partnerType }, { onConflict: "case_id,partner_id,role", ignoreDuplicates: true });
+    if (linkError) throw linkError;
+    linked += 1;
+  }
+  return linked;
+}
+
+function moneyValue(value: string) {
+  if (!value.trim()) return null;
+  const normalized = value.replace(/[^\d,.-]/g, "").replace(/,(?=\d{1,2}$)/, ".").replace(/,/g, "");
+  const number = Number(normalized);
+  return Number.isFinite(number) ? number : null;
+}
+
+function isoDate(value: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : null;
 }
 
 function technicalBuyerStatus(stage: string | null) {

@@ -31,7 +31,7 @@ export async function GET(_request: Request, { params }: RouteContext) {
     if (!listing) return NextResponse.json({ error: "Dossier vendeur introuvable." }, { status: 404 });
 
     const [partiesResult, documentsResult, factsResult, mediaResult, tasksResult, automationsResult, activityResult] = await Promise.all([
-      supabase.from("seller_listing_parties").select("id,role,contact:seller_contacts(*)").eq("listing_id", id).eq("user_id", user.id),
+      supabase.from("seller_listing_parties").select("id,role,contact:clients(*)").eq("listing_id", id).eq("user_id", user.id),
       supabase.from("seller_listing_documents").select("*").eq("listing_id", id).eq("user_id", user.id).order("created_at"),
       supabase.from("seller_listing_facts").select("*").eq("listing_id", id).eq("user_id", user.id).order("created_at"),
       supabase.from("seller_listing_media").select("*").eq("listing_id", id).eq("user_id", user.id).order("position"),

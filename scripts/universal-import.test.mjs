@@ -50,3 +50,31 @@ test("F — plusieurs images fusionnent la même personne et ses deux rôles", (
   assert.deepEqual(new Set(merged.people[0].roles), new Set(["buyer", "seller"]));
   assert.equal(merged.projectType, "buy_sell");
 });
+
+test("G — préqualification -> cliente acheteuse, financement et courtier hypothécaire séparé", () => {
+  const name = "prequalification-karelle-sauvageau.pdf";
+  const analysis = normalizeUniversalPartial({
+    projectType: "buyer",
+    documents: [source(name, "Préapprobation", "pdf")],
+    people: [{ firstName: "Karelle", lastName: "Sauvageau", roles: ["buyer"], sourceName: name, confidence: 0.98 }],
+    partners: [{ firstName: "Mickael", lastName: "Bisson", partnerType: "mortgage_broker", sourceName: name, confidence: 0.97 }],
+    buyerCriteria: {
+      budget: "375 000 $", downPayment: "35 000 $", mortgageAmount: "353 600 $", preapprovalStatus: "approved",
+      propertyType: "maison", occupancyType: "propriétaire occupant",
+    },
+  }, []);
+
+  assert.equal(analysis.projectType, "buyer");
+  assert.equal(analysis.buyerStage, "financing");
+  assert.equal(analysis.people.length, 1);
+  assert.equal(`${analysis.people[0].firstName} ${analysis.people[0].lastName}`, "Karelle Sauvageau");
+  assert.equal(analysis.buyerCriteria.budget, "375 000 $");
+  assert.equal(analysis.buyerCriteria.downPayment, "35 000 $");
+  assert.equal(analysis.buyerCriteria.mortgageAmount, "353 600 $");
+  assert.equal(analysis.buyerCriteria.preapprovalStatus, "approved");
+  assert.equal(analysis.buyerCriteria.propertyType, "maison");
+  assert.equal(analysis.buyerCriteria.occupancyType, "propriétaire occupant");
+  assert.equal(analysis.partners.length, 1);
+  assert.equal(`${analysis.partners[0].firstName} ${analysis.partners[0].lastName}`, "Mickael Bisson");
+  assert.equal(analysis.partners[0].partnerType, "mortgage_broker");
+});

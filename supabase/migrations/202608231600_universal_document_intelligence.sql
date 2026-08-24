@@ -34,7 +34,7 @@ create table if not exists public.client_imports (
   created_at timestamptz not null default now()
 );
 
-alter table public.seller_contacts
+alter table public.clients
   add column if not exists city text,
   add column if not exists postal_code text,
   add column if not exists birth_date date,
@@ -51,7 +51,7 @@ create table if not exists public.client_import_contacts (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
   import_id uuid not null references public.client_imports(id) on delete cascade,
-  contact_id uuid references public.seller_contacts(id) on delete set null,
+  contact_id uuid references public.clients(id) on delete set null,
   row_numbers integer[] not null default '{}'::integer[],
   outcome text not null check (outcome in ('created', 'updated', 'unchanged', 'merged', 'skipped', 'needs_review', 'incomplete')),
   warnings text[] not null default '{}'::text[],
@@ -62,7 +62,7 @@ create table if not exists public.buyer_case_parties (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
   case_id uuid not null references public.buyer_cases(id) on delete cascade,
-  contact_id uuid not null references public.seller_contacts(id) on delete cascade,
+  contact_id uuid not null references public.clients(id) on delete cascade,
   role text not null default 'buyer' check (role in ('buyer', 'owner')),
   created_at timestamptz not null default now(),
   unique (case_id, contact_id, role)
@@ -99,8 +99,8 @@ create index if not exists client_imports_hash_idx
   on public.client_imports (user_id, file_hash);
 create index if not exists client_import_contacts_import_idx
   on public.client_import_contacts (import_id, outcome);
-create index if not exists seller_contacts_email_normalized_idx
-  on public.seller_contacts (user_id, lower(trim(email))) where email is not null;
+create index if not exists clients_email_normalized_idx
+  on public.clients (user_id, lower(trim(email))) where email is not null;
 
 alter table public.buyer_case_parties enable row level security;
 alter table public.buyer_case_facts enable row level security;
@@ -126,6 +126,6 @@ comment on column public.seller_listings.pipeline_stage is 'Étape métier préc
 comment on column public.buyer_cases.pipeline_stage is 'Étape métier précise inférée et confirmée; distincte du statut technique du dossier.';
 comment on table public.buyer_case_facts is 'Valeurs acheteur avec provenance documentaire et niveau de confiance.';
 comment on table public.client_imports is 'Journal reproductible des imports CSV/XLSX/XLS et de leur plan d’automatisations non exécuté.';
-comment on column public.seller_contacts.tags is 'Tags CRM modifiables issus des données confirmées, jamais d’un envoi automatique.';
+comment on column public.clients.tags is 'Tags CRM modifiables issus des données confirmées, jamais d’un envoi automatique.';
 
 notify pgrst, 'reload schema';

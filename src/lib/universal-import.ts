@@ -15,9 +15,10 @@ export const UNIVERSAL_DOCUMENT_TYPES = [
 ] as const;
 
 export type UniversalDocumentType = (typeof UNIVERSAL_DOCUMENT_TYPES)[number];
-export type UniversalProjectType = "seller" | "buyer" | "buy_sell" | "unknown";
+export type UniversalProjectType = "seller" | "buyer" | "buy_sell" | "prospect" | "other" | "unknown";
 export type UniversalPersonRole = "seller" | "buyer" | "owner";
 export type UniversalFactStatus = "confirmed" | "to_confirm";
+export type UniversalPartnerType = "mortgage_broker" | "real_estate_broker" | "notary" | "inspector" | "lender" | "other";
 
 export type UniversalSource = {
   name: string;
@@ -40,6 +41,18 @@ export type UniversalPerson = {
   confidence: number | null;
 };
 
+export type UniversalPartner = {
+  id: string;
+  firstName: string;
+  lastName: string;
+  organization: string;
+  email: string;
+  phone: string;
+  partnerType: UniversalPartnerType;
+  sourceName: string;
+  confidence: number | null;
+};
+
 export type UniversalProperty = {
   address: string;
   city: string;
@@ -51,6 +64,12 @@ export type UniversalProperty = {
 export type UniversalBuyerCriteria = {
   budget: string;
   preapprovalStatus: string;
+  downPayment: string;
+  mortgageAmount: string;
+  occupancyType: string;
+  lender: string;
+  preapprovalDate: string;
+  expiryDate: string;
   sectors: string[];
   propertyType: string;
   bedrooms: string;
@@ -60,7 +79,7 @@ export type UniversalBuyerCriteria = {
 };
 
 export type UniversalFact = {
-  entity: "person" | "property" | "buyer" | "transaction";
+  entity: "person" | "partner" | "property" | "buyer" | "financing" | "transaction";
   field: string;
   label: string;
   value: string;
@@ -95,6 +114,7 @@ export type UniversalAnalysis = {
   projectType: UniversalProjectType;
   intentions: string[];
   people: UniversalPerson[];
+  partners: UniversalPartner[];
   property: UniversalProperty;
   buyerCriteria: UniversalBuyerCriteria;
   sources: UniversalSource[];
@@ -118,7 +138,8 @@ export type PersonDecision = {
 
 const EMPTY_PROPERTY: UniversalProperty = { address: "", city: "", postalCode: "", propertyType: "", lotNumber: "" };
 const EMPTY_BUYER: UniversalBuyerCriteria = {
-  budget: "", preapprovalStatus: "missing", sectors: [], propertyType: "", bedrooms: "",
+  budget: "", preapprovalStatus: "missing", downPayment: "", mortgageAmount: "", occupancyType: "", lender: "",
+  preapprovalDate: "", expiryDate: "", sectors: [], propertyType: "", bedrooms: "",
   importantNeeds: "", timeline: "", propertyToSell: null,
 };
 
@@ -130,9 +151,11 @@ Elles peuvent être des PDF texte, PDF numérisés, photos de documents ou captu
 
 Règles absolues :
 - N'invente rien. Une information absente reste vide.
-- Identifie comme clients seulement les personnes réellement porteuses du projet. Exclue toujours courtier, notaire, témoin, prêteur et signataire technique.
+- Identifie dans people seulement les personnes réellement porteuses du projet. N'y place jamais un courtier, notaire, prêteur, inspecteur, témoin ou signataire technique.
+- Place les professionnels détectés séparément dans partners, avec leur rôle exact. Un courtier hypothécaire n'est jamais un client.
 - Garde chaque personne distincte. Ne fusionne que si le nom, courriel ou téléphone indique clairement la même personne.
-- Détermine vendeur, acheteur, ou achat + vente d'après le contenu et l'intention, pas seulement le nom du fichier.
+- Détermine vendeur, acheteur, achat + vente, prospect ou autre d'après le contenu et l'intention, pas seulement le nom du fichier.
+- Dans une préqualification, extrais séparément le prix d'achat maximal, la mise de fonds, le montant hypothécaire, le statut, les dates, le type de propriété et le mode d'occupation. Un montant admissible ne doit pas être confondu avec le prix d'achat maximal.
 - Une ambiguïté, un texte peu lisible ou une déduction doit être to_confirm, jamais confirmed.
 - Chaque information doit avoir une provenance : nom exact du fichier, type de source, confiance de 0 à 1 et note si ambiguë.
 - Une promesse d'achat place le parcours acheteur à l'étape offer et le vendeur à offer_received.
@@ -142,13 +165,14 @@ Règles absolues :
 
 Structure obligatoire :
 {
-  "projectType":"seller|buyer|buy_sell|unknown",
+  "projectType":"seller|buyer|buy_sell|prospect|other|unknown",
   "intentions":["veut vendre", "cherche une propriété", "demande une visite", "veut déposer une offre", "souhaite une évaluation", "besoin de préapprobation", "autre intention explicite"],
   "people":[{"firstName":"","lastName":"","email":"","phone":"","mailingAddress":"","roles":["seller|buyer|owner"],"sourceName":"nom exact","confidence":0.95}],
+  "partners":[{"firstName":"","lastName":"","organization":"","email":"","phone":"","partnerType":"mortgage_broker|real_estate_broker|notary|inspector|lender|other","sourceName":"nom exact","confidence":0.95}],
   "property":{"address":"","city":"","postalCode":"","propertyType":"","lotNumber":""},
-  "buyerCriteria":{"budget":"","preapprovalStatus":"missing|pending|approved|declined","sectors":[],"propertyType":"","bedrooms":"","importantNeeds":"","timeline":"","propertyToSell":null},
+  "buyerCriteria":{"budget":"","preapprovalStatus":"missing|pending|approved|declined","downPayment":"","mortgageAmount":"","occupancyType":"","lender":"","preapprovalDate":"YYYY-MM-DD ou vide","expiryDate":"YYYY-MM-DD ou vide","sectors":[],"propertyType":"","bedrooms":"","importantNeeds":"","timeline":"","propertyToSell":null},
   "documents":[{"name":"nom exact","type":"type permis","sourceType":"pdf|image|screenshot","confidence":0.95}],
-  "facts":[{"entity":"person|property|buyer|transaction","field":"address","label":"Adresse","value":"","sourceName":"nom exact","sourceType":"pdf|image|screenshot","confidence":0.95,"status":"confirmed|to_confirm","note":""}],
+  "facts":[{"entity":"person|partner|property|buyer|financing|transaction","field":"address","label":"Adresse","value":"","sourceName":"nom exact","sourceType":"pdf|image|screenshot","confidence":0.95,"status":"confirmed|to_confirm","note":""}],
   "ambiguities":[]
 }`;
 }
@@ -158,14 +182,16 @@ export function normalizeUniversalPartial(value: unknown, fallbackSources: Unive
   const projectType = normalizeProjectType(root.projectType);
   const sources = normalizeSources(root.documents, fallbackSources);
   const people = normalizePeople(root.people);
+  const partners = normalizePartners(root.partners);
   const property = normalizeProperty(root.property);
   const buyerCriteria = normalizeBuyerCriteria(root.buyerCriteria);
   const facts = normalizeFacts(root.facts, sources);
-  addFallbackFacts(facts, { people, property, buyerCriteria, sources });
+  addFallbackFacts(facts, { people, partners, property, buyerCriteria, sources });
   return completeAnalysis({
     projectType,
     intentions: strings(root.intentions),
     people,
+    partners,
     property,
     buyerCriteria,
     sources,
@@ -176,13 +202,14 @@ export function normalizeUniversalPartial(value: unknown, fallbackSources: Unive
 
 export function mergeUniversalAnalyses(items: UniversalAnalysis[]): UniversalAnalysis {
   if (!items.length) return completeAnalysis({
-    projectType: "unknown", intentions: [], people: [], property: { ...EMPTY_PROPERTY },
+    projectType: "unknown", intentions: [], people: [], partners: [], property: { ...EMPTY_PROPERTY },
     buyerCriteria: { ...EMPTY_BUYER }, sources: [], facts: [], ambiguities: [],
   });
 
   const intentions = unique(items.flatMap((item) => item.intentions));
   const sources = dedupeSources(items.flatMap((item) => item.sources));
   const people = mergePeople(items.flatMap((item) => item.people));
+  const partners = mergePartners(items.flatMap((item) => item.partners));
   const property = mergeRecord(items.map((item) => item.property), EMPTY_PROPERTY);
   const buyerCriteria = mergeBuyerCriteria(items.map((item) => item.buyerCriteria));
   const facts = dedupeFacts(items.flatMap((item) => item.facts));
@@ -191,6 +218,7 @@ export function mergeUniversalAnalyses(items: UniversalAnalysis[]): UniversalAna
     projectType,
     intentions,
     people,
+    partners,
     property,
     buyerCriteria,
     sources,
@@ -237,10 +265,10 @@ export function inferDocumentType(name: string): UniversalDocumentType {
   return "Autre";
 }
 
-function completeAnalysis(input: Pick<UniversalAnalysis, "projectType" | "intentions" | "people" | "property" | "buyerCriteria" | "sources" | "facts" | "ambiguities">): UniversalAnalysis {
+function completeAnalysis(input: Pick<UniversalAnalysis, "projectType" | "intentions" | "people" | "partners" | "property" | "buyerCriteria" | "sources" | "facts" | "ambiguities">): UniversalAnalysis {
   const pipeline = derivePipeline(input.projectType, input.sources, input.intentions);
   const personNames = input.people.map((person) => `${person.firstName} ${person.lastName}`.trim()).filter(Boolean);
-  const destination = input.projectType === "buy_sell" ? "un dossier vendeur et un dossier acheteur" : input.projectType === "seller" ? "un dossier vendeur" : input.projectType === "buyer" ? "un dossier acheteur" : "un projet à confirmer";
+  const destination = input.projectType === "buy_sell" ? "un dossier vendeur et un dossier acheteur" : input.projectType === "seller" ? "un dossier vendeur" : input.projectType === "buyer" ? "un dossier acheteur" : input.projectType === "prospect" ? "une fiche prospect" : input.projectType === "other" ? "une fiche client à classer" : "un projet à confirmer";
   const sourceCount = input.sources.length;
   const summary = `${sourceCount} source${sourceCount > 1 ? "s" : ""} analysée${sourceCount > 1 ? "s" : ""}. ${personNames.length ? `Personne${personNames.length > 1 ? "s" : ""} reconnue${personNames.length > 1 ? "s" : ""} : ${personNames.join(", ")}. ` : "Aucune personne certaine n’a été reconnue. "}Le Coach propose ${destination}${pipeline.stageRationale ? `, à l’étape ${pipeline.stageRationale}` : ""}. Valide les ambiguïtés et les doublons avant de créer quoi que ce soit.`;
   return {
@@ -294,7 +322,27 @@ function normalizeProjectType(value: unknown): UniversalProjectType {
   if (["buysell", "achatvente", "vendeuracheteur"].includes(normalized)) return "buy_sell";
   if (["seller", "vendeur", "vente"].includes(normalized)) return "seller";
   if (["buyer", "acheteur", "achat"].includes(normalized)) return "buyer";
+  if (["prospect", "lead", "aqualifier"].includes(normalized)) return "prospect";
+  if (["other", "autre"].includes(normalized)) return "other";
   return "unknown";
+}
+
+function normalizePartners(value: unknown): UniversalPartner[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((raw, index) => {
+    const partner = record(raw);
+    const requestedType = normalizeUniversalValue(String(partner.partnerType || "other"));
+    const aliases: Record<string, UniversalPartnerType> = {
+      courtierhypothecaire: "mortgage_broker", mortgagebroker: "mortgage_broker", mortgage_broker: "mortgage_broker",
+      courtierimmobilier: "real_estate_broker", realestatebroker: "real_estate_broker", real_estate_broker: "real_estate_broker",
+      notaire: "notary", notary: "notary", inspecteur: "inspector", inspector: "inspector", preteur: "lender", lender: "lender", other: "other", autre: "other",
+    };
+    return {
+      id: `partner-${index + 1}`, firstName: text(partner.firstName), lastName: text(partner.lastName),
+      organization: text(partner.organization), email: text(partner.email), phone: text(partner.phone),
+      partnerType: aliases[requestedType] || "other", sourceName: text(partner.sourceName), confidence: confidence(partner.confidence),
+    };
+  }).filter((partner) => partner.firstName || partner.lastName || partner.organization || partner.email || partner.phone);
 }
 
 function normalizePeople(value: unknown): UniversalPerson[] {
@@ -320,7 +368,9 @@ function normalizeBuyerCriteria(value: unknown): UniversalBuyerCriteria {
   const buyer = record(value);
   const propertyToSell = typeof buyer.propertyToSell === "boolean" ? buyer.propertyToSell : null;
   return {
-    budget: text(buyer.budget), preapprovalStatus: text(buyer.preapprovalStatus) || "missing", sectors: strings(buyer.sectors),
+    budget: text(buyer.budget), preapprovalStatus: text(buyer.preapprovalStatus) || "missing",
+    downPayment: text(buyer.downPayment), mortgageAmount: text(buyer.mortgageAmount), occupancyType: text(buyer.occupancyType),
+    lender: text(buyer.lender), preapprovalDate: text(buyer.preapprovalDate), expiryDate: text(buyer.expiryDate), sectors: strings(buyer.sectors),
     propertyType: text(buyer.propertyType), bedrooms: text(buyer.bedrooms), importantNeeds: text(buyer.importantNeeds), timeline: text(buyer.timeline), propertyToSell,
   };
 }
@@ -351,7 +401,7 @@ function normalizeFacts(value: unknown, sources: UniversalSource[]): UniversalFa
     const sourceName = text(fact.sourceName);
     const source = byName.get(sourceName);
     const requestedEntity = String(fact.entity || "transaction");
-    const entity = ["person", "property", "buyer", "transaction"].includes(requestedEntity) ? requestedEntity as UniversalFact["entity"] : "transaction";
+    const entity = ["person", "partner", "property", "buyer", "financing", "transaction"].includes(requestedEntity) ? requestedEntity as UniversalFact["entity"] : "transaction";
     const valueText = text(fact.value);
     const valueConfidence = confidence(fact.confidence);
     const requestedStatus = String(fact.status || "to_confirm");
@@ -364,7 +414,7 @@ function normalizeFacts(value: unknown, sources: UniversalSource[]): UniversalFa
   }).filter((fact) => fact.field && fact.value);
 }
 
-function addFallbackFacts(facts: UniversalFact[], context: { people: UniversalPerson[]; property: UniversalProperty; buyerCriteria: UniversalBuyerCriteria; sources: UniversalSource[] }) {
+function addFallbackFacts(facts: UniversalFact[], context: { people: UniversalPerson[]; partners: UniversalPartner[]; property: UniversalProperty; buyerCriteria: UniversalBuyerCriteria; sources: UniversalSource[] }) {
   const defaultSource = context.sources[0];
   const add = (entity: UniversalFact["entity"], field: string, label: string, value: string, sourceName?: string, valueConfidence?: number | null) => {
     if (!value || facts.some((fact) => fact.entity === entity && fact.field === field && normalizeUniversalValue(fact.value) === normalizeUniversalValue(value))) return;
@@ -376,11 +426,33 @@ function addFallbackFacts(facts: UniversalFact[], context: { people: UniversalPe
     add("person", "email", "Courriel", person.email, person.sourceName, person.confidence);
     add("person", "phone", "Téléphone", person.phone, person.sourceName, person.confidence);
   });
+  context.partners.forEach((partner) => {
+    const name = `${partner.firstName} ${partner.lastName}`.trim() || partner.organization;
+    add("partner", "name", "Partenaire", name, partner.sourceName, partner.confidence);
+    add("partner", "partnerType", "Rôle du partenaire", partner.partnerType, partner.sourceName, partner.confidence);
+  });
   Object.entries(context.property).forEach(([field, value]) => add("property", field, propertyLabel(field), value));
   Object.entries(context.buyerCriteria).forEach(([field, value]) => {
     const rendered = Array.isArray(value) ? value.join(", ") : typeof value === "boolean" ? (value ? "Oui" : "Non") : String(value || "");
     if (rendered && rendered !== "missing") add("buyer", field, propertyLabel(field), rendered);
   });
+}
+
+function mergePartners(partners: UniversalPartner[]) {
+  const output: UniversalPartner[] = [];
+  for (const partner of partners) {
+    const match = output.find((existing) => {
+      const sameEmail = normalizeUniversalValue(partner.email) && normalizeUniversalValue(partner.email) === normalizeUniversalValue(existing.email);
+      const samePhone = partner.phone.replace(/\D/g, "") && partner.phone.replace(/\D/g, "") === existing.phone.replace(/\D/g, "");
+      const sameName = normalizeUniversalValue(`${partner.firstName}${partner.lastName}`) && normalizeUniversalValue(`${partner.firstName}${partner.lastName}`) === normalizeUniversalValue(`${existing.firstName}${existing.lastName}`);
+      return Boolean(sameEmail || samePhone || sameName);
+    });
+    if (!match) { output.push({ ...partner, id: `partner-${output.length + 1}` }); continue; }
+    match.firstName ||= partner.firstName; match.lastName ||= partner.lastName; match.organization ||= partner.organization;
+    match.email ||= partner.email; match.phone ||= partner.phone;
+    if (match.partnerType === "other") match.partnerType = partner.partnerType;
+  }
+  return output;
 }
 
 function mergePeople(people: UniversalPerson[]) {
@@ -404,7 +476,10 @@ function mergeProjectTypes(types: UniversalProjectType[], people: UniversalPerso
   if (types.includes("buy_sell")) return "buy_sell";
   const hasSeller = types.includes("seller") || people.some((person) => person.roles.some((role) => role === "seller" || role === "owner"));
   const hasBuyer = types.includes("buyer") || people.some((person) => person.roles.includes("buyer"));
-  return hasSeller && hasBuyer ? "buy_sell" : hasSeller ? "seller" : hasBuyer ? "buyer" : "unknown";
+  if (hasSeller || hasBuyer) return hasSeller && hasBuyer ? "buy_sell" : hasSeller ? "seller" : "buyer";
+  if (types.includes("prospect")) return "prospect";
+  if (types.includes("other")) return "other";
+  return "unknown";
 }
 
 function mergeBuyerCriteria(items: UniversalBuyerCriteria[]) {
@@ -440,7 +515,7 @@ function dedupeFacts(facts: UniversalFact[]) {
 }
 
 function propertyLabel(field: string) {
-  const labels: Record<string, string> = { address: "Adresse", city: "Ville", postalCode: "Code postal", propertyType: "Type de propriété", lotNumber: "Numéro de lot", budget: "Budget", preapprovalStatus: "Préapprobation", sectors: "Secteurs", bedrooms: "Chambres", importantNeeds: "Besoins importants", timeline: "Échéancier", propertyToSell: "Propriété à vendre" };
+  const labels: Record<string, string> = { address: "Adresse", city: "Ville", postalCode: "Code postal", propertyType: "Type de propriété", lotNumber: "Numéro de lot", budget: "Budget maximal", preapprovalStatus: "Préqualification", downPayment: "Mise de fonds", mortgageAmount: "Montant hypothécaire", occupancyType: "Occupation", lender: "Prêteur", preapprovalDate: "Date de préqualification", expiryDate: "Expiration", sectors: "Secteurs", bedrooms: "Chambres", importantNeeds: "Besoins importants", timeline: "Échéancier", propertyToSell: "Propriété à vendre" };
   return labels[field] || field;
 }
 

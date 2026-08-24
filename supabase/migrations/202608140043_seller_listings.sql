@@ -1,6 +1,6 @@
 -- TICKET #043 - Dossier vendeur réel, documents privés et contenus validés.
 
-create table if not exists public.seller_contacts (
+create table if not exists public.clients (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
   first_name text not null default '',
@@ -41,7 +41,7 @@ create table if not exists public.seller_listing_parties (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
   listing_id uuid not null references public.seller_listings(id) on delete cascade,
-  contact_id uuid not null references public.seller_contacts(id) on delete cascade,
+  contact_id uuid not null references public.clients(id) on delete cascade,
   role text not null default 'seller' check (role in ('seller', 'owner')),
   created_at timestamptz not null default now(),
   unique (listing_id, contact_id, role)
@@ -126,14 +126,14 @@ create table if not exists public.seller_listing_activity (
   created_at timestamptz not null default now()
 );
 
-create index if not exists seller_contacts_user_idx on public.seller_contacts (user_id, updated_at desc);
+create index if not exists clients_user_idx on public.clients (user_id, updated_at desc);
 create index if not exists properties_user_idx on public.properties (user_id, updated_at desc);
 create index if not exists seller_listings_user_idx on public.seller_listings (user_id, updated_at desc);
 create index if not exists seller_listing_facts_listing_idx on public.seller_listing_facts (listing_id, fact_key);
 create index if not exists seller_listing_documents_listing_idx on public.seller_listing_documents (listing_id, created_at);
 create index if not exists seller_listing_media_listing_idx on public.seller_listing_media (listing_id, position);
 
-alter table public.seller_contacts enable row level security;
+alter table public.clients enable row level security;
 alter table public.properties enable row level security;
 alter table public.seller_listings enable row level security;
 alter table public.seller_listing_parties enable row level security;
@@ -148,7 +148,7 @@ do $$
 declare table_name text;
 begin
   foreach table_name in array array[
-    'seller_contacts', 'properties', 'seller_listings', 'seller_listing_parties',
+    'clients', 'properties', 'seller_listings', 'seller_listing_parties',
     'seller_listing_documents', 'seller_listing_facts', 'seller_listing_media',
     'seller_listing_tasks', 'seller_listing_automations', 'seller_listing_activity'
   ] loop

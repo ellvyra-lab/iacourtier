@@ -33,7 +33,7 @@ export async function POST(request: Request, { params }: RouteContext) {
 
     const [factsResult, partiesResult] = await Promise.all([
       supabase.from("seller_listing_facts").select("fact_key,label,value,status,source_label,note").eq("listing_id", id).eq("user_id", user.id),
-      supabase.from("seller_listing_parties").select("contact:seller_contacts(first_name,last_name)").eq("listing_id", id).eq("user_id", user.id),
+      supabase.from("seller_listing_parties").select("contact:clients(first_name,last_name)").eq("listing_id", id).eq("user_id", user.id),
     ]);
     if (factsResult.error || partiesResult.error) {
       return NextResponse.json({ error: factsResult.error?.message || partiesResult.error?.message }, { status: 500 });

@@ -14,20 +14,22 @@ export async function GET(_request: Request, { params }: RouteContext) {
 
     const { data: buyerCase, error } = await supabase
       .from("buyer_cases")
-      .select("*,contact:seller_contacts(id,first_name,last_name,email,phone,mailing_address,roles)")
+      .select("*,contact:clients(id,first_name,last_name,email,phone,mailing_address,roles)")
       .eq("id", id)
       .eq("user_id", user.id)
       .maybeSingle();
     if (error) return NextResponse.json({ error: databaseMessage(error.message) }, { status: 500 });
     if (!buyerCase) return NextResponse.json({ error: "Dossier acheteur introuvable." }, { status: 404 });
 
-    const [documents, tasks, automations, activity] = await Promise.all([
+    const [documents, tasks, automations, activity, financing, partners] = await Promise.all([
       supabase.from("buyer_case_documents").select("*").eq("case_id", id).eq("user_id", user.id).order("created_at"),
       supabase.from("buyer_case_tasks").select("*").eq("case_id", id).eq("user_id", user.id).order("created_at"),
       supabase.from("buyer_case_automations").select("*").eq("case_id", id).eq("user_id", user.id).order("created_at"),
       supabase.from("buyer_case_activity").select("*").eq("case_id", id).eq("user_id", user.id).order("created_at", { ascending: false }).limit(50),
+      supabase.from("buyer_financing").select("*").eq("case_id", id).eq("user_id", user.id).maybeSingle(),
+      supabase.from("buyer_case_partners").select("id,role,partner:partners(id,first_name,last_name,organization,email,phone,partner_type)").eq("case_id", id).eq("user_id", user.id),
     ]);
-    const queryError = documents.error || tasks.error || automations.error || activity.error;
+    const queryError = documents.error || tasks.error || automations.error || activity.error || financing.error || partners.error;
     if (queryError) return NextResponse.json({ error: databaseMessage(queryError.message) }, { status: 500 });
 
     const row = buyerCase as Record<string, unknown>;
@@ -42,6 +44,8 @@ export async function GET(_request: Request, { params }: RouteContext) {
       tasks: tasks.data || [],
       automations: automations.data || [],
       activity: activity.data || [],
+      financing: financing.data || null,
+      partners: partners.data || [],
       progress: Math.round(buyerProgress(row) * 0.8 + (totalTasks ? completedTasks / totalTasks : 0) * 20),
       missingFields,
       nextAction: nextTask?.title || (missingFields[0] ? `Compléter : ${missingFields[0]}` : "Préparer le guide acheteur"),
