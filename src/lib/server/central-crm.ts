@@ -90,15 +90,17 @@ export async function syncCentralDocument(supabase: Supabase, input: {
   userId: string; clientId: string | null; caseId: string; propertyId?: string | null;
   document: Record<string, unknown>; legacySource: "buyer_case_documents" | "seller_listing_documents";
 }) {
-  const { error } = await supabase.from("documents").upsert({
+  const { data, error } = await supabase.from("documents").upsert({
     user_id: input.userId, client_id: input.clientId, case_id: input.caseId, property_id: input.propertyId || null,
     name: input.document.name, category: input.document.document_type || "Autre", mime_type: input.document.mime_type || null,
     size_bytes: input.document.size_bytes || 0, storage_path: input.document.storage_path,
     source_type: input.document.source_type || "file", analysis_status: input.document.analysis_status || "analyzed",
     analysis_metadata: input.document.analysis_metadata || {}, legacy_source: input.legacySource, legacy_id: input.document.id,
+    is_sensitive: Boolean(input.document.is_sensitive), subject_client_id: input.document.subject_client_id || input.clientId,
     created_at: input.document.created_at || new Date().toISOString(),
-  }, { onConflict: "user_id,legacy_source,legacy_id" });
+  }, { onConflict: "user_id,legacy_source,legacy_id" }).select("id").single();
   if (error) throw error;
+  return data.id as string;
 }
 
 export async function syncCentralWorkflow(supabase: Supabase, input: { userId: string; clientId: string | null; caseId: string; buyerCaseId?: string | null; sellerListingId?: string | null }) {
@@ -152,3 +154,4 @@ export function nextActionFor(type: CentralCaseType, stage: string) {
   if (type === "seller") return ({ new_prospect: "Qualifier le projet vendeur", qualification: "Planifier un rendez-vous", appointment: "Préparer l’évaluation", evaluation: "Présenter le mandat", mandate_signed: "Préparer la propriété et l’inscription", preparation: "Finaliser la mise en marché", marketing: "Suivre les visites", visits: "Obtenir la rétroaction des visiteurs", offer_received: "Analyser l’offre", conditions: "Suivre les conditions", notary: "Confirmer le rendez-vous chez le notaire", transaction_completed: "Démarrer le suivi après-vente" } as Record<string, string>)[stage] || "Continuer le dossier vendeur";
   return "Qualifier le projet et planifier le prochain suivi";
 }
+

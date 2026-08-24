@@ -5,7 +5,7 @@ import { useMemo, useRef, useState, type ChangeEvent } from "react";
 import { AlertTriangle, ArrowRight, Camera, CheckCircle2, FileSearch, FileText, Images, Loader2, Search, Sparkles, UploadCloud, UserRound, X } from "lucide-react";
 
 import { useDashboardAuth } from "@/components/auth/DashboardAuthProvider";
-import type { PersonDecision, UniversalAnalysis, UniversalPerson, UniversalProjectType } from "@/lib/universal-import";
+import type { MergeDecision, MergeProposal, PersonDecision, UniversalAnalysis, UniversalPerson, UniversalProjectType } from "@/lib/universal-import";
 
 type ConfirmResult = {
   ok: boolean;
@@ -17,11 +17,12 @@ type ConfirmResult = {
   uploadedFiles: number;
   partnersLinked: number;
   summary: string;
+  merge?: { added: number; confirmed: number; conflicts: number; resolved: number; progress: number };
 };
 
 const ACCEPTED = ".pdf,.jpg,.jpeg,.png,.heic,.heif,.webp";
 
-export function UniversalDocumentImporter() {
+export function UniversalDocumentImporter({ caseId, caseTitle }: { caseId?: string; caseTitle?: string }) {
   const { authenticatedFetch } = useDashboardAuth();
   const cameraRef = useRef<HTMLInputElement>(null);
   const photosRef = useRef<HTMLInputElement>(null);
@@ -29,13 +30,18 @@ export function UniversalDocumentImporter() {
   const [files, setFiles] = useState<File[]>([]);
   const [analysis, setAnalysis] = useState<UniversalAnalysis | null>(null);
   const [decisions, setDecisions] = useState<Record<string, PersonDecision>>({});
+  const [mergeDecisions, setMergeDecisions] = useState<Record<string, MergeDecision>>({});
   const [status, setStatus] = useState<"idle" | "analyzing" | "confirming" | "done">("idle");
   const [error, setError] = useState("");
   const [result, setResult] = useState<ConfirmResult | null>(null);
 
   const unresolvedDuplicates = useMemo(() => (analysis?.duplicates || []).filter((duplicate) => !decisions[duplicate.personId]), [analysis, decisions]);
+  const unresolvedAssignments = useMemo(() => caseId && analysis?.existingCase
+    ? analysis.people.filter((person) => !decisions[person.id]) : [], [analysis, caseId, decisions]);
+  const unresolvedMergeConflicts = useMemo(() => (analysis?.mergePreview?.proposals || [])
+    .filter((proposal) => proposal.status === "conflict" && !mergeDecisions[proposal.id]), [analysis, mergeDecisions]);
   const missingInformation = useMemo(() => analysis ? findMissingInformation(analysis) : [], [analysis]);
-  const canConfirm = Boolean(analysis && analysis.projectType !== "unknown" && analysis.people.length && !unresolvedDuplicates.length && status === "idle");
+  const canConfirm = Boolean(analysis && analysis.projectType !== "unknown" && analysis.people.length && !unresolvedDuplicates.length && !unresolvedAssignments.length && !unresolvedMergeConflicts.length && status === "idle");
 
   function receiveFiles(event: ChangeEvent<HTMLInputElement>) {
     const incoming = Array.from(event.target.files || []);
@@ -50,6 +56,7 @@ export function UniversalDocumentImporter() {
     setAnalysis(null);
     setResult(null);
     setDecisions({});
+    setMergeDecisions({});
     setError("");
     event.target.value = "";
   }
@@ -58,6 +65,7 @@ export function UniversalDocumentImporter() {
     setFiles((current) => current.filter((_, itemIndex) => itemIndex !== index));
     setAnalysis(null);
     setDecisions({});
+    setMergeDecisions({});
     setResult(null);
   }
 
@@ -69,12 +77,17 @@ export function UniversalDocumentImporter() {
     try {
       const body = new FormData();
       files.forEach((file) => body.append("files", file));
+      if (caseId) body.append("caseId", caseId);
       const response = await authenticatedFetch("/api/universal-import/analyze", { method: "POST", body });
       const payload = await response.json() as { analysis?: UniversalAnalysis; error?: string; detail?: string };
       if (!response.ok || !payload.analysis) throw new Error([payload.error, payload.detail].filter(Boolean).join(" — ") || "L’analyse a échoué.");
       setAnalysis(payload.analysis);
       const automatic: Record<string, PersonDecision> = {};
+      for (const duplicate of payload.analysis.duplicates || []) {
+        if (duplicate.matches.length === 1) automatic[duplicate.personId] = { personId: duplicate.personId, action: "use", existingContactId: duplicate.matches[0].id };
+      }
       setDecisions(automatic);
+      setMergeDecisions({});
     } catch (analysisError) {
       setError(analysisError instanceof Error ? analysisError.message : "L’analyse a échoué.");
     } finally {
@@ -90,14 +103,16 @@ export function UniversalDocumentImporter() {
       const body = new FormData();
       body.append("analysis", JSON.stringify(analysis));
       body.append("decisions", JSON.stringify(Object.values(decisions)));
+      body.append("mergeDecisions", JSON.stringify(Object.values(mergeDecisions)));
+      if (caseId) body.append("caseId", caseId);
       files.forEach((file) => body.append("files", file));
       const response = await authenticatedFetch("/api/universal-import/confirm", { method: "POST", body });
       const payload = await response.json() as ConfirmResult & { error?: string };
-      if (!response.ok || !payload.ok) throw new Error(payload.error || "La création du dossier a échoué.");
+      if (!response.ok || !payload.ok) throw new Error(payload.error || (caseId ? "L’enrichissement du dossier a échoué." : "La création du dossier a échoué."));
       setResult(payload);
       setStatus("done");
     } catch (confirmationError) {
-      setError(confirmationError instanceof Error ? confirmationError.message : "La création du dossier a échoué.");
+      setError(confirmationError instanceof Error ? confirmationError.message : (caseId ? "L’enrichissement du dossier a échoué." : "La création du dossier a échoué."));
       setStatus("idle");
     }
   }
@@ -118,22 +133,48 @@ export function UniversalDocumentImporter() {
     } : current);
   }
 
+  function choosePerson(personId: string, action: PersonDecision["action"], existingContactId?: string) {
+    setDecisions((current) => ({ ...current, [personId]: { personId, action, existingContactId } }));
+    setAnalysis((current) => {
+      if (!current?.mergePreview) return current;
+      const client = current.existingCase?.clients.find((item) => item.id === existingContactId);
+      const currentByField: Record<string, string> = client ? {
+        firstName: client.firstName, lastName: client.lastName, email: client.email,
+        phone: client.phone, mailingAddress: client.mailingAddress, birthDate: client.birthDate || "",
+        dateOfBirth: client.birthDate || "", language: client.language || "", communicationPreference: client.communicationPreference || "",
+      } : {};
+      const proposals = current.mergePreview.proposals.map((proposal) => {
+        if (proposal.personId !== personId) return proposal;
+        const currentValue = action === "create" ? "" : currentByField[proposal.field] || "";
+        const status: MergeProposal["status"] = !currentValue ? "new" : equivalentPreview(proposal.field, currentValue, proposal.incomingValue) ? "same" : "conflict";
+        return { ...proposal, entityId: existingContactId || null, currentValue, status, reason: status === "new" ? "Cette donnée complète un champ vide." : status === "same" ? "La nouvelle source confirme la valeur déjà enregistrée." : "La valeur diffère de la fiche actuelle; aucun remplacement automatique n’est permis." };
+      });
+      return { ...current, mergePreview: summarizePreview(current.mergePreview, proposals) };
+    });
+    setMergeDecisions((current) => {
+      const next = { ...current };
+      analysis?.mergePreview?.proposals.filter((proposal) => proposal.personId === personId).forEach((proposal) => { delete next[proposal.id]; });
+      return next;
+    });
+  }
+
   if (result) {
     return <section className="mx-auto max-w-3xl rounded-3xl border border-emerald-200 bg-emerald-50 p-6 shadow-sm dark:border-emerald-900 dark:bg-emerald-950/20 sm:p-8" role="status">
       <CheckCircle2 className="h-10 w-10 text-emerald-700" />
-      <h1 className="mt-4 text-2xl font-semibold">Import confirmé et enregistré</h1>
+      <h1 className="mt-4 text-2xl font-semibold">{caseId ? "Dossier enrichi et enregistré" : "Import confirmé et enregistré"}</h1>
       <p className="mt-3 text-sm leading-6 text-slate-700 dark:text-slate-200">{result.summary}</p>
       <div className="mt-5 grid gap-3 rounded-2xl bg-white p-4 text-sm dark:bg-slate-950 sm:grid-cols-3">
         <Stat label="Fichiers" value={String(result.uploadedFiles)} />
         <Stat label="Clients créés" value={String(result.createdContacts.length)} />
         <Stat label="Clients réutilisés" value={String(result.reusedContacts.length)} />
       </div>
-      <div className="mt-6 flex flex-wrap gap-3"><Link href={result.primaryHref} className="inline-flex min-h-12 items-center gap-2 rounded-xl bg-teal-700 px-5 font-semibold text-white">Ouvrir le dossier <ArrowRight className="h-4 w-4" /></Link><button type="button" onClick={() => { setFiles([]); setAnalysis(null); setResult(null); setStatus("idle"); }} className="min-h-12 rounded-xl border border-emerald-300 px-5 font-semibold">Faire un autre import</button></div>
+      {result.merge ? <p className="mt-4 rounded-xl bg-white p-3 text-sm dark:bg-slate-950">{result.merge.added} ajout(s), {result.merge.confirmed} confirmation(s), {result.merge.conflicts} conflit(s) traité(s) · dossier prêt à {result.merge.progress} %.</p> : null}
+      <div className="mt-6 flex flex-wrap gap-3"><Link href={result.primaryHref} className="inline-flex min-h-12 items-center gap-2 rounded-xl bg-teal-700 px-5 font-semibold text-white">Ouvrir le dossier <ArrowRight className="h-4 w-4" /></Link><button type="button" onClick={() => { setFiles([]); setAnalysis(null); setResult(null); setDecisions({}); setMergeDecisions({}); setStatus("idle"); }} className="min-h-12 rounded-xl border border-emerald-300 px-5 font-semibold">Ajouter une autre source</button></div>
     </section>;
   }
 
   return <div className="mx-auto max-w-6xl space-y-6 overflow-x-hidden">
-    <header className="space-y-2"><p className="text-sm font-semibold text-teal-700">Analyse intelligente universelle</p><h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">Importer un document ou une conversation</h1><p className="max-w-3xl text-sm leading-6 text-slate-600 dark:text-slate-300">PDF, photo de document ou captures d’écran : IACourtier identifie les personnes, recherche les doublons et prépare le bon dossier. Rien n’est créé avant ta confirmation.</p></header>
+    <header className="space-y-2"><p className="text-sm font-semibold text-teal-700">Analyse intelligente universelle</p><h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">{caseId ? "Ajouter des informations au dossier" : "Importer un document ou une conversation"}</h1><p className="max-w-3xl text-sm leading-6 text-slate-600 dark:text-slate-300">{caseId ? `Chaque source enrichit ${caseTitle ? `« ${caseTitle} »` : "ce dossier"}. IACourtier compare les données et ne remplace jamais une contradiction sans ta décision.` : "PDF, photo de document ou captures d’écran : IACourtier identifie les personnes, recherche les doublons et prépare le bon dossier. Rien n’est créé avant ta confirmation."}</p></header>
 
     <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:p-6">
       <div className="grid gap-3 sm:grid-cols-3">
@@ -183,8 +224,23 @@ export function UniversalDocumentImporter() {
 
       {(analysis.duplicates || []).length ? <Panel title="Doublons possibles — décision obligatoire" icon={Search}>{analysis.duplicates!.map((duplicate) => {
         const person = analysis.people.find((item) => item.id === duplicate.personId);
-        return <div key={duplicate.personId} className="space-y-3 rounded-2xl border border-amber-300 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950/20"><p className="font-semibold">{person ? `${person.firstName} ${person.lastName}`.trim() : "Personne"}</p>{duplicate.matches.map((match) => <label key={match.id} className="flex cursor-pointer items-start gap-3 rounded-xl border border-amber-200 bg-white p-3 dark:border-amber-900 dark:bg-slate-950"><input type="radio" name={`duplicate-${duplicate.personId}`} checked={decisions[duplicate.personId]?.action === "use" && decisions[duplicate.personId]?.existingContactId === match.id} onChange={() => setDecisions((current) => ({ ...current, [duplicate.personId]: { personId: duplicate.personId, action: "use", existingContactId: match.id } }))} className="mt-1" /><span className="min-w-0"><span className="block font-semibold">Utiliser {match.name}</span><span className="block text-xs text-slate-500">Correspondance : {match.matchedOn.join(", ")} · {match.email || match.phone || "coordonnées non renseignées"}</span><Link href={`/tableau-de-bord/clients?client=${match.id}`} target="_blank" className="mt-1 inline-flex text-xs font-semibold text-teal-700 underline">Voir cette fiche</Link></span></label>)}<label className="flex cursor-pointer items-start gap-3 rounded-xl border border-amber-200 bg-white p-3 dark:border-amber-900 dark:bg-slate-950"><input type="radio" name={`duplicate-${duplicate.personId}`} checked={decisions[duplicate.personId]?.action === "create"} onChange={() => setDecisions((current) => ({ ...current, [duplicate.personId]: { personId: duplicate.personId, action: "create" } }))} className="mt-1" /><span><span className="block font-semibold">Créer quand même une nouvelle fiche</span><span className="block text-xs text-slate-500">Confirmation explicite requise pour autoriser ce doublon.</span></span></label></div>;
+        return <div key={duplicate.personId} className="space-y-3 rounded-2xl border border-amber-300 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950/20"><p className="font-semibold">{person ? `${person.firstName} ${person.lastName}`.trim() : "Personne"}</p>{duplicate.matches.map((match) => <label key={match.id} className="flex cursor-pointer items-start gap-3 rounded-xl border border-amber-200 bg-white p-3 dark:border-amber-900 dark:bg-slate-950"><input type="radio" name={`duplicate-${duplicate.personId}`} checked={decisions[duplicate.personId]?.action === "use" && decisions[duplicate.personId]?.existingContactId === match.id} onChange={() => choosePerson(duplicate.personId, "use", match.id)} className="mt-1" /><span className="min-w-0"><span className="block font-semibold">Utiliser {match.name}</span><span className="block text-xs text-slate-500">Correspondance : {match.matchedOn.join(", ")} · {match.email || match.phone || "coordonnées non renseignées"}</span><Link href={`/tableau-de-bord/clients?client=${match.id}`} target="_blank" className="mt-1 inline-flex text-xs font-semibold text-teal-700 underline">Voir cette fiche</Link></span></label>)}<label className="flex cursor-pointer items-start gap-3 rounded-xl border border-amber-200 bg-white p-3 dark:border-amber-900 dark:bg-slate-950"><input type="radio" name={`duplicate-${duplicate.personId}`} checked={decisions[duplicate.personId]?.action === "create"} onChange={() => choosePerson(duplicate.personId, "create")} className="mt-1" /><span><span className="block font-semibold">Créer quand même une nouvelle fiche</span><span className="block text-xs text-slate-500">Confirmation explicite requise pour autoriser ce doublon.</span></span></label></div>;
       })}</Panel> : <div className="flex items-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/20 dark:text-emerald-100"><CheckCircle2 className="h-5 w-5" />Aucun doublon client détecté selon le nom, le courriel ou le téléphone.</div>}
+
+      {caseId && analysis.existingCase && unresolvedAssignments.length ? <Panel title="À qui appartient cette source ?" icon={UserRound}>
+        {unresolvedAssignments.map((person) => <div key={person.id} className="space-y-3 rounded-2xl border border-amber-300 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950/20">
+          <div><p className="font-semibold">{person.sourceName || `${person.firstName} ${person.lastName}`.trim()}</p><p className="mt-1 text-sm text-slate-600 dark:text-slate-300">IACourtier n’a pas une correspondance assez certaine. Choisis la bonne personne; aucune nouvelle fiche ne sera créée sans ton choix.</p></div>
+          {analysis.existingCase!.clients.map((client) => <label key={client.id} className="flex cursor-pointer gap-3 rounded-xl border border-amber-200 bg-white p-3 dark:border-amber-900 dark:bg-slate-950"><input type="radio" name={`assignment-${person.id}`} onChange={() => choosePerson(person.id, "use", client.id)} /><span><strong className="block">{`${client.firstName} ${client.lastName}`.trim()}</strong><span className="text-xs text-slate-500">{client.email || client.phone || "Coordonnées à compléter"}</span></span></label>)}
+          <label className="flex cursor-pointer gap-3 rounded-xl border border-amber-200 bg-white p-3 dark:border-amber-900 dark:bg-slate-950"><input type="radio" name={`assignment-${person.id}`} onChange={() => choosePerson(person.id, "create")} /><span><strong className="block">Créer une nouvelle personne</strong><span className="text-xs text-slate-500">Seulement si aucun client déjà relié ne correspond.</span></span></label>
+        </div>)}
+      </Panel> : null}
+
+      {analysis.mergePreview ? <Panel title="Comparaison avec le dossier existant" icon={FileSearch}>
+        <div className="grid gap-3 sm:grid-cols-4"><Stat label="Nouvelles" value={String(analysis.mergePreview.newCount)} /><Stat label="Déjà confirmées" value={String(analysis.mergePreview.unchangedCount)} /><Stat label="Conflits" value={String(analysis.mergePreview.conflictCount)} /><Stat label="Attributions" value={String(analysis.mergePreview.assignmentCount)} /></div>
+        {analysis.mergePreview.proposals.filter((proposal) => proposal.status === "new").length ? <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/20 dark:text-emerald-100"><strong>Enrichissement automatique sans conflit</strong><p className="mt-1">{analysis.mergePreview.proposals.filter((proposal) => proposal.status === "new").map((proposal) => proposal.label).join(", ")}.</p></div> : null}
+        {analysis.mergePreview.proposals.filter((proposal) => proposal.status === "conflict").map((proposal) => <MergeConflict key={proposal.id} proposal={proposal} decision={mergeDecisions[proposal.id]} onDecision={(action) => setMergeDecisions((current) => ({ ...current, [proposal.id]: { proposalId: proposal.id, action } }))} />)}
+        {!analysis.mergePreview.conflictCount ? <div className="flex items-center gap-2 text-sm text-emerald-700"><CheckCircle2 className="h-5 w-5" />Aucune donnée contradictoire. Les champs vides seront enrichis et les valeurs identiques confirmeront leur provenance.</div> : null}
+      </Panel> : null}
 
       <section className="grid gap-5 lg:grid-cols-2">
         <Panel title="Propriété" icon={FileSearch}>
@@ -202,7 +258,7 @@ export function UniversalDocumentImporter() {
 
       {analysis.ambiguities.length ? <Panel title="Ambiguïtés à valider" icon={AlertTriangle}>{analysis.ambiguities.map((ambiguity) => <p key={ambiguity} className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950/20 dark:text-amber-100">{ambiguity}</p>)}</Panel> : null}
 
-      <section className="sticky bottom-3 z-10 rounded-2xl border border-slate-300 bg-white/95 p-4 shadow-xl backdrop-blur dark:border-slate-700 dark:bg-slate-950/95"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-semibold">Confirmation finale</p><p className="text-xs text-slate-500">Après ce clic seulement : fiche client centrale, dossier, financement, partenaire, document, étape, tâches et automatisations seront reliés.</p>{unresolvedDuplicates.length ? <p className="mt-1 text-xs font-semibold text-amber-700">Choisis quoi faire pour {unresolvedDuplicates.length} doublon{unresolvedDuplicates.length > 1 ? "s" : ""}.</p> : null}</div><button type="button" disabled={!canConfirm} onClick={() => void confirm()} className="inline-flex min-h-12 shrink-0 items-center justify-center gap-2 rounded-xl bg-slate-950 px-5 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40 dark:bg-white dark:text-slate-950">{status === "confirming" ? <Loader2 className="h-5 w-5 animate-spin" /> : <CheckCircle2 className="h-5 w-5" />}{status === "confirming" ? "Enregistrement…" : "Confirmer et créer / mettre à jour le dossier"}</button></div></section>
+      <section className="sticky bottom-3 z-10 rounded-2xl border border-slate-300 bg-white/95 p-4 shadow-xl backdrop-blur dark:border-slate-700 dark:bg-slate-950/95"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-semibold">Confirmation finale</p><p className="text-xs text-slate-500">{caseId ? "Après ce clic seulement : document, provenances et enrichissements validés seront reliés au même dossier." : "Après ce clic seulement : fiche client centrale, dossier, financement, partenaire, document, étape, tâches et automatisations seront reliés."}</p>{unresolvedDuplicates.length ? <p className="mt-1 text-xs font-semibold text-amber-700">Choisis quoi faire pour {unresolvedDuplicates.length} doublon{unresolvedDuplicates.length > 1 ? "s" : ""}.</p> : null}{unresolvedAssignments.length ? <p className="mt-1 text-xs font-semibold text-amber-700">Attribue {unresolvedAssignments.length} personne{unresolvedAssignments.length > 1 ? "s" : ""} au dossier.</p> : null}{unresolvedMergeConflicts.length ? <p className="mt-1 text-xs font-semibold text-amber-700">Résous {unresolvedMergeConflicts.length} information{unresolvedMergeConflicts.length > 1 ? "s" : ""} différente{unresolvedMergeConflicts.length > 1 ? "s" : ""}.</p> : null}</div><button type="button" disabled={!canConfirm} onClick={() => void confirm()} className="inline-flex min-h-12 shrink-0 items-center justify-center gap-2 rounded-xl bg-slate-950 px-5 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40 dark:bg-white dark:text-slate-950">{status === "confirming" ? <Loader2 className="h-5 w-5 animate-spin" /> : <CheckCircle2 className="h-5 w-5" />}{status === "confirming" ? "Enregistrement…" : caseId ? "Confirmer et enrichir ce dossier" : "Confirmer et créer / mettre à jour le dossier"}</button></div></section>
     </> : null}
   </div>;
 }
@@ -216,6 +272,39 @@ function Editable({ label, value, onChange, wide }: { label: string; value: stri
 function FieldLabel({ label, children, wide }: { label: string; children: React.ReactNode; wide?: boolean }) { return <label className={`block ${wide ? "sm:col-span-2" : ""}`}><span className="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-300">{label}</span>{children}</label>; }
 function ReadOnly({ label, value }: { label: string; value: string }) { return <div className="rounded-xl bg-slate-50 p-3 dark:bg-slate-950"><p className="text-xs font-semibold text-slate-500">{label}</p><p className="mt-1 text-sm font-medium">{value.replace(/_/g, " ")}</p></div>; }
 function Stat({ label, value }: { label: string; value: string }) { return <div><p className="text-xs text-slate-500">{label}</p><p className="mt-1 text-xl font-semibold">{value}</p></div>; }
+function MergeConflict({ proposal, decision, onDecision }: { proposal: MergeProposal; decision?: MergeDecision; onDecision: (action: MergeDecision["action"]) => void }) {
+  const choices = mergeChoices(proposal);
+  return <div className="space-y-4 rounded-2xl border border-amber-300 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950/20">
+    <div className="flex items-start gap-3"><AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" /><div><h3 className="font-semibold">Information différente détectée — {proposal.label}</h3><p className="mt-1 text-sm text-slate-600 dark:text-slate-300">{proposal.reason}</p></div></div>
+    <div className="grid gap-3 sm:grid-cols-2"><ReadOnly label="Valeur actuelle" value={proposal.currentValue || "Aucune"} /><ReadOnly label="Nouvelle valeur" value={proposal.incomingValue} /></div>
+    <p className="text-xs text-slate-500">Source : {proposal.sourceName} · confiance {proposal.confidence == null ? "à confirmer" : `${Math.round(proposal.confidence * 100)} %`} · priorité {proposal.sourcePriority}/100</p>
+    <div className="grid gap-2 sm:grid-cols-2">{choices.map((choice) => <label key={choice.action} className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 ${decision?.action === choice.action ? "border-teal-600 bg-teal-50 dark:bg-teal-950/30" : "border-amber-200 bg-white dark:border-amber-900 dark:bg-slate-950"}`}><input type="radio" name={`merge-${proposal.id}`} checked={decision?.action === choice.action} onChange={() => onDecision(choice.action)} className="mt-1" /><span><strong className="block text-sm">{choice.label}</strong><span className="text-xs text-slate-500">{choice.detail}</span></span></label>)}</div>
+  </div>;
+}
+function mergeChoices(proposal: MergeProposal): Array<{ action: MergeDecision["action"]; label: string; detail: string }> {
+  const secondary = proposal.field === "phone" ? "Ajouter comme deuxième téléphone" : proposal.field === "email" ? "Ajouter comme deuxième courriel" : proposal.field === "mailingAddress" ? "Conserver les deux adresses" : "Conserver comme donnée secondaire";
+  const replace = proposal.field === "mailingAddress" ? "Utiliser comme adresse personnelle" : "Remplacer";
+  return [
+    { action: "replace", label: `${replace}${proposal.recommendedAction === "replace" ? " · recommandé" : ""}`, detail: "La nouvelle valeur devient la valeur principale; l’ancienne reste dans l’historique." },
+    { action: "add_secondary", label: secondary, detail: "La valeur actuelle reste principale et la nouvelle est conservée séparément." },
+    { action: "keep_existing", label: `Conserver l’actuelle${proposal.recommendedAction === "keep_existing" ? " · recommandé" : ""}`, detail: "La source est archivée, sans modifier la fiche active." },
+    { action: "ignore", label: "Ignorer cette nouvelle valeur", detail: "La valeur proposée est journalisée comme rejetée." },
+  ];
+}
+function summarizePreview(preview: NonNullable<UniversalAnalysis["mergePreview"]>, proposals: MergeProposal[]) {
+  return {
+    ...preview, proposals,
+    newCount: proposals.filter((item) => item.status === "new").length,
+    unchangedCount: proposals.filter((item) => item.status === "same").length,
+    conflictCount: proposals.filter((item) => item.status === "conflict").length,
+    assignmentCount: proposals.filter((item) => item.status === "needs_assignment").length,
+  };
+}
+function equivalentPreview(field: string, first: string, second: string) {
+  if (field === "phone") return first.replace(/\D/g, "") === second.replace(/\D/g, "");
+  if (field === "email") return first.trim().toLowerCase() === second.trim().toLowerCase();
+  return first.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "") === second.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
+}
 function formatBytes(bytes: number) { return bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} Ko` : `${(bytes / 1024 / 1024).toFixed(1)} Mo`; }
 function partnerLabel(type: UniversalAnalysis["partners"][number]["partnerType"]) { return ({ mortgage_broker: "Courtier hypothécaire", real_estate_broker: "Courtier immobilier", notary: "Notaire", inspector: "Inspecteur", lender: "Prêteur", other: "Autre partenaire" } as const)[type]; }
 function findMissingInformation(analysis: UniversalAnalysis) {
@@ -227,3 +316,4 @@ function findMissingInformation(analysis: UniversalAnalysis) {
   if ((analysis.projectType === "seller" || analysis.projectType === "buy_sell") && !analysis.property.address) missing.push("Adresse de la propriété manquante");
   return [...new Set(missing)];
 }
+

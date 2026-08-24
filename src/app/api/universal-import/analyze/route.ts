@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 
 import { parseJsonObject } from "@/lib/mandate-document-extraction";
+import { buildContinuousMergePreview } from "@/lib/continuous-merge";
 import { generateWithOpenAIFile, generateWithOpenAIVision, getOpenAIErrorPayload } from "@/lib/openai";
 import { fileExtension, imageDataUrlForVision } from "@/lib/server/image-analysis";
 import { extractPdfContent } from "@/lib/server/pdf-analysis";
+import { loadContinuousMergeContext, publicCaseContext } from "@/lib/server/continuous-merge";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
   inferDocumentType,
@@ -36,8 +38,11 @@ export async function POST(request: Request) {
     }
     const formData = await request.formData();
     const files = formData.getAll("files").filter((item): item is File => item instanceof File && item.size > 0);
+    const caseId = typeof formData.get("caseId") === "string" ? String(formData.get("caseId") || "").trim() : "";
     const validationError = validateFiles(files);
     if (validationError) return NextResponse.json({ error: validationError }, { status: 400 });
+    const mergeContext = caseId ? await loadContinuousMergeContext(supabase, user.id, caseId) : null;
+    const caseGuidance = mergeContext ? existingCaseGuidance(mergeContext) : "";
 
     const pdfFiles = files.filter((file) => fileExtension(file.name) === ".pdf");
     const imageFiles = files.filter((file) => fileExtension(file.name) !== ".pdf");
@@ -55,7 +60,7 @@ export async function POST(request: Request) {
         analysisMode: extracted.text ? "pdf_text_and_vision" : "pdf_visual_ocr",
       };
       const response = await generateWithOpenAIFile({
-        systemPrompt: universalExtractionPrompt([file.name]),
+        systemPrompt: `${universalExtractionPrompt([file.name])}${caseGuidance}`,
         userPrompt: [
           `Analyse le fichier « ${file.name} » en entier.`,
           extracted.text
@@ -81,7 +86,7 @@ export async function POST(request: Request) {
         analysisMode: fileExtension(file.name) === ".heic" || fileExtension(file.name) === ".heif" ? "heic_converted_vision" : "image_vision",
       }));
       const response = await generateWithOpenAIVision({
-        systemPrompt: universalExtractionPrompt(imageFiles.map((file) => file.name)),
+        systemPrompt: `${universalExtractionPrompt(imageFiles.map((file) => file.name))}${caseGuidance}`,
         userPrompt: [
           "Analyse ces images ensemble, dans l'ordre transmis.",
           "Si plusieurs images sont des captures d'une même conversation ou plusieurs pages d'un même document, reconstitue leur continuité sans inventer les passages manquants.",
@@ -109,6 +114,13 @@ export async function POST(request: Request) {
       matches: (contactsResult.data || []).map((contact) => duplicateForPerson(person, contact)).filter((match): match is DuplicateMatch => Boolean(match)),
     })).filter((item) => item.matches.length > 0);
     analysis.propertyDuplicate = findPropertyDuplicate(analysis, propertiesResult.data || []);
+    if (mergeContext) {
+      if (analysis.projectType === "unknown") analysis.projectType = mergeContext.caseType;
+      if (mergeContext.seller && !analysis.sellerStage) analysis.sellerStage = String(mergeContext.seller.pipeline_stage || "lead");
+      if (mergeContext.buyer && !analysis.buyerStage) analysis.buyerStage = String(mergeContext.buyer.pipeline_stage || "qualification");
+      analysis.existingCase = publicCaseContext(mergeContext);
+      analysis.mergePreview = buildContinuousMergePreview(analysis, mergeContext);
+    }
 
     return NextResponse.json({ analysis });
   } catch (error) {
@@ -117,6 +129,16 @@ export async function POST(request: Request) {
     if (openAIError) return NextResponse.json(openAIError.body, { status: openAIError.status });
     return NextResponse.json({ error: error instanceof Error ? error.message : "L’analyse universelle a échoué." }, { status: 500 });
   }
+}
+
+function existingCaseGuidance(context: Awaited<ReturnType<typeof loadContinuousMergeContext>>) {
+  const people = context.clients.map((client) => `${client.firstName} ${client.lastName}`.trim()).filter(Boolean).join(", ");
+  const property = context.property ? [context.property.address, context.property.city].filter(Boolean).join(", ") : "aucune propriété";
+  return `\n\nContexte du dossier existant à enrichir :
+- Dossier : ${context.title} (${context.caseType})
+- Personnes déjà reliées : ${people || "aucune"}
+- Propriété du dossier : ${property}
+Règles additionnelles : ce document enrichit ce même dossier. Ne déduis jamais qu'une adresse figurant sur une pièce d'identité est l'adresse de la propriété. Pour une pièce d'identité, associe le nom visible à l'une des personnes ci-dessus si le texte le permet; sinon signale l'ambiguïté.`;
 }
 
 function validateFiles(files: File[]) {
@@ -151,3 +173,4 @@ function findPropertyDuplicate(analysis: UniversalAnalysis, properties: Array<Re
   const match = properties.find((property) => normalizeUniversalValue(String(property.address || "")) === address && (!city || normalizeUniversalValue(String(property.city || "")) === city));
   return match ? { id: String(match.id), address: String(match.address || ""), city: String(match.city || "") } : null;
 }
+

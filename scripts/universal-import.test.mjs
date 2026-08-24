@@ -78,3 +78,19 @@ test("G — préqualification -> cliente acheteuse, financement et courtier hypo
   assert.equal(`${analysis.partners[0].firstName} ${analysis.partners[0].lastName}`, "Mickael Bisson");
   assert.equal(analysis.partners[0].partnerType, "mortgage_broker");
 });
+
+test("H — une adresse de pièce d’identité reste une donnée personne, jamais une propriété", () => {
+  const name = "permis-jean-tremblay.jpg";
+  const analysis = normalizeUniversalPartial({
+    projectType: "seller",
+    documents: [source(name, "Pièce d’identité")],
+    people: [{ firstName: "Jean", lastName: "Tremblay", mailingAddress: "125 rue ABC", roles: ["seller"], sourceName: name, confidence: 0.98 }],
+    property: { address: "", city: "", postalCode: "", propertyType: "", lotNumber: "" },
+  }, []);
+  assert.equal(analysis.people[0].mailingAddress, "125 rue ABC");
+  assert.equal(analysis.property.address, "");
+  const addressFact = analysis.facts.find((fact) => fact.field === "mailingAddress");
+  assert.equal(addressFact?.entity, "person");
+  assert.equal(addressFact?.value, "125 rue ABC");
+});
+

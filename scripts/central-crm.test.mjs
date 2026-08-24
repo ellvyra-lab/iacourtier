@@ -56,9 +56,39 @@ test("navigation — Client 360, dossier unifié, Documents et Automatisations u
   assert.match(read("src/app/tableau-de-bord/telechargements/page.tsx"), /CentralResourcesDashboard/);
 });
 
+test("fusion continue — schéma versionné, multi-adresses, provenance, conflits et documents sensibles", () => {
+  const sql = read("supabase/migrations/202608242300_continuous_document_merge.sql");
+  for (const table of ["client_contact_methods", "client_addresses", "crm_facts", "data_conflicts", "document_access_logs"]) {
+    assert.match(sql, new RegExp(`create table if not exists public\\.${table}`));
+    assert.match(sql, new RegExp(`alter table public\\.${table} enable row level security`));
+  }
+  assert.match(sql, /add column if not exists is_sensitive boolean not null default false/);
+  assert.match(sql, /address_type in \('personal', 'mailing', 'sold_property', 'purchased_property', 'rental_property', 'former', 'other'\)/);
+  assert.match(sql, /exists \(select 1 from public\.client_cases/);
+  assert.match(sql, /exists \(select 1 from public\.documents/);
+  assert.doesNotMatch(sql, /disable row level security|service_role|drop table|truncate table/i);
+});
+
+test("enrichissement documentaire — réutilise le dossier et exige une décision pour chaque conflit", () => {
+  const analyze = read("src/app/api/universal-import/analyze/route.ts");
+  const confirm = read("src/app/api/universal-import/confirm/route.ts");
+  const workspace = read("src/components/client-case-workspace.tsx");
+  assert.match(analyze, /loadContinuousMergeContext/);
+  assert.match(analyze, /buildContinuousMergePreview/);
+  assert.match(confirm, /centralCaseId: existingMergeContext\?\.id \|\| null/);
+  assert.match(confirm, /applyContinuousMerge/);
+  assert.match(confirm, /mergeDecisions/);
+  assert.match(confirm, /isSensitive = source\?\.type === "Pièce d’identité"/);
+  assert.match(workspace, /UniversalDocumentImporter caseId=\{caseId\}/);
+  assert.match(workspace, /Adresses des clients/);
+  assert.match(workspace, /Informations et provenance/);
+  assert.match(workspace, /Conflits de données/);
+});
+
 function collect(directory) {
   return readdirSync(directory).flatMap((name) => {
     const path = join(directory, name);
     return statSync(path).isDirectory() ? collect(path) : [path];
   });
 }
+

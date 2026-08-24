@@ -4,11 +4,13 @@ import { BUYER_AUTOMATION_TEMPLATES, BUYER_TASK_TEMPLATES } from "@/lib/buyer-ca
 import { SELLER_AUTOMATION_TEMPLATES, SELLER_TASK_TEMPLATES } from "@/lib/seller-listings";
 import { fileExtension } from "@/lib/server/image-analysis";
 import { ensureCentralCase, recordCentralActivity, syncCentralDocument, syncCentralWorkflow } from "@/lib/server/central-crm";
+import { applyContinuousMerge, loadContinuousMergeContext, MergeValidationError, type LoadedMergeContext } from "@/lib/server/continuous-merge";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
   normalizeUniversalValue,
   sanitizeAnalysisForConfirmation,
   type PersonDecision,
+  type MergeDecision,
   type UniversalAnalysis,
   type UniversalPerson,
 } from "@/lib/universal-import";
@@ -42,9 +44,13 @@ export async function POST(request: Request) {
     const decisionsRaw = parseFormJson(formData.get("decisions"), "Les choix de doublons sont absents.");
     const analysis = sanitizeAnalysisForConfirmation(analysisRaw);
     const decisions = Array.isArray(decisionsRaw) ? decisionsRaw as PersonDecision[] : [];
+    const mergeDecisionsRaw = parseFormJson(formData.get("mergeDecisions") || "[]", "Les décisions de fusion sont invalides.");
+    const mergeDecisions = Array.isArray(mergeDecisionsRaw) ? mergeDecisionsRaw as MergeDecision[] : [];
+    const requestedCaseId = typeof formData.get("caseId") === "string" ? String(formData.get("caseId") || "").trim() : "";
+    let existingMergeContext: LoadedMergeContext | null = requestedCaseId ? await loadContinuousMergeContext(supabase, user.id, requestedCaseId) : null;
     const files = formData.getAll("files").filter((item): item is File => item instanceof File && item.size > 0);
 
-    const validationError = validateConfirmation(analysis, files);
+    const validationError = validateConfirmation(analysis, files, Boolean(existingMergeContext));
     if (validationError) return NextResponse.json({ error: validationError }, { status: 400 });
     const sourceNames = new Set(analysis.sources.map((source) => source.name));
     if (files.some((file) => !sourceNames.has(file.name))) {
@@ -81,14 +87,18 @@ export async function POST(request: Request) {
 
     for (const person of analysis.people) {
       const matches = contacts.filter((contact) => isDuplicate(person, contact));
-      const decision = decisions.find((item) => item.personId === person.id);
-      if (matches.length && !decision) {
+      let decision = decisions.find((item) => item.personId === person.id);
+      if (!decision && matches.length === 1) decision = { personId: person.id, action: "use", existingContactId: matches[0].id };
+      if (matches.length > 1 && !decision) {
         return await conflictWithCleanup(supabase, uploadedPaths, `Un doublon possible existe pour ${personName(person)}. Choisis « Utiliser cette fiche » ou « Créer quand même » avant de confirmer.`);
+      }
+      if (existingMergeContext && !decision && !matches.length) {
+        return await conflictWithCleanup(supabase, uploadedPaths, `Indique à qui appartient le document de ${personName(person)} dans « ${existingMergeContext.title} », ou confirme explicitement la création d’une nouvelle personne.`);
       }
 
       let contact: ContactRow | undefined;
       if (decision?.action === "use") {
-        contact = matches.find((match) => match.id === decision.existingContactId);
+        contact = contacts.find((match) => match.id === decision.existingContactId);
         if (!contact) return await conflictWithCleanup(supabase, uploadedPaths, `La fiche choisie pour ${personName(person)} n’est plus disponible. Relance l’analyse.`);
       } else if (matches.length && decision?.action !== "create") {
         return await conflictWithCleanup(supabase, uploadedPaths, `La création d’un doublon pour ${personName(person)} exige une confirmation explicite.`);
@@ -123,9 +133,9 @@ export async function POST(request: Request) {
     }
 
     // Property identity is resolved only after all people have been linked.
-    let propertyId: string | null = null;
-    let reusedProperty = false;
-    if (analysis.property.address) {
+    let propertyId: string | null = existingMergeContext?.propertyId || null;
+    let reusedProperty = Boolean(propertyId);
+    if (analysis.property.address && !propertyId) {
       const { data: properties, error } = await supabase.from("properties").select("id,address,city").eq("user_id", user.id);
       if (error) throw error;
       const duplicate = (properties || []).find((property) =>
@@ -153,16 +163,18 @@ export async function POST(request: Request) {
     const sellerContactIds = (sellerPeople.length ? sellerPeople : analysis.projectType === "seller" ? analysis.people : []).map((person) => contactIds.get(person.id)).filter((id): id is string => Boolean(id));
     const buyerContactIds = (buyerPeople.length ? buyerPeople : analysis.projectType === "buyer" ? analysis.people : []).map((person) => contactIds.get(person.id)).filter((id): id is string => Boolean(id));
 
-    let listingId: string | null = null;
-    let buyerCaseId: string | null = null;
-    let reusedListing = false;
-    let reusedBuyerCase = false;
+    let listingId: string | null = existingMergeContext?.sellerListingId || null;
+    let buyerCaseId: string | null = existingMergeContext?.buyerCaseId || null;
+    let reusedListing = Boolean(listingId);
+    let reusedBuyerCase = Boolean(buyerCaseId);
 
     if (analysis.projectType === "seller" || analysis.projectType === "buy_sell") {
       if (!propertyId || !sellerContactIds.length) throw new Error("Le dossier vendeur exige une propriété et au moins un client vendeur relié.");
-      const { data: existing } = await supabase.from("seller_listings").select("id").eq("user_id", user.id).eq("property_id", propertyId).in("status", ["draft", "review", "prepared", "published"]).limit(1).maybeSingle();
-      listingId = existing?.id || null;
-      reusedListing = Boolean(listingId);
+      if (!listingId) {
+        const { data: existing } = await supabase.from("seller_listings").select("id").eq("user_id", user.id).eq("property_id", propertyId).in("status", ["draft", "review", "prepared", "published"]).limit(1).maybeSingle();
+        listingId = existing?.id || null;
+        reusedListing = Boolean(listingId);
+      }
       if (!listingId) {
         const { data, error } = await supabase.from("seller_listings").insert({ user_id: user.id, property_id: propertyId, status: "review", pipeline_stage: "lead", validation_required: true }).select("id").single();
         if (error || !data) throw error || new Error("Création du dossier vendeur impossible.");
@@ -175,9 +187,14 @@ export async function POST(request: Request) {
     if (analysis.projectType === "buyer" || analysis.projectType === "buy_sell") {
       const primaryContactId = buyerContactIds[0] || contactIds.values().next().value as string | undefined;
       if (!primaryContactId) throw new Error("Le dossier acheteur exige au moins un client acheteur relié.");
-      const { data: existing } = await supabase.from("buyer_cases").select("id").eq("user_id", user.id).eq("contact_id", primaryContactId).neq("status", "completed").limit(1).maybeSingle();
-      buyerCaseId = existing?.id || null;
-      reusedBuyerCase = Boolean(buyerCaseId);
+      let existing: Record<string, any> | null = existingMergeContext?.buyer || null;
+      if (!buyerCaseId) {
+        const result = await supabase.from("buyer_cases").select("*").eq("user_id", user.id).eq("contact_id", primaryContactId).neq("status", "completed").limit(1).maybeSingle();
+        if (result.error) throw result.error;
+        existing = result.data;
+        buyerCaseId = existing?.id || null;
+        reusedBuyerCase = Boolean(buyerCaseId);
+      }
       const criteria = analysis.buyerCriteria;
       if (!buyerCaseId) {
         const { data, error } = await supabase.from("buyer_cases").insert({
@@ -190,14 +207,18 @@ export async function POST(request: Request) {
         }).select("*").single();
         if (error || !data) throw error || new Error("Création du dossier acheteur impossible.");
         buyerCaseId = data.id;
-      } else {
-        const { error } = await supabase.from("buyer_cases").update({
-          property_id: propertyId,
-          budget: criteria.budget || null, preapproval_status: criteria.preapprovalStatus || "missing", sectors: criteria.sectors,
-          property_type: criteria.propertyType || analysis.property.propertyType || null, bedrooms: criteria.bedrooms || null,
-          important_needs: criteria.importantNeeds || null, timeline: criteria.timeline || null,
-          property_to_sell: criteria.propertyToSell, updated_at: new Date().toISOString(),
-        }).eq("id", buyerCaseId).eq("user_id", user.id);
+      } else if (!existingMergeContext) {
+        const enrichOnly: Record<string, unknown> = { updated_at: new Date().toISOString() };
+        if (!existing?.property_id && propertyId) enrichOnly.property_id = propertyId;
+        if (!existing?.budget && criteria.budget) enrichOnly.budget = criteria.budget;
+        if ((!existing?.preapproval_status || existing.preapproval_status === "missing") && criteria.preapprovalStatus !== "missing") enrichOnly.preapproval_status = criteria.preapprovalStatus;
+        if ((!existing?.sectors || !existing.sectors.length) && criteria.sectors.length) enrichOnly.sectors = criteria.sectors;
+        if (!existing?.property_type && (criteria.propertyType || analysis.property.propertyType)) enrichOnly.property_type = criteria.propertyType || analysis.property.propertyType;
+        if (!existing?.bedrooms && criteria.bedrooms) enrichOnly.bedrooms = criteria.bedrooms;
+        if (!existing?.important_needs && criteria.importantNeeds) enrichOnly.important_needs = criteria.importantNeeds;
+        if (!existing?.timeline && criteria.timeline) enrichOnly.timeline = criteria.timeline;
+        if (existing?.property_to_sell == null && criteria.propertyToSell != null) enrichOnly.property_to_sell = criteria.propertyToSell;
+        const { error } = await supabase.from("buyer_cases").update(enrichOnly).eq("id", buyerCaseId).eq("user_id", user.id);
         if (error) throw error;
       }
       const partyIds = buyerContactIds.length ? buyerContactIds : [primaryContactId];
@@ -222,24 +243,27 @@ export async function POST(request: Request) {
     const clientName = analysis.people.map(personName).filter(Boolean).join(" et ") || "Client";
     const centralCaseId = await ensureCentralCase(supabase, {
       userId: user.id, primaryClientId, participantIds: [...sellerContactIds, ...buyerContactIds], propertyId,
-      caseType: analysis.projectType === "unknown" ? "other" : analysis.projectType,
-      title: analysis.projectType === "seller" ? `Vente — ${analysis.property.address || clientName}` : analysis.projectType === "buyer" ? `Achat — ${clientName}` : analysis.projectType === "buy_sell" ? `Achat + vente — ${clientName}` : `Projet — ${clientName}`,
+      caseType: existingMergeContext?.caseType || (analysis.projectType === "unknown" ? "other" : analysis.projectType),
+      title: existingMergeContext?.title || (analysis.projectType === "seller" ? `Vente — ${analysis.property.address || clientName}` : analysis.projectType === "buyer" ? `Achat — ${clientName}` : analysis.projectType === "buy_sell" ? `Achat + vente — ${clientName}` : `Projet — ${clientName}`),
       status: "active", pipelineStage: analysis.buyerStage || analysis.sellerStage || "new_contact", source: "universal_import",
-      buyerCaseId, sellerListingId: listingId,
+      buyerCaseId, sellerListingId: listingId, centralCaseId: existingMergeContext?.id || null,
     });
 
     // Le dossier et le pipeline existent avant les étapes opérationnelles.
     let partnersLinked = 0;
-    if (buyerCaseId) {
+    if (buyerCaseId && !reusedBuyerCase) {
       await persistBuyerFinancing(supabase, user.id, buyerCaseId, analysis, buyerDocumentIds);
-      partnersLinked = await linkBuyerPartners(supabase, user.id, buyerCaseId, analysis);
     }
+    if (buyerCaseId) partnersLinked = await linkBuyerPartners(supabase, user.id, buyerCaseId, analysis);
     if (listingId) await ensureSellerTasks(supabase, user.id, listingId, analysis);
     if (buyerCaseId) await ensureBuyerTasks(supabase, user.id, buyerCaseId, analysis);
 
+    const centralDocumentIds = new Map<string, string>();
     for (const item of stored) {
       const source = analysis.sources.find((candidate) => candidate.name === item.file.name);
-      const metadata = { confidence: source?.confidence, pageCount: source?.pageCount, analysisMode: source?.analysisMode, importId };
+      const isSensitive = source?.type === "Pièce d’identité";
+      const subjectClientId = documentSubjectClientId(item.file.name, analysis, contactIds) || primaryClientId;
+      const metadata = { confidence: source?.confidence, pageCount: source?.pageCount, analysisMode: source?.analysisMode, importId, isSensitive };
       if (listingId) {
         const { data, error } = await supabase.from("seller_listing_documents").insert({
           user_id: user.id, listing_id: listingId, name: item.file.name, document_type: source?.type || "Autre",
@@ -248,7 +272,8 @@ export async function POST(request: Request) {
         }).select("*").single();
         if (error || !data) throw error || new Error(`Le document ${item.file.name} n’a pas pu être relié au dossier vendeur.`);
         sellerDocumentIds.set(item.file.name, data.id);
-        await syncCentralDocument(supabase, { userId: user.id, clientId: primaryClientId, caseId: centralCaseId, propertyId, document: { ...data, source_type: source?.sourceType || "image", analysis_metadata: metadata }, legacySource: "seller_listing_documents" });
+        const centralId = await syncCentralDocument(supabase, { userId: user.id, clientId: subjectClientId, caseId: centralCaseId, propertyId, document: { ...data, source_type: source?.sourceType || "image", analysis_metadata: metadata, is_sensitive: isSensitive, subject_client_id: subjectClientId }, legacySource: "seller_listing_documents" });
+        centralDocumentIds.set(item.file.name, centralId);
       }
       if (buyerCaseId) {
         const { data, error } = await supabase.from("buyer_case_documents").insert({
@@ -258,11 +283,22 @@ export async function POST(request: Request) {
         }).select("*").single();
         if (error || !data) throw error || new Error(`Le document ${item.file.name} n’a pas pu être relié au dossier acheteur.`);
         buyerDocumentIds.set(item.file.name, data.id);
-        await syncCentralDocument(supabase, { userId: user.id, clientId: primaryClientId, caseId: centralCaseId, propertyId, document: { ...data, source_type: source?.sourceType || "image", analysis_metadata: metadata }, legacySource: "buyer_case_documents" });
+        const centralId = await syncCentralDocument(supabase, { userId: user.id, clientId: subjectClientId, caseId: centralCaseId, propertyId, document: { ...data, source_type: source?.sourceType || "image", analysis_metadata: metadata, is_sensitive: isSensitive, subject_client_id: subjectClientId }, legacySource: "buyer_case_documents" });
+        if (!centralDocumentIds.has(item.file.name)) centralDocumentIds.set(item.file.name, centralId);
+      }
+      if (!listingId && !buyerCaseId) {
+        const { data, error } = await supabase.from("documents").insert({
+          user_id: user.id, client_id: subjectClientId, subject_client_id: subjectClientId, case_id: centralCaseId,
+          property_id: propertyId, name: item.file.name, category: source?.type || "Autre", mime_type: normalizedMime(item.file),
+          size_bytes: item.file.size, storage_path: item.path, source_type: source?.sourceType || "image",
+          analysis_status: "analyzed", analysis_metadata: metadata, is_sensitive: isSensitive,
+        }).select("id").single();
+        if (error || !data) throw error || new Error(`Le document ${item.file.name} n’a pas pu être relié au dossier central.`);
+        centralDocumentIds.set(item.file.name, data.id);
       }
     }
 
-    if (buyerCaseId) await persistBuyerFinancing(supabase, user.id, buyerCaseId, analysis, buyerDocumentIds);
+    if (buyerCaseId && !reusedBuyerCase) await persistBuyerFinancing(supabase, user.id, buyerCaseId, analysis, buyerDocumentIds);
     if (listingId) await ensureSellerAutomations(supabase, user.id, listingId, analysis);
     if (buyerCaseId) await ensureBuyerAutomations(supabase, user.id, buyerCaseId, analysis);
     await syncCentralWorkflow(supabase, { userId: user.id, clientId: primaryClientId, caseId: centralCaseId, buyerCaseId, sellerListingId: listingId });
@@ -270,15 +306,28 @@ export async function POST(request: Request) {
     if (listingId) await insertSellerFacts(supabase, user.id, listingId, analysis, sellerDocumentIds);
     if (buyerCaseId) await insertBuyerFacts(supabase, user.id, buyerCaseId, analysis, buyerDocumentIds);
 
+    const mergeContext = existingMergeContext || await loadContinuousMergeContext(supabase, user.id, centralCaseId);
+    const effectivePersonDecisions: PersonDecision[] = analysis.people.map((person) => ({
+      personId: person.id, action: "use", existingContactId: contactIds.get(person.id),
+    }));
+    const mergeResult = await applyContinuousMerge(supabase, {
+      userId: user.id, analysis, context: mergeContext, personDecisions: effectivePersonDecisions,
+      mergeDecisions, centralDocumentIds,
+    });
+
     if (listingId) await supabase.from("seller_listing_activity").insert({ user_id: user.id, listing_id: listingId, event_type: "universal_import_confirmed", title: "Import intelligent confirmé", details: analysis.coachSummary });
     if (buyerCaseId) await supabase.from("buyer_case_activity").insert({ user_id: user.id, case_id: buyerCaseId, event_type: "universal_import_confirmed", title: "Import intelligent confirmé", details: analysis.coachSummary });
-    await recordCentralActivity(supabase, { userId: user.id, clientId: primaryClientId, caseId: centralCaseId, eventType: "universal_import_confirmed", title: "Import intelligent confirmé", details: analysis.coachSummary });
+    await recordCentralActivity(supabase, {
+      userId: user.id, clientId: primaryClientId, caseId: centralCaseId, eventType: "document_enrichment_completed",
+      title: `${stored.map((item) => item.file.name).join(", ")} analysé${stored.length > 1 ? "s" : ""}`,
+      details: `${mergeResult.added} information(s) ajoutée(s), ${mergeResult.confirmed} confirmée(s), ${mergeResult.conflicts} conflit(s) traité(s). Dossier prêt à ${mergeResult.progress} %.`,
+    });
 
     const primaryHref = `/tableau-de-bord/dossiers/${centralCaseId}`;
     return NextResponse.json({
       ok: true, listingId, buyerCaseId, centralCaseId, primaryHref, createdContacts, reusedContacts, reusedProperty,
       reusedListing, reusedBuyerCase, uploadedFiles: stored.length, partnersLinked,
-      summary: analysis.coachSummary,
+      merge: mergeResult, summary: `${analysis.coachSummary} ${mergeResult.added} information(s) ajoutée(s); dossier prêt à ${mergeResult.progress} %.`
     });
   } catch (error) {
     console.error("[universal-import/confirm]", error);
@@ -288,15 +337,15 @@ export async function POST(request: Request) {
         await supabase.storage.from("seller-listing-files").remove(uploadedPaths);
       }
     } catch { /* the original error remains the useful one */ }
-    return NextResponse.json({ error: error instanceof Error ? error.message : "La création du dossier a échoué." }, { status: 500 });
+    return NextResponse.json({ error: error instanceof Error ? error.message : "La création du dossier a échoué." }, { status: error instanceof MergeValidationError ? 409 : 500 });
   }
 }
 
-function validateConfirmation(analysis: UniversalAnalysis, files: File[]) {
+function validateConfirmation(analysis: UniversalAnalysis, files: File[], enrichingExistingCase = false) {
   if (analysis.projectType === "unknown") return "Le type de projet doit être confirmé : vendeur, acheteur, achat + vente, prospect ou autre.";
   if (!analysis.people.length) return "Ajoute ou confirme au moins une personne réelle avant de créer le dossier.";
   if (analysis.people.some((person) => !person.firstName && !person.lastName)) return "Chaque personne doit avoir un nom avant la confirmation.";
-  if ((analysis.projectType === "seller" || analysis.projectType === "buy_sell") && (!analysis.property.address || !analysis.property.city)) return "L’adresse et la ville sont requises pour le dossier vendeur.";
+  if (!enrichingExistingCase && (analysis.projectType === "seller" || analysis.projectType === "buy_sell") && (!analysis.property.address || !analysis.property.city)) return "L’adresse et la ville sont requises pour le dossier vendeur.";
   if (!files.length || files.length > MAX_FILES) return `Entre 1 et ${MAX_FILES} fichiers analysés sont requis.`;
   for (const file of files) {
     if (!ALLOWED_EXTENSIONS.has(fileExtension(file.name))) return `Format non accepté pour ${file.name}.`;
@@ -487,4 +536,10 @@ function safeName(name: string) {
   return name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9._-]+/g, "-").slice(-120) || "document";
 }
 
+function documentSubjectClientId(sourceName: string, analysis: UniversalAnalysis, contactIds: Map<string, string>) {
+  const candidates = analysis.people.filter((person) => person.sourceName === sourceName).map((person) => contactIds.get(person.id)).filter((id): id is string => Boolean(id));
+  return candidates.length === 1 ? candidates[0] : null;
+}
+
 function personName(person: UniversalPerson) { return `${person.firstName} ${person.lastName}`.trim() || person.email || person.phone || "cette personne"; }
+

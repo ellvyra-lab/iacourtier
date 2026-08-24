@@ -79,7 +79,7 @@ export type UniversalBuyerCriteria = {
 };
 
 export type UniversalFact = {
-  entity: "person" | "partner" | "property" | "buyer" | "financing" | "transaction";
+  entity: "person" | "partner" | "property" | "buyer" | "mandate" | "financing" | "transaction";
   field: string;
   label: string;
   value: string;
@@ -110,6 +110,63 @@ export type PropertyDuplicate = {
   city: string;
 };
 
+export type ExistingCaseClient = {
+  id: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  mailingAddress: string;
+  birthDate?: string;
+  language?: string;
+  communicationPreference?: string;
+};
+
+export type ExistingCaseContext = {
+  id: string;
+  title: string;
+  caseType: Exclude<UniversalProjectType, "unknown">;
+  propertyId: string | null;
+  clients: ExistingCaseClient[];
+};
+
+export type MergeProposalStatus = "new" | "same" | "conflict" | "needs_assignment";
+export type MergeResolutionAction = "replace" | "add_secondary" | "keep_existing" | "ignore";
+
+export type MergeProposal = {
+  id: string;
+  personId?: string;
+  entityType: "client" | "property" | "mandate" | "financing" | "transaction" | "partner" | "case";
+  entityId: string | null;
+  field: string;
+  label: string;
+  currentValue: string;
+  incomingValue: string;
+  sourceName: string;
+  sourceType: UniversalSource["sourceType"];
+  sourcePriority: number;
+  currentSourcePriority: number;
+  confidence: number | null;
+  status: MergeProposalStatus;
+  recommendedAction: MergeResolutionAction;
+  reason: string;
+};
+
+export type MergeDecision = {
+  proposalId: string;
+  action: MergeResolutionAction;
+};
+
+export type ContinuousMergePreview = {
+  caseId: string;
+  caseTitle: string;
+  proposals: MergeProposal[];
+  newCount: number;
+  unchangedCount: number;
+  conflictCount: number;
+  assignmentCount: number;
+};
+
 export type UniversalAnalysis = {
   projectType: UniversalProjectType;
   intentions: string[];
@@ -128,6 +185,8 @@ export type UniversalAnalysis = {
   coachSummary: string;
   duplicates?: PersonDuplicate[];
   propertyDuplicate?: PropertyDuplicate | null;
+  existingCase?: ExistingCaseContext | null;
+  mergePreview?: ContinuousMergePreview | null;
 };
 
 export type PersonDecision = {
@@ -158,6 +217,8 @@ Règles absolues :
 - Dans une préqualification, extrais séparément le prix d'achat maximal, la mise de fonds, le montant hypothécaire, le statut, les dates, le type de propriété et le mode d'occupation. Un montant admissible ne doit pas être confondu avec le prix d'achat maximal.
 - Une ambiguïté, un texte peu lisible ou une déduction doit être to_confirm, jamais confirmed.
 - Chaque information doit avoir une provenance : nom exact du fichier, type de source, confiance de 0 à 1 et note si ambiguë.
+- Classe chaque donnée avant de l'extraire : personne, propriété, mandat, financement, transaction ou partenaire. Une adresse sur une pièce d'identité est une adresse personnelle/postale, jamais automatiquement l'adresse de la propriété.
+- Pour une pièce d'identité, extrais uniquement les éléments réellement visibles et pertinents (nom, date de naissance, adresse, type et expiration). N'invente aucun numéro de pièce.
 - Une promesse d'achat place le parcours acheteur à l'étape offer et le vendeur à offer_received.
 - Un contrat de courtage vente signé place le vendeur à mandate_signed. Ne place pas systématiquement un dossier à la première étape.
 - Classe chaque source dans exactement un type permis : ${UNIVERSAL_DOCUMENT_TYPES.join(", ")}.
@@ -172,7 +233,7 @@ Structure obligatoire :
   "property":{"address":"","city":"","postalCode":"","propertyType":"","lotNumber":""},
   "buyerCriteria":{"budget":"","preapprovalStatus":"missing|pending|approved|declined","downPayment":"","mortgageAmount":"","occupancyType":"","lender":"","preapprovalDate":"YYYY-MM-DD ou vide","expiryDate":"YYYY-MM-DD ou vide","sectors":[],"propertyType":"","bedrooms":"","importantNeeds":"","timeline":"","propertyToSell":null},
   "documents":[{"name":"nom exact","type":"type permis","sourceType":"pdf|image|screenshot","confidence":0.95}],
-  "facts":[{"entity":"person|partner|property|buyer|financing|transaction","field":"address","label":"Adresse","value":"","sourceName":"nom exact","sourceType":"pdf|image|screenshot","confidence":0.95,"status":"confirmed|to_confirm","note":""}],
+  "facts":[{"entity":"person|partner|property|buyer|mandate|financing|transaction","field":"address","label":"Adresse","value":"","sourceName":"nom exact","sourceType":"pdf|image|screenshot","confidence":0.95,"status":"confirmed|to_confirm","note":""}],
   "ambiguities":[]
 }`;
 }
@@ -234,6 +295,12 @@ export function sanitizeAnalysisForConfirmation(value: unknown): UniversalAnalys
   normalized.duplicates = Array.isArray(root.duplicates) ? root.duplicates as PersonDuplicate[] : [];
   normalized.propertyDuplicate = root.propertyDuplicate && typeof root.propertyDuplicate === "object"
     ? root.propertyDuplicate as PropertyDuplicate
+    : null;
+  normalized.existingCase = root.existingCase && typeof root.existingCase === "object"
+    ? root.existingCase as ExistingCaseContext
+    : null;
+  normalized.mergePreview = root.mergePreview && typeof root.mergePreview === "object"
+    ? root.mergePreview as ContinuousMergePreview
     : null;
   return normalized;
 }
@@ -401,7 +468,7 @@ function normalizeFacts(value: unknown, sources: UniversalSource[]): UniversalFa
     const sourceName = text(fact.sourceName);
     const source = byName.get(sourceName);
     const requestedEntity = String(fact.entity || "transaction");
-    const entity = ["person", "partner", "property", "buyer", "financing", "transaction"].includes(requestedEntity) ? requestedEntity as UniversalFact["entity"] : "transaction";
+    const entity = ["person", "partner", "property", "buyer", "mandate", "financing", "transaction"].includes(requestedEntity) ? requestedEntity as UniversalFact["entity"] : "transaction";
     const valueText = text(fact.value);
     const valueConfidence = confidence(fact.confidence);
     const requestedStatus = String(fact.status || "to_confirm");
@@ -425,6 +492,7 @@ function addFallbackFacts(facts: UniversalFact[], context: { people: UniversalPe
     add("person", "name", "Nom", name, person.sourceName, person.confidence);
     add("person", "email", "Courriel", person.email, person.sourceName, person.confidence);
     add("person", "phone", "Téléphone", person.phone, person.sourceName, person.confidence);
+    add("person", "mailingAddress", "Adresse personnelle ou postale", person.mailingAddress, person.sourceName, person.confidence);
   });
   context.partners.forEach((partner) => {
     const name = `${partner.firstName} ${partner.lastName}`.trim() || partner.organization;
@@ -524,3 +592,4 @@ function text(value: unknown) { return typeof value === "string" || typeof value
 function strings(value: unknown) { return Array.isArray(value) ? value.map(text).filter(Boolean) : []; }
 function confidence(value: unknown) { const number = Number(value); return Number.isFinite(number) ? Math.max(0, Math.min(1, number)) : null; }
 function unique<T>(values: T[]) { return [...new Set(values)]; }
+

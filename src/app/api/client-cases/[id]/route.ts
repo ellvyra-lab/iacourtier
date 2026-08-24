@@ -45,6 +45,16 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
       : { data: [], error: null };
     if (clientsError) return NextResponse.json({ error: clientsError.message }, { status: 500 });
 
+    const [addressesResult, factsResult, conflictsResult] = await Promise.all([
+      clientIds.length
+        ? supabase.from("client_addresses").select("*").eq("user_id", user.id).in("client_id", clientIds).order("created_at", { ascending: false })
+        : Promise.resolve({ data: [], error: null }),
+      supabase.from("crm_facts").select("*").eq("case_id", id).eq("user_id", user.id).order("created_at", { ascending: false }).limit(250),
+      supabase.from("data_conflicts").select("*").eq("case_id", id).eq("user_id", user.id).order("created_at", { ascending: false }).limit(100),
+    ]);
+    const mergeError = addressesResult.error || factsResult.error || conflictsResult.error;
+    if (mergeError) return NextResponse.json({ error: mergeError.message }, { status: 500 });
+
     let financing = null;
     let partners: unknown[] = [];
     if (buyerResult.data?.id) {
@@ -71,6 +81,9 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
       seller: sellerResult.data,
       financing,
       partners,
+      addresses: addressesResult.data || [],
+      facts: factsResult.data || [],
+      conflicts: conflictsResult.data || [],
     });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Impossible de charger le dossier." }, { status: 500 });
@@ -122,3 +135,4 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
 function expiredSession() {
   return NextResponse.json({ error: "Ta session a expiré.", reconnectUrl: "/connexion" }, { status: 401 });
 }
+

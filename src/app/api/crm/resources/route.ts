@@ -23,6 +23,11 @@ export async function GET() {
       const { data: signed } = await supabase.storage.from("seller-listing-files").createSignedUrls(paths, 60 * 60);
       (signed || []).forEach((item, index) => { if (item.signedUrl) signedByPath.set(paths[index], item.signedUrl); });
     }
+    const sensitiveDocuments = (documents.data || []).filter((item) => item.is_sensitive && signedByPath.has(item.storage_path));
+    if (sensitiveDocuments.length) {
+      const { error: logError } = await supabase.from("document_access_logs").insert(sensitiveDocuments.map((item) => ({ user_id: user.id, document_id: item.id, action: "view" })));
+      if (logError) return NextResponse.json({ error: logError.message }, { status: 500 });
+    }
     return NextResponse.json({
       cases: cases.data || [], clients: clients.data || [], properties: properties.data || [], automations: automations.data || [],
       documents: (documents.data || []).map((item) => ({ ...item, url: signedByPath.get(item.storage_path) || "" })),
@@ -31,3 +36,4 @@ export async function GET() {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Impossible de charger les ressources CRM." }, { status: 500 });
   }
 }
+
