@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, type ElementType, type FormEvent } from "react";
 import Link from "next/link";
-import { ArrowRight, CalendarCheck, CheckCircle2, FileUp, Home, KeyRound, Loader2, Megaphone, Phone, Search, Send, Sparkles } from "lucide-react";
+import { ArrowRight, CalendarCheck, CheckCircle2, FileSpreadsheet, FileUp, Home, KeyRound, Loader2, Megaphone, Phone, Search, Send, Sparkles } from "lucide-react";
 
 import { buildSoniaBattlePlan, getSoniaProspects, type SoniaProspect } from "@/lib/sonia-beta";
 import { useDashboardAuth } from "@/components/auth/DashboardAuthProvider";
@@ -15,6 +15,7 @@ const actions: Array<{ icon: ElementType; label: string; href: string; primary?:
   { icon: FileUp, label: "Importer un document ou une conversation", href: "/tableau-de-bord/importer", primary: true },
   { icon: Home, label: "J’ai un nouveau vendeur", href: "/tableau-de-bord/inscriptions/nouvelle", primary: true },
   { icon: KeyRound, label: "J’ai un nouvel acheteur", href: "/tableau-de-bord/acheteurs/nouveau", primary: true },
+  { icon: FileSpreadsheet, label: "J’ai une liste de clients à importer", href: "/tableau-de-bord/clients/importer", primary: true },
   { icon: Phone, label: "Je veux prospecter", href: "/tableau-de-bord/radar-prospection" },
   { icon: CheckCircle2, label: "Je veux faire mes suivis", href: "/tableau-de-bord/prospects" },
   { icon: CalendarCheck, label: "Je veux préparer un rendez-vous", href: "/tableau-de-bord/actions/prepare-market-analysis" },

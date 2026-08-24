@@ -7,7 +7,7 @@ const nextConfig = {
     // pdf-parse/pdfjs needs its native Node canvas implementation at runtime.
     // Keeping both packages external makes Vercel trace and ship the optional
     // platform binary instead of evaluating PDF.js as a browser bundle.
-    serverComponentsExternalPackages: ["pdf-parse", "@napi-rs/canvas", "sharp"],
+    serverComponentsExternalPackages: ["pdf-parse", "@napi-rs/canvas", "sharp", "xlsx"],
   },
   // Full Next.js mode (not static export): required for the working
   // API routes (auth, /api/generate, Stripe checkout/webhook) below.

@@ -19,6 +19,45 @@ alter table public.buyer_case_documents
 alter table public.seller_listing_facts
   add column if not exists source_type text not null default 'manual';
 
+create table if not exists public.client_imports (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  original_filename text not null,
+  file_hash text not null,
+  file_type text not null,
+  row_count integer not null default 0,
+  column_mapping jsonb not null default '[]'::jsonb,
+  summary jsonb not null default '{}'::jsonb,
+  recommended_automations jsonb not null default '[]'::jsonb,
+  status text not null default 'processing' check (status in ('processing', 'completed', 'failed')),
+  completed_at timestamptz,
+  created_at timestamptz not null default now()
+);
+
+alter table public.seller_contacts
+  add column if not exists city text,
+  add column if not exists postal_code text,
+  add column if not exists birth_date date,
+  add column if not exists purchase_date date,
+  add column if not exists sale_date date,
+  add column if not exists mortgage_renewal_date date,
+  add column if not exists client_status text not null default 'prospect',
+  add column if not exists source text,
+  add column if not exists notes text,
+  add column if not exists tags text[] not null default '{}'::text[],
+  add column if not exists last_import_id uuid references public.client_imports(id) on delete set null;
+
+create table if not exists public.client_import_contacts (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  import_id uuid not null references public.client_imports(id) on delete cascade,
+  contact_id uuid references public.seller_contacts(id) on delete set null,
+  row_numbers integer[] not null default '{}'::integer[],
+  outcome text not null check (outcome in ('created', 'updated', 'unchanged', 'merged', 'skipped', 'needs_review', 'incomplete')),
+  warnings text[] not null default '{}'::text[],
+  created_at timestamptz not null default now()
+);
+
 create table if not exists public.buyer_case_parties (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -54,14 +93,24 @@ create index if not exists buyer_case_parties_contact_idx
   on public.buyer_case_parties (user_id, contact_id);
 create index if not exists buyer_case_facts_case_idx
   on public.buyer_case_facts (case_id, fact_key);
+create index if not exists client_imports_user_created_idx
+  on public.client_imports (user_id, created_at desc);
+create index if not exists client_imports_hash_idx
+  on public.client_imports (user_id, file_hash);
+create index if not exists client_import_contacts_import_idx
+  on public.client_import_contacts (import_id, outcome);
+create index if not exists seller_contacts_email_normalized_idx
+  on public.seller_contacts (user_id, lower(trim(email))) where email is not null;
 
 alter table public.buyer_case_parties enable row level security;
 alter table public.buyer_case_facts enable row level security;
+alter table public.client_imports enable row level security;
+alter table public.client_import_contacts enable row level security;
 
 do $$
 declare table_name text;
 begin
-  foreach table_name in array array['buyer_case_parties', 'buyer_case_facts'] loop
+  foreach table_name in array array['buyer_case_parties', 'buyer_case_facts', 'client_imports', 'client_import_contacts'] loop
     execute format('drop policy if exists "owner_select" on public.%I', table_name);
     execute format('drop policy if exists "owner_insert" on public.%I', table_name);
     execute format('drop policy if exists "owner_update" on public.%I', table_name);
@@ -76,3 +125,7 @@ end $$;
 comment on column public.seller_listings.pipeline_stage is 'Étape métier précise inférée et confirmée; distincte du statut technique du dossier.';
 comment on column public.buyer_cases.pipeline_stage is 'Étape métier précise inférée et confirmée; distincte du statut technique du dossier.';
 comment on table public.buyer_case_facts is 'Valeurs acheteur avec provenance documentaire et niveau de confiance.';
+comment on table public.client_imports is 'Journal reproductible des imports CSV/XLSX/XLS et de leur plan d’automatisations non exécuté.';
+comment on column public.seller_contacts.tags is 'Tags CRM modifiables issus des données confirmées, jamais d’un envoi automatique.';
+
+notify pgrst, 'reload schema';
