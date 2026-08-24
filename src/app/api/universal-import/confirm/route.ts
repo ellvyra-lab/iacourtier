@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { BUYER_AUTOMATION_TEMPLATES, BUYER_TASK_TEMPLATES } from "@/lib/buyer-cases";
 import { SELLER_AUTOMATION_TEMPLATES, SELLER_TASK_TEMPLATES } from "@/lib/seller-listings";
 import { fileExtension } from "@/lib/server/image-analysis";
+import { ensureCentralCase, recordCentralActivity, syncCentralDocument, syncCentralWorkflow } from "@/lib/server/central-crm";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
   normalizeUniversalValue,
@@ -141,7 +142,7 @@ export async function POST(request: Request) {
           postal_code: analysis.property.postalCode || null,
           property_type: analysis.property.propertyType || analysis.buyerCriteria.propertyType || null,
           lot_number: analysis.property.lotNumber || null,
-        }).select("id").single();
+        }).select("*").single();
         if (insertError || !data) throw insertError || new Error("Création de la propriété impossible.");
         propertyId = data.id;
       }
@@ -186,7 +187,7 @@ export async function POST(request: Request) {
           property_type: criteria.propertyType || analysis.property.propertyType || null, bedrooms: criteria.bedrooms || null,
           important_needs: criteria.importantNeeds || null, timeline: criteria.timeline || null,
           property_to_sell: criteria.propertyToSell, validation_required: true,
-        }).select("id").single();
+        }).select("*").single();
         if (error || !data) throw error || new Error("Création du dossier acheteur impossible.");
         buyerCaseId = data.id;
       } else {
@@ -207,13 +208,34 @@ export async function POST(request: Request) {
     const sellerDocumentIds = new Map<string, string>();
     const buyerDocumentIds = new Map<string, string>();
 
-    // L'ordre métier est volontaire : dossier, financement, partenaire,
-    // document, étape de pipeline, tâches, puis automatisations.
+    if (buyerCaseId) {
+      const { error } = await supabase.from("buyer_cases").update({ status: technicalBuyerStatus(analysis.buyerStage), pipeline_stage: analysis.buyerStage || "qualification", updated_at: new Date().toISOString() }).eq("id", buyerCaseId).eq("user_id", user.id);
+      if (error) throw error;
+    }
+    if (listingId) {
+      const { error } = await supabase.from("seller_listings").update({ pipeline_stage: analysis.sellerStage || "lead", updated_at: new Date().toISOString() }).eq("id", listingId).eq("user_id", user.id);
+      if (error) throw error;
+    }
+
+    const primaryClientId = buyerContactIds[0] || sellerContactIds[0] || contactIds.values().next().value as string | undefined;
+    if (!primaryClientId) throw new Error("Aucun client central n’a pu être relié au dossier.");
+    const clientName = analysis.people.map(personName).filter(Boolean).join(" et ") || "Client";
+    const centralCaseId = await ensureCentralCase(supabase, {
+      userId: user.id, primaryClientId, participantIds: [...sellerContactIds, ...buyerContactIds], propertyId,
+      caseType: analysis.projectType === "unknown" ? "other" : analysis.projectType,
+      title: analysis.projectType === "seller" ? `Vente — ${analysis.property.address || clientName}` : analysis.projectType === "buyer" ? `Achat — ${clientName}` : analysis.projectType === "buy_sell" ? `Achat + vente — ${clientName}` : `Projet — ${clientName}`,
+      status: "active", pipelineStage: analysis.buyerStage || analysis.sellerStage || "new_contact", source: "universal_import",
+      buyerCaseId, sellerListingId: listingId,
+    });
+
+    // Le dossier et le pipeline existent avant les étapes opérationnelles.
     let partnersLinked = 0;
     if (buyerCaseId) {
       await persistBuyerFinancing(supabase, user.id, buyerCaseId, analysis, buyerDocumentIds);
       partnersLinked = await linkBuyerPartners(supabase, user.id, buyerCaseId, analysis);
     }
+    if (listingId) await ensureSellerTasks(supabase, user.id, listingId, analysis);
+    if (buyerCaseId) await ensureBuyerTasks(supabase, user.id, buyerCaseId, analysis);
 
     for (const item of stored) {
       const source = analysis.sources.find((candidate) => candidate.name === item.file.name);
@@ -223,44 +245,38 @@ export async function POST(request: Request) {
           user_id: user.id, listing_id: listingId, name: item.file.name, document_type: source?.type || "Autre",
           mime_type: normalizedMime(item.file), size_bytes: item.file.size, storage_path: item.path,
           source_type: source?.sourceType || "image", analysis_metadata: metadata, analysis_status: "analyzed",
-        }).select("id").single();
+        }).select("*").single();
         if (error || !data) throw error || new Error(`Le document ${item.file.name} n’a pas pu être relié au dossier vendeur.`);
         sellerDocumentIds.set(item.file.name, data.id);
+        await syncCentralDocument(supabase, { userId: user.id, clientId: primaryClientId, caseId: centralCaseId, propertyId, document: { ...data, source_type: source?.sourceType || "image", analysis_metadata: metadata }, legacySource: "seller_listing_documents" });
       }
       if (buyerCaseId) {
         const { data, error } = await supabase.from("buyer_case_documents").insert({
           user_id: user.id, case_id: buyerCaseId, name: item.file.name, document_type: source?.type || "Autre",
           mime_type: normalizedMime(item.file), size_bytes: item.file.size, storage_path: item.path,
           source_type: source?.sourceType || "image", analysis_metadata: metadata, analysis_status: "analyzed",
-        }).select("id").single();
+        }).select("*").single();
         if (error || !data) throw error || new Error(`Le document ${item.file.name} n’a pas pu être relié au dossier acheteur.`);
         buyerDocumentIds.set(item.file.name, data.id);
+        await syncCentralDocument(supabase, { userId: user.id, clientId: primaryClientId, caseId: centralCaseId, propertyId, document: { ...data, source_type: source?.sourceType || "image", analysis_metadata: metadata }, legacySource: "buyer_case_documents" });
       }
     }
 
-    if (buyerCaseId) {
-      await persistBuyerFinancing(supabase, user.id, buyerCaseId, analysis, buyerDocumentIds);
-      const { error } = await supabase.from("buyer_cases").update({ status: technicalBuyerStatus(analysis.buyerStage), pipeline_stage: analysis.buyerStage || "qualification", updated_at: new Date().toISOString() }).eq("id", buyerCaseId).eq("user_id", user.id);
-      if (error) throw error;
-    }
-    if (listingId) {
-      const { error } = await supabase.from("seller_listings").update({ pipeline_stage: analysis.sellerStage || "lead", updated_at: new Date().toISOString() }).eq("id", listingId).eq("user_id", user.id);
-      if (error) throw error;
-    }
-
-    if (listingId) await ensureSellerWorkflow(supabase, user.id, listingId, analysis);
-    if (buyerCaseId) await ensureBuyerWorkflow(supabase, user.id, buyerCaseId, analysis);
+    if (buyerCaseId) await persistBuyerFinancing(supabase, user.id, buyerCaseId, analysis, buyerDocumentIds);
+    if (listingId) await ensureSellerAutomations(supabase, user.id, listingId, analysis);
+    if (buyerCaseId) await ensureBuyerAutomations(supabase, user.id, buyerCaseId, analysis);
+    await syncCentralWorkflow(supabase, { userId: user.id, clientId: primaryClientId, caseId: centralCaseId, buyerCaseId, sellerListingId: listingId });
 
     if (listingId) await insertSellerFacts(supabase, user.id, listingId, analysis, sellerDocumentIds);
     if (buyerCaseId) await insertBuyerFacts(supabase, user.id, buyerCaseId, analysis, buyerDocumentIds);
 
     if (listingId) await supabase.from("seller_listing_activity").insert({ user_id: user.id, listing_id: listingId, event_type: "universal_import_confirmed", title: "Import intelligent confirmé", details: analysis.coachSummary });
     if (buyerCaseId) await supabase.from("buyer_case_activity").insert({ user_id: user.id, case_id: buyerCaseId, event_type: "universal_import_confirmed", title: "Import intelligent confirmé", details: analysis.coachSummary });
+    await recordCentralActivity(supabase, { userId: user.id, clientId: primaryClientId, caseId: centralCaseId, eventType: "universal_import_confirmed", title: "Import intelligent confirmé", details: analysis.coachSummary });
 
-    const firstClientId = contactIds.values().next().value as string | undefined;
-    const primaryHref = listingId ? `/tableau-de-bord/inscriptions/${listingId}` : buyerCaseId ? `/tableau-de-bord/acheteurs/${buyerCaseId}` : `/tableau-de-bord/clients${firstClientId ? `?client=${firstClientId}` : ""}`;
+    const primaryHref = `/tableau-de-bord/dossiers/${centralCaseId}`;
     return NextResponse.json({
-      ok: true, listingId, buyerCaseId, primaryHref, createdContacts, reusedContacts, reusedProperty,
+      ok: true, listingId, buyerCaseId, centralCaseId, primaryHref, createdContacts, reusedContacts, reusedProperty,
       reusedListing, reusedBuyerCase, uploadedFiles: stored.length, partnersLinked,
       summary: analysis.coachSummary,
     });
@@ -388,7 +404,7 @@ function technicalBuyerStatus(stage: string | null) {
   return stage && allowed.has(stage) ? stage : "qualification";
 }
 
-async function ensureSellerWorkflow(supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>, userId: string, listingId: string, analysis: UniversalAnalysis) {
+async function ensureSellerTasks(supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>, userId: string, listingId: string, analysis: UniversalAnalysis) {
   const { data: existingTasks, error: taskReadError } = await supabase.from("seller_listing_tasks").select("title").eq("listing_id", listingId).eq("user_id", userId);
   if (taskReadError) throw taskReadError;
   const existingTitles = new Set((existingTasks || []).map((task) => task.title));
@@ -398,12 +414,15 @@ async function ensureSellerWorkflow(supabase: Awaited<ReturnType<typeof createSu
     const { error } = await supabase.from("seller_listing_tasks").insert(missingTasks.map((task) => ({ user_id: userId, listing_id: listingId, category: task.category, title: task.title, validation_required: true })));
     if (error) throw error;
   }
+}
+
+async function ensureSellerAutomations(supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>, userId: string, listingId: string, analysis: UniversalAnalysis) {
   const names = [...new Set([...SELLER_AUTOMATION_TEMPLATES, ...analysis.suggestedAutomations])];
   const { error } = await supabase.from("seller_listing_automations").upsert(names.map((name) => ({ user_id: userId, listing_id: listingId, name, status: "validation_required", external_delivery_enabled: false })), { onConflict: "listing_id,name", ignoreDuplicates: true });
   if (error) throw error;
 }
 
-async function ensureBuyerWorkflow(supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>, userId: string, caseId: string, analysis: UniversalAnalysis) {
+async function ensureBuyerTasks(supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>, userId: string, caseId: string, analysis: UniversalAnalysis) {
   const { data: existingTasks, error: taskReadError } = await supabase.from("buyer_case_tasks").select("title").eq("case_id", caseId).eq("user_id", userId);
   if (taskReadError) throw taskReadError;
   const existingTitles = new Set((existingTasks || []).map((task) => task.title));
@@ -413,6 +432,9 @@ async function ensureBuyerWorkflow(supabase: Awaited<ReturnType<typeof createSup
     const { error } = await supabase.from("buyer_case_tasks").insert(missingTasks.map((task) => ({ user_id: userId, case_id: caseId, category: task.category, title: task.title, validation_required: true })));
     if (error) throw error;
   }
+}
+
+async function ensureBuyerAutomations(supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>, userId: string, caseId: string, analysis: UniversalAnalysis) {
   const names = [...new Set([...BUYER_AUTOMATION_TEMPLATES, ...analysis.suggestedAutomations])];
   const { error } = await supabase.from("buyer_case_automations").upsert(names.map((name) => ({ user_id: userId, case_id: caseId, name, status: "validation_required", external_delivery_enabled: false })), { onConflict: "case_id,name", ignoreDuplicates: true });
   if (error) throw error;
@@ -466,4 +488,3 @@ function safeName(name: string) {
 }
 
 function personName(person: UniversalPerson) { return `${person.firstName} ${person.lastName}`.trim() || person.email || person.phone || "cette personne"; }
-

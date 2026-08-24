@@ -99,24 +99,25 @@ export async function POST(request: Request) {
     }
 
     const workflowIntent = inferCoachJourney(message);
+    const crmAnswer = workflowIntent ? null : await findClientCaseAnswer(supabase, user.id, message);
     const communicationRequest = workflowIntent ? null : inferClientCommunicationRequest(message);
     const isSellerListing = workflowIntent?.slug === "mandat-vendeur";
     const isBuyerCase = workflowIntent?.slug === "dossier-acheteur";
-    const reply = workflowIntent
+    const reply = crmAnswer?.reply || (workflowIntent
       ? isSellerListing
         ? "Parfait. Je vais préparer une vraie inscription vendeur avec toi. Commence avec les documents si tu les as; sinon, donne-moi seulement les informations du client."
         : `J’ai reconnu le parcours « ${workflowIntent.title} ». ${workflowIntent.summary} Je te guiderai étape par étape et je demanderai uniquement les informations manquantes.`
       : communicationRequest
         ? formatClientCommunication(generateClientCommunication(communicationRequest))
-        : await generateDirectorReply(message, body.history || [], body.context);
-    const action = workflowIntent
+        : await generateDirectorReply(message, body.history || [], body.context));
+    const action = crmAnswer?.action || (workflowIntent
       ? isSellerListing
         ? { label: "Créer mon inscription vendeur", href: "/tableau-de-bord/inscriptions/nouvelle" }
         : isBuyerCase
           ? { label: "Créer mon dossier acheteur", href: "/tableau-de-bord/acheteurs/nouveau" }
         : { label: `Ouvrir : ${workflowIntent.title}`, href: `/tableau-de-bord/parcours/${workflowIntent.slug}` }
-      : buildPrimaryAction(body.context);
-    const secondaryActions = workflowIntent ? [] : buildSecondaryActions(action);
+      : buildPrimaryAction(body.context));
+    const secondaryActions = workflowIntent || crmAnswer ? [] : buildSecondaryActions(action);
     return Response.json({ reply, action, secondaryActions } satisfies DirectorChatResponse);
   } catch (error) {
     const openAIError = getOpenAIErrorPayload(error);
@@ -131,6 +132,37 @@ export async function POST(request: Request) {
     return Response.json({ error: message }, { status: 500 });
   }
 }
+
+async function findClientCaseAnswer(supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>, userId: string, message: string): Promise<{ reply: string; action: DirectorAction } | null> {
+  const normalizedMessage = normalizeLookup(message);
+  const { data: clients } = await supabase.from("clients").select("id,first_name,last_name,email,phone").eq("user_id", userId);
+  const client = (clients || []).find((item) => {
+    const fullName = normalizeLookup(`${item.first_name} ${item.last_name}`);
+    return fullName.length >= 4 && normalizedMessage.includes(fullName);
+  });
+  if (!client) return null;
+
+  const { data: links } = await supabase.from("client_case_clients").select("case_id").eq("user_id", userId).eq("client_id", client.id);
+  const caseIds = Array.from(new Set((links || []).map((item) => item.case_id)));
+  if (!caseIds.length) return { reply: `${client.first_name} ${client.last_name} a une fiche CRM, mais aucun dossier n’est encore relié. La prochaine meilleure action est de qualifier son projet.`, action: { label: "Ouvrir la fiche client", href: `/tableau-de-bord/clients/${client.id}` } };
+
+  const { data: cases } = await supabase.from("client_cases").select("id,title,case_type,pipeline_stage,next_action,updated_at").eq("user_id", userId).in("id", caseIds).order("updated_at", { ascending: false }).limit(1);
+  const clientCase = cases?.[0];
+  if (!clientCase) return null;
+  const missing = [!client.phone ? "son téléphone" : "", !client.email ? "son courriel" : ""].filter(Boolean);
+  if (clientCase.case_type === "buyer" || clientCase.case_type === "buy_sell") {
+    const { data: buyer } = await supabase.from("buyer_cases").select("budget,sectors,property_type,timeline,preapproval_status").eq("user_id", userId).eq("client_case_id", clientCase.id).maybeSingle();
+    if (!buyer?.sectors?.length) missing.push("ses secteurs");
+    if (!buyer?.property_type) missing.push("le type de propriété");
+    if (!buyer?.timeline) missing.push("son échéancier");
+  }
+  const name = `${client.first_name} ${client.last_name}`.trim();
+  const missingText = missing.length ? ` Il manque encore ${joinNatural(missing)}.` : " Les renseignements essentiels sont présents.";
+  return { reply: `${name} est à l’étape « ${String(clientCase.pipeline_stage).replace(/_/g, " ")} » dans ${clientCase.title}.${missingText} La prochaine meilleure action est : ${clientCase.next_action || "continuer le dossier"}.`, action: { label: clientCase.next_action || "Continuer le dossier", href: `/tableau-de-bord/dossiers/${clientCase.id}#a-completer` } };
+}
+
+function normalizeLookup(value: string) { return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]/g, ""); }
+function joinNatural(items: string[]) { return items.length < 2 ? items[0] || "" : `${items.slice(0, -1).join(", ")} et ${items[items.length - 1]}`; }
 
 function buildMentorBrief(context: DirectorChatContext, inspiration: string) {
   let observation: string;

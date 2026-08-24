@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Loader2, Search } from "lucide-react";
 import { useDashboardAuth } from "@/components/auth/DashboardAuthProvider";
 
-type Result = { id: string; name: string; email?: string; phone?: string; cases: Array<{ id: string; type: "seller" | "buyer"; property?: { address?: string } | Array<{ address?: string }> }> };
+type Result = { id: string; name: string; email?: string; phone?: string; cases: Array<{ id: string; case_type: string; property?: { address?: string } | Array<{ address?: string }> }> };
 
 export function UniversalSearch() {
   const { status: authStatus, authenticatedFetch } = useDashboardAuth();
@@ -35,6 +35,6 @@ export function UniversalSearch() {
 function SearchResult({ result, onSelect }: { result: Result; onSelect: () => void }) {
   const first = result.cases[0];
   const property = first && (Array.isArray(first.property) ? first.property[0] : first.property);
-  const href = first ? first.type === "seller" ? `/tableau-de-bord/inscriptions/${first.id}` : `/tableau-de-bord/acheteurs/${first.id}` : "/tableau-de-bord/clients";
+  const href = first ? `/tableau-de-bord/dossiers/${first.id}` : `/tableau-de-bord/clients/${result.id}`;
   return <Link href={href} onClick={onSelect} className="block rounded-xl px-3 py-3 hover:bg-surface-soft"><p className="text-sm font-semibold">{result.name}</p><p className="mt-1 text-xs text-muted">{property?.address || result.email || result.phone || "Fiche client"}</p></Link>;
 }

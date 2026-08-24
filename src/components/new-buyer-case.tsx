@@ -99,7 +99,7 @@ export function NewBuyerCase() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ contact, criteria, source }),
       });
-      const payload = await response.json() as { id?: string; error?: string; reconnectUrl?: string; reusedClient?: boolean };
+      const payload = await response.json() as { id?: string; primaryHref?: string; error?: string; reconnectUrl?: string; reusedClient?: boolean };
       if (response.status === 401) throw new Error("Ta session a expiré — reconnecte-toi.");
       if (!response.ok || !payload.id) throw new Error(payload.error || "Le dossier acheteur n’a pas pu être créé.");
 
@@ -109,7 +109,7 @@ export function NewBuyerCase() {
         const upload = await authenticatedFetch(`/api/buyer-cases/${payload.id}/documents`, { method: "POST", body: form });
         if (!upload.ok) window.sessionStorage.setItem(`iacourtier-buyer-notice-${payload.id}`, "Le dossier est créé, mais les documents devront être téléversés de nouveau.");
       }
-      router.push(`/tableau-de-bord/acheteurs/${payload.id}`);
+      router.push(payload.primaryHref || `/tableau-de-bord/acheteurs/${payload.id}`);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Le dossier acheteur n’a pas pu être créé.");
     } finally {

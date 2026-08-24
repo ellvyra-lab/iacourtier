@@ -9,6 +9,7 @@ import {
   type ListingFactStatus,
 } from "@/lib/seller-listings";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { syncCentralWorkflow } from "@/lib/server/central-crm";
 
 export const runtime = "nodejs";
 
@@ -23,7 +24,7 @@ export async function GET(_request: Request, { params }: RouteContext) {
 
     const { data: listing, error } = await supabase
       .from("seller_listings")
-      .select("id,status,validation_required,generated_content,branding_snapshot,prepared_at,created_at,updated_at,property_id,property:properties(*)")
+      .select("id,status,pipeline_stage,client_case_id,validation_required,generated_content,branding_snapshot,prepared_at,created_at,updated_at,property_id,property:properties(*)")
       .eq("id", id)
       .eq("user_id", user.id)
       .maybeSingle();
@@ -117,7 +118,7 @@ export async function PATCH(request: Request, { params }: RouteContext) {
     const supabase = await createSupabaseServerClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ error: "Vous devez être connecté." }, { status: 401 });
-    const { data: listing } = await supabase.from("seller_listings").select("id,property_id").eq("id", id).eq("user_id", user.id).maybeSingle();
+    const { data: listing } = await supabase.from("seller_listings").select("id,property_id,client_case_id").eq("id", id).eq("user_id", user.id).maybeSingle();
     if (!listing) return NextResponse.json({ error: "Dossier vendeur introuvable." }, { status: 404 });
 
     if (body.action === "fact") {
@@ -176,6 +177,10 @@ export async function PATCH(request: Request, { params }: RouteContext) {
     }
 
     await supabase.from("seller_listings").update({ updated_at: new Date().toISOString() }).eq("id", id).eq("user_id", user.id);
+    if (listing.client_case_id && (body.action === "task" || body.action === "automation")) {
+      const { data: master } = await supabase.from("client_cases").select("primary_client_id").eq("id", listing.client_case_id).eq("user_id", user.id).maybeSingle();
+      await syncCentralWorkflow(supabase, { userId: user.id, clientId: master?.primary_client_id || null, caseId: listing.client_case_id, sellerListingId: id });
+    }
     return NextResponse.json({ ok: true });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Mise à jour impossible." }, { status: 500 });

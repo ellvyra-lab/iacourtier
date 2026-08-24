@@ -148,7 +148,7 @@ export function NewSellerListing() {
           entryMode: mode === "review" || files.length ? "documents" : existingIds.length ? "existing" : "new",
         }),
       });
-      const payload = await response.json() as { id?: string; error?: string };
+      const payload = await response.json() as { id?: string; primaryHref?: string; error?: string };
       if (!response.ok || !payload.id) throw new Error(payload.error || "Le dossier n’a pas pu être créé.");
 
       if (files.length) {
@@ -162,11 +162,11 @@ export function NewSellerListing() {
             `iacourtier-listing-notice-${payload.id}`,
             `Le dossier est sauvegardé, mais les documents doivent être téléversés de nouveau : ${uploadPayload?.error || "erreur de téléversement"}`,
           );
-          router.push(`/tableau-de-bord/inscriptions/${payload.id}`);
+          router.push(payload.primaryHref || `/tableau-de-bord/inscriptions/${payload.id}`);
           return;
         }
       }
-      router.push(`/tableau-de-bord/inscriptions/${payload.id}`);
+      router.push(payload.primaryHref || `/tableau-de-bord/inscriptions/${payload.id}`);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Le dossier n’a pas pu être créé.");
     } finally {

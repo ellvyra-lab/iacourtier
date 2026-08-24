@@ -948,10 +948,26 @@ function OpportunityCard({
 }) {
   const router = useRouter();
   const [callStatus, setCallStatus] = useState("");
+  const [crmStatus, setCrmStatus] = useState("");
 
   function createSellerProspect() {
     const prospect = createSellerProspectFromRadar(opportunity);
     router.push(`/tableau-de-bord/prospects/${prospect.id}`);
+  }
+
+  async function createOrLinkCrm() {
+    setCrmStatus("Recherche des doublons et liaison au CRM…");
+    try {
+      const response = await fetch("/api/radar/opportunities", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
+        radarId: opportunity.id, ownerName: opportunity.ownerName, contactName: opportunity.contactName,
+        email: opportunity.email, phone: opportunity.phone, address: opportunity.address, city: opportunity.city,
+        postalCode: opportunity.postalCode, propertyType: opportunity.propertyType, reason: opportunity.reason,
+        source: sourceLabel(opportunity.source),
+      }) });
+      const payload = await response.json() as { primaryHref?: string; error?: string };
+      if (!response.ok || !payload.primaryHref) throw new Error(payload.error || "Liaison CRM impossible.");
+      router.push(payload.primaryHref);
+    } catch (reason) { setCrmStatus(reason instanceof Error ? reason.message : "Liaison CRM impossible."); }
   }
 
   async function startCall() {
@@ -1044,12 +1060,14 @@ function OpportunityCard({
       </div>
       <button
         type="button"
-        onClick={createSellerProspect}
+        onClick={createOrLinkCrm}
         className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-800 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:hover:bg-slate-900"
       >
-        Ouvrir la fiche
+        Créer / relier au CRM
         <ArrowUpRight className="h-4 w-4" />
       </button>
+      {crmStatus ? <p className="mt-2 text-xs leading-5 text-slate-500 dark:text-slate-400">{crmStatus}</p> : null}
+      <button type="button" onClick={createSellerProspect} className="mt-2 w-full text-xs font-semibold text-slate-500 hover:text-teal-700">Ouvrir l’ancienne fiche de prospection</button>
       <button
         type="button"
         onClick={() => onFindReachability(opportunity.id)}

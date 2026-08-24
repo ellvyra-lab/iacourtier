@@ -21,7 +21,7 @@ const titles: Record<string, string> = {
   "/tableau-de-bord/favoris": "Favoris",
   "/tableau-de-bord/historique": "Historique",
   "/tableau-de-bord/radar-prospection": "Trouver des vendeurs",
-  "/tableau-de-bord/telechargements": "Téléchargements",
+  "/tableau-de-bord/telechargements": "Documents CRM",
   "/tableau-de-bord/actions": "Missions du jour",
   "/tableau-de-bord/assistants": "Services IA internes",
   "/tableau-de-bord/automatisations": "Automatisations",
@@ -83,6 +83,7 @@ function titleFromPath(pathname: string) {
   if (pathname.startsWith("/tableau-de-bord/mandats")) return "Mes propriétés";
   if (pathname.startsWith("/tableau-de-bord/prospects")) return "Faire mes suivis";
   if (pathname.startsWith("/tableau-de-bord/acheteurs")) return "Dossier acheteur";
+  if (pathname.startsWith("/tableau-de-bord/dossiers")) return "Dossier unifié";
   if (pathname.startsWith("/tableau-de-bord/clients")) return "Clients & dossiers";
   return "Accueil";
 }

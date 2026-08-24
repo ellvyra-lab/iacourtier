@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { buyerMissingFields, buyerProgress } from "@/lib/buyer-cases";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { syncCentralWorkflow, updateCentralCaseStage } from "@/lib/server/central-crm";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -11,7 +12,6 @@ export async function GET(_request: Request, { params }: RouteContext) {
     const supabase = await createSupabaseServerClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return expiredSession();
-
     const { data: buyerCase, error } = await supabase
       .from("buyer_cases")
       .select("*,contact:clients(id,first_name,last_name,email,phone,mailing_address,roles)")
@@ -62,6 +62,8 @@ export async function PATCH(request: Request, { params }: RouteContext) {
     const supabase = await createSupabaseServerClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return expiredSession();
+    const { data: currentCase } = await supabase.from("buyer_cases").select("id,contact_id,client_case_id,status,pipeline_stage").eq("id", id).eq("user_id", user.id).maybeSingle();
+    if (!currentCase) return NextResponse.json({ error: "Dossier acheteur introuvable." }, { status: 404 });
 
     if (body.action === "task") {
       const { error } = await supabase.from("buyer_case_tasks").update({ status: body.status, updated_at: new Date().toISOString() }).eq("id", body.taskId).eq("case_id", id).eq("user_id", user.id);
@@ -76,6 +78,15 @@ export async function PATCH(request: Request, { params }: RouteContext) {
       if (error) return NextResponse.json({ error: databaseMessage(error.message) }, { status: 500 });
     } else {
       return NextResponse.json({ error: "Action inconnue." }, { status: 400 });
+    }
+
+    if (currentCase.client_case_id) {
+      await syncCentralWorkflow(supabase, { userId: user.id, clientId: currentCase.contact_id, caseId: currentCase.client_case_id, buyerCaseId: id });
+      if (body.action === "criteria") {
+        const { data: refreshed } = await supabase.from("buyer_cases").select("status,pipeline_stage,preapproval_status").eq("id", id).eq("user_id", user.id).maybeSingle();
+        const stage = refreshed?.preapproval_status && refreshed.preapproval_status !== "missing" ? "financing" : refreshed?.pipeline_stage || refreshed?.status || "qualification";
+        await updateCentralCaseStage(supabase, { userId: user.id, caseId: currentCase.client_case_id, caseType: "buyer", status: "active", pipelineStage: stage });
+      }
     }
 
     return NextResponse.json({ ok: true });

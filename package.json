@@ -9,6 +9,7 @@
     "lint": "next lint",
     "test:universal": "node --test scripts/universal-import.test.mjs",
     "test:clients": "node --test scripts/client-list-import.test.mjs",
+    "test:crm": "node --test scripts/central-crm.test.mjs",
     "test:pdf": "node scripts/test-real-pdf.mjs"
   },
   "dependencies": {

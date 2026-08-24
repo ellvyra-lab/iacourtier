@@ -10,6 +10,7 @@ import {
   normalizeGeneratedContent,
 } from "@/lib/seller-listings";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { recordCentralActivity, updateCentralCaseStage } from "@/lib/server/central-crm";
 
 export const runtime = "nodejs";
 type RouteContext = { params: Promise<{ id: string }> };
@@ -25,7 +26,7 @@ export async function POST(request: Request, { params }: RouteContext) {
 
     const { data: listing } = await supabase
       .from("seller_listings")
-      .select("id,property:properties(*)")
+      .select("id,client_case_id,property:properties(*)")
       .eq("id", id)
       .eq("user_id", user.id)
       .maybeSingle();
@@ -116,6 +117,11 @@ Structure JSON obligatoire :
       title: "Inscription et plan marketing préparés",
       details: `${SELLER_AUTOMATION_TEMPLATES.length} automatisations demeurent en validation requise. Aucun envoi externe n’a été effectué.`,
     });
+    if (listing.client_case_id) {
+      const { data: master } = await supabase.from("client_cases").select("primary_client_id").eq("id", listing.client_case_id).eq("user_id", user.id).maybeSingle();
+      await updateCentralCaseStage(supabase, { userId: user.id, caseId: listing.client_case_id, caseType: "seller", status: "active", pipelineStage: "preparation", nextAction: "Finaliser et valider la mise en marché" });
+      await recordCentralActivity(supabase, { userId: user.id, clientId: master?.primary_client_id || null, caseId: listing.client_case_id, eventType: "listing_prepared", title: "Inscription et plan marketing préparés", details: `${SELLER_AUTOMATION_TEMPLATES.length} automatisations demeurent en validation requise.` });
+    }
     return NextResponse.json({ content: scrubbed, saved: true, preparedAt: now });
   } catch (error) {
     const openAIError = getOpenAIErrorPayload(error);

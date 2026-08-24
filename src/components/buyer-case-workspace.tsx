@@ -8,6 +8,7 @@ import { useDashboardAuth } from "@/components/auth/DashboardAuthProvider";
 type BuyerData = {
   case: {
     id: string;
+    client_case_id?: string | null;
     status: string;
     budget?: string | null;
     preapproval_status: string;
@@ -97,7 +98,7 @@ export function BuyerCaseWorkspace({ id }: { id: string }) {
   const guideReady = data.missingFields.length === 0;
 
   return <div className="space-y-7">
-    <Link href="/tableau-de-bord/clients" className="text-sm font-semibold text-slate-600">← Clients & dossiers</Link>
+    <div className="flex flex-wrap gap-4 text-sm font-semibold"><Link href="/tableau-de-bord/clients" className="text-slate-600">← Clients & dossiers</Link>{data.case.client_case_id ? <Link href={`/tableau-de-bord/dossiers/${data.case.client_case_id}`} className="text-teal-700">Voir le dossier unifié →</Link> : null}</div>
     <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
       <div className="grid gap-5 p-6 lg:grid-cols-[1fr_auto] lg:items-start"><div><p className="text-sm font-semibold text-teal-700">Dossier acheteur · Validation requise</p><h1 className="mt-2 text-3xl font-semibold">{name}</h1><p className="mt-2 text-slate-600 dark:text-slate-300">Acheteur · {labelStatus(data.case.status)}</p><div className="mt-5 rounded-xl border border-teal-200 bg-teal-50 p-4 text-sm text-teal-950 dark:border-teal-900 dark:bg-teal-950/20 dark:text-teal-100"><strong>Prochaine action :</strong> {data.nextAction}</div><a href="#etapes" className="mt-4 inline-flex min-h-12 items-center justify-center rounded-xl bg-teal-700 px-5 font-semibold text-white">Continuer le dossier</a></div><div className="min-w-52 rounded-2xl bg-slate-950 p-5 text-white dark:bg-white dark:text-slate-950"><p className="text-xs font-semibold uppercase tracking-wide opacity-70">Progression</p><p className="mt-1 text-4xl font-semibold">{data.progress} %</p><div className="mt-3 h-2 overflow-hidden rounded-full bg-white/20"><div className="h-full bg-teal-400" style={{ width: `${data.progress}%` }} /></div></div></div>
       <nav className="flex flex-wrap gap-2 border-t border-slate-200 px-4 py-3 text-sm font-semibold dark:border-slate-800">{[["resume","Résumé"],["client","Client"],["criteres","Critères"],["documents","Documents"],["etapes","Étapes"],["automatisations","Automatisations"],["communications","Communications"]].map(([href,label]) => <a key={href} href={`#${href}`} className="rounded-full px-3 py-2 hover:bg-slate-100 dark:hover:bg-slate-800">{label}</a>)}</nav>

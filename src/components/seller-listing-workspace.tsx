@@ -16,6 +16,7 @@ type Automation = { id: string; name: string; status: "validation_required" | "a
 type WorkspaceData = {
   listing: {
     id: string;
+    client_case_id?: string | null;
     status: string;
     validation_required: boolean;
     prepared_at: string | null;
@@ -164,7 +165,7 @@ export function SellerListingWorkspace({ id }: { id: string }) {
   const nextAnchor = data.missingQuestions.some((item) => item.required) ? "dossier" : !hasContent ? "inscription" : "suivis";
 
   return <div className="space-y-7">
-    <Link href="/tableau-de-bord" className="text-sm font-semibold text-slate-600 dark:text-slate-300">← Retour au Coach IA</Link>
+    <div className="flex flex-wrap gap-4 text-sm font-semibold"><Link href="/tableau-de-bord/clients" className="text-slate-600 dark:text-slate-300">← Clients & dossiers</Link>{data.listing.client_case_id ? <Link href={`/tableau-de-bord/dossiers/${data.listing.client_case_id}`} className="text-teal-700">Voir le dossier unifié →</Link> : null}</div>
     <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
       <div className="grid gap-6 p-6 lg:grid-cols-[1fr_auto] lg:items-start">
         <div><p className="text-sm font-semibold text-teal-700">Dossier maître · Validation requise</p><h1 className="mt-2 text-3xl font-semibold tracking-tight">{property?.address || "Adresse à confirmer"}</h1><p className="mt-2 text-slate-600 dark:text-slate-300">Vendeur : {sellerNames || "à confirmer"} · Mandat vendeur</p><div className="mt-5 rounded-xl border border-teal-200 bg-teal-50 p-4 text-sm text-teal-950 dark:border-teal-900 dark:bg-teal-950/20 dark:text-teal-100"><strong>Prochaine action :</strong> {data.coachMessage}</div><a href={`#${nextAnchor}`} className="mt-4 inline-flex min-h-12 items-center justify-center rounded-xl bg-teal-700 px-5 font-semibold text-white">Continuer le dossier</a></div>

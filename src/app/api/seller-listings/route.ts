@@ -10,6 +10,7 @@ import {
   type SellerContactInput,
 } from "@/lib/seller-listings";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { ensureCentralCase, recordCentralActivity, syncCentralWorkflow } from "@/lib/server/central-crm";
 
 export const runtime = "nodejs";
 
@@ -181,13 +182,23 @@ export async function POST(request: Request) {
       }
     }
 
+    const primaryClientId = contactIds[0];
+    const centralCaseId = await ensureCentralCase(supabase, {
+      userId: user.id, primaryClientId, participantIds: contactIds, propertyId, caseType: "seller",
+      title: `Vente — ${propertyInput.address.trim()}`, status: "active", pipelineStage: "new_prospect",
+      source: body.entryMode || "manual", sellerListingId: listingId,
+    });
+
     if (!reusedListing) {
-      await supabase.from("seller_listing_tasks").insert(SELLER_TASK_TEMPLATES.map((task) => ({
+      const { error: tasksError } = await supabase.from("seller_listing_tasks").insert(SELLER_TASK_TEMPLATES.map((task) => ({
         user_id: user.id, listing_id: listingId, category: task.category, title: task.title, validation_required: true,
       })));
-      await supabase.from("seller_listing_automations").insert(SELLER_AUTOMATION_TEMPLATES.map((name) => ({
+      if (tasksError) return NextResponse.json({ error: databaseMessage(tasksError.message) }, { status: 500 });
+
+      const { error: automationsError } = await supabase.from("seller_listing_automations").insert(SELLER_AUTOMATION_TEMPLATES.map((name) => ({
         user_id: user.id, listing_id: listingId, name, status: "validation_required", external_delivery_enabled: false,
       })));
+      if (automationsError) return NextResponse.json({ error: databaseMessage(automationsError.message) }, { status: 500 });
     }
 
     await supabase.from("seller_listing_activity").insert({
@@ -198,8 +209,13 @@ export async function POST(request: Request) {
       details: `${contactIds.length} vendeur(s) relié(s). Mode de départ : ${body.entryMode || "new"}.`,
     });
 
+    await syncCentralWorkflow(supabase, { userId: user.id, clientId: primaryClientId, caseId: centralCaseId, sellerListingId: listingId });
+    await recordCentralActivity(supabase, { userId: user.id, clientId: primaryClientId, caseId: centralCaseId, eventType: reusedListing ? "case_reused" : "case_created", title: reusedListing ? "Dossier vendeur existant relié" : "Dossier vendeur créé" });
+
     return NextResponse.json({
       id: listingId,
+      centralCaseId,
+      primaryHref: `/tableau-de-bord/dossiers/${centralCaseId}`,
       reusedListing,
       reusedProperty: Boolean(propertyDuplicate),
       deduplicatedContacts: deduplicated,

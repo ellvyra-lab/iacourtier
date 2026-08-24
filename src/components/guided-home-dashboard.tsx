@@ -7,9 +7,10 @@ import { ArrowRight, CalendarCheck, CheckCircle2, FileSpreadsheet, FileUp, Home,
 import { buildSoniaBattlePlan, getSoniaProspects, type SoniaProspect } from "@/lib/sonia-beta";
 import { useDashboardAuth } from "@/components/auth/DashboardAuthProvider";
 
-type ClientCase = { id: string; type: "seller" | "buyer"; status: string; progress?: number; property?: { address?: string } | Array<{ address?: string }> };
+type ClientCase = { id: string; case_type: "seller" | "buyer" | "buy_sell" | "prospect" | "renewal" | "post_transaction" | "other"; title: string; status: string; pipeline_stage: string; progress: number; next_action?: string; property?: { address?: string } | Array<{ address?: string }> };
 type RecentClient = { id: string; name: string; cases: ClientCase[] };
 type CoachAnswer = { reply: string; action: { label: string; href: string } };
+type DayData = { tasks: Array<{ id: string; case_id: string; title: string; due_at?: string }>; appointments: Array<{ id: string; case_id?: string; title: string; starts_at: string }> };
 
 const actions: Array<{ icon: ElementType; label: string; href: string; primary?: boolean }> = [
   { icon: FileUp, label: "Importer un document ou une conversation", href: "/tableau-de-bord/importer", primary: true },
@@ -26,6 +27,7 @@ export function GuidedHomeDashboard() {
   const { status: authStatus, user, authenticatedFetch } = useDashboardAuth();
   const [prospects, setProspects] = useState<SoniaProspect[]>([]);
   const [clients, setClients] = useState<RecentClient[]>([]);
+  const [day, setDay] = useState<DayData>({ tasks: [], appointments: [] });
   const [prompt, setPrompt] = useState("");
   const [answer, setAnswer] = useState<CoachAnswer | null>(null);
   const [sending, setSending] = useState(false);
@@ -40,11 +42,19 @@ export function GuidedHomeDashboard() {
   useEffect(() => {
     if (authStatus !== "authenticated") return;
     authenticatedFetch("/api/clients", { cache: "no-store" }).then((response) => response.json()).then((payload: { clients?: RecentClient[] }) => setClients(payload.clients || [])).catch(() => undefined);
+    authenticatedFetch("/api/crm/day", { cache: "no-store" }).then((response) => response.json()).then((payload: Partial<DayData>) => setDay({ tasks: payload.tasks || [], appointments: payload.appointments || [] })).catch(() => undefined);
   }, [authStatus, authenticatedFetch, user]);
 
   const plan = useMemo(() => buildSoniaBattlePlan(prospects), [prospects]);
   const recentCases = useMemo(() => clients.flatMap((client) => client.cases.map((item) => ({ ...item, clientName: client.name }))).slice(0, 3), [clients]);
-  const priorities = useMemo(() => buildPriorities(prospects, plan), [prospects, plan]);
+  const priorities = useMemo(() => {
+    const operations = [
+      ...day.tasks.map((task) => ({ title: task.title, detail: task.due_at ? `Tâche · ${formatDayDate(task.due_at)}` : "Tâche à planifier", href: `/tableau-de-bord/dossiers/${task.case_id}` })),
+      ...day.appointments.map((appointment) => ({ title: appointment.title, detail: `Rendez-vous · ${formatDayDate(appointment.starts_at)}`, href: appointment.case_id ? `/tableau-de-bord/dossiers/${appointment.case_id}` : "/tableau-de-bord/clients" })),
+    ];
+    const crm = clients.flatMap((client) => client.cases.filter((item) => item.status === "active" && item.next_action).map((item) => ({ title: item.next_action || "Continuer le dossier", detail: `${client.name} · ${item.title}`, href: `/tableau-de-bord/dossiers/${item.id}` })));
+    return operations.length ? [...operations, ...crm] : crm.length ? crm : buildPriorities(prospects, plan);
+  }, [clients, day, prospects, plan]);
   const nextBest = priorities[0] || { title: "Trouver ton prochain prospect", href: "/tableau-de-bord/radar-prospection" };
 
   async function askCoach(event: FormEvent) {
@@ -79,12 +89,12 @@ export function GuidedHomeDashboard() {
 
     <section className="space-y-4"><div className="flex items-end justify-between"><div><p className="text-xs font-semibold uppercase tracking-wider text-teal-700">Ma journée</p><h2 className="mt-1 text-2xl font-semibold">{priorities.length || 1} priorité{priorities.length > 1 ? "s" : ""} aujourd’hui</h2></div></div><div className="grid gap-4 lg:grid-cols-[1.35fr_.65fr]"><div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">{priorities.length ? <div className="space-y-2">{priorities.slice(0, 3).map((item) => <Link key={`${item.title}-${item.href}`} href={item.href} className="flex items-center justify-between gap-3 rounded-xl p-3 hover:bg-slate-50 dark:hover:bg-slate-950"><span><span className="block text-sm font-semibold">{item.title}</span><span className="text-xs text-slate-500">{item.detail}</span></span><ArrowRight className="h-4 w-4 text-slate-400" /></Link>)}</div> : <p className="text-sm text-slate-500">Aucune urgence détectée. Commence par une nouvelle conversation.</p>}</div><div className="rounded-2xl bg-slate-950 p-5 text-white dark:bg-white dark:text-slate-950"><p className="text-sm font-semibold text-teal-300 dark:text-teal-700">Ma prochaine meilleure action</p><p className="mt-4 text-xl font-semibold">{nextBest.title}</p><Link href={nextBest.href} className="mt-5 inline-flex items-center gap-2 text-sm font-semibold">Continuer<ArrowRight className="h-4 w-4" /></Link></div></div></section>
 
-    <section><div className="flex items-end justify-between"><div><p className="text-xs font-semibold uppercase tracking-wider text-teal-700">Dossiers récents</p><h2 className="mt-1 text-2xl font-semibold">Reprendre là où tu étais</h2></div><Link href="/tableau-de-bord/clients" className="hidden text-sm font-semibold text-teal-700 sm:inline">Voir tous mes dossiers</Link></div>{recentCases.length ? <div className="mt-4 grid gap-4 lg:grid-cols-3">{recentCases.map((item) => <RecentCase key={`${item.type}-${item.id}`} item={item} />)}</div> : <div className="mt-4 rounded-2xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500 dark:border-slate-700">Tes dossiers réels apparaîtront ici automatiquement après leur création.</div>}<Link href="/tableau-de-bord/clients" className="mt-4 inline-flex text-sm font-semibold text-teal-700 sm:hidden">Voir tous mes dossiers</Link></section>
+    <section><div className="flex items-end justify-between"><div><p className="text-xs font-semibold uppercase tracking-wider text-teal-700">Dossiers récents</p><h2 className="mt-1 text-2xl font-semibold">Reprendre là où tu étais</h2></div><Link href="/tableau-de-bord/clients" className="hidden text-sm font-semibold text-teal-700 sm:inline">Voir tous mes dossiers</Link></div>{recentCases.length ? <div className="mt-4 grid gap-4 lg:grid-cols-3">{recentCases.map((item) => <RecentCase key={item.id} item={item} />)}</div> : <div className="mt-4 rounded-2xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500 dark:border-slate-700">Tes dossiers réels apparaîtront ici automatiquement après leur création.</div>}<Link href="/tableau-de-bord/clients" className="mt-4 inline-flex text-sm font-semibold text-teal-700 sm:hidden">Voir tous mes dossiers</Link></section>
   </div>;
 }
 
 function ActionCard({ icon: Icon, label, href, primary }: { icon: ElementType; label: string; href: string; primary?: boolean }) { return <Link href={href} className={`group flex min-h-32 flex-col justify-between rounded-2xl border p-4 transition hover:-translate-y-1 hover:shadow-lg sm:min-h-40 sm:p-5 ${primary ? "border-teal-300 bg-teal-50 dark:border-teal-900 dark:bg-teal-950/30" : "border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900"}`}><Icon className="h-6 w-6 text-teal-700" /><span className="mt-5 text-sm font-semibold leading-5 sm:text-base">{label}</span></Link>; }
-function RecentCase({ item }: { item: ClientCase & { clientName: string } }) { const property = Array.isArray(item.property) ? item.property[0] : item.property; const href = item.type === "seller" ? `/tableau-de-bord/inscriptions/${item.id}` : `/tableau-de-bord/acheteurs/${item.id}`; return <Link href={href} className="rounded-2xl border border-slate-200 bg-white p-5 transition hover:-translate-y-1 hover:shadow-lg dark:border-slate-800 dark:bg-slate-900"><span className="flex h-10 w-10 items-center justify-center rounded-xl bg-teal-50 text-teal-700 dark:bg-teal-950">{item.type === "seller" ? <Home className="h-5 w-5" /> : <KeyRound className="h-5 w-5" />}</span><h3 className="mt-4 font-semibold">{property?.address || item.clientName}</h3><p className="mt-2 text-sm text-slate-500">{item.type === "seller" ? "Vendeur" : "Acheteur"} · {item.status.replace(/_/g, " ")}{typeof item.progress === "number" ? ` · ${item.progress} %` : ""}</p></Link>; }
+function RecentCase({ item }: { item: ClientCase & { clientName: string } }) { const property = Array.isArray(item.property) ? item.property[0] : item.property; const seller = item.case_type === "seller"; return <Link href={`/tableau-de-bord/dossiers/${item.id}`} className="rounded-2xl border border-slate-200 bg-white p-5 transition hover:-translate-y-1 hover:shadow-lg dark:border-slate-800 dark:bg-slate-900"><span className="flex h-10 w-10 items-center justify-center rounded-xl bg-teal-50 text-teal-700 dark:bg-teal-950">{seller ? <Home className="h-5 w-5" /> : <KeyRound className="h-5 w-5" />}</span><h3 className="mt-4 font-semibold">{item.title || property?.address || item.clientName}</h3><p className="mt-2 text-sm text-slate-500">{seller ? "Vendeur" : item.case_type === "buy_sell" ? "Acheteur + vendeur" : "Acheteur"} · {item.pipeline_stage.replace(/_/g, " ")} · {item.progress} %</p>{item.next_action ? <p className="mt-2 text-sm font-medium text-teal-700">{item.next_action}</p> : null}</Link>; }
 
 function buildPriorities(prospects: SoniaProspect[], plan: ReturnType<typeof buildSoniaBattlePlan>) {
   const output: Array<{ title: string; detail: string; href: string }> = [];
@@ -103,3 +113,4 @@ function inferHomeIntent(message: string): CoachAnswer | null {
   if (/rendez.?vous|demain|preparer/.test(value)) return { reply: "Je t’amène à la préparation du prochain rendez-vous et de l’analyse de marché associée.", action: { label: "Préparer le rendez-vous", href: "/tableau-de-bord/actions/prepare-market-analysis" } };
   return null;
 }
+function formatDayDate(value: string) { return new Intl.DateTimeFormat("fr-CA", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)); }

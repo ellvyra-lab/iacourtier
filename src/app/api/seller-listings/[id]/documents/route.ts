@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { DOCUMENT_TYPES } from "@/lib/seller-listings";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { recordCentralActivity, syncCentralDocument } from "@/lib/server/central-crm";
 
 export const runtime = "nodejs";
 
@@ -16,8 +17,9 @@ export async function POST(request: Request, { params }: RouteContext) {
     const supabase = await createSupabaseServerClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ error: "Vous devez être connecté." }, { status: 401 });
-    const { data: listing } = await supabase.from("seller_listings").select("id").eq("id", id).eq("user_id", user.id).maybeSingle();
+    const { data: listing } = await supabase.from("seller_listings").select("id,property_id,client_case_id").eq("id", id).eq("user_id", user.id).maybeSingle();
     if (!listing) return NextResponse.json({ error: "Dossier vendeur introuvable." }, { status: 404 });
+    const { data: centralCase } = listing.client_case_id ? await supabase.from("client_cases").select("primary_client_id").eq("id", listing.client_case_id).eq("user_id", user.id).maybeSingle() : { data: null };
 
     const formData = await request.formData();
     const files = formData.getAll("files").filter((item): item is File => item instanceof File);
@@ -50,6 +52,7 @@ export async function POST(request: Request, { params }: RouteContext) {
         return NextResponse.json({ error: error?.message || "Le document n’a pas pu être enregistré." }, { status: 500 });
       }
       await supabase.from("seller_listing_facts").update({ source_document_id: document.id }).eq("listing_id", id).eq("user_id", user.id).eq("source_label", file.name).is("source_document_id", null);
+      if (listing.client_case_id) await syncCentralDocument(supabase, { userId: user.id, clientId: centralCase?.primary_client_id || null, caseId: listing.client_case_id, propertyId: listing.property_id, document, legacySource: "seller_listing_documents" });
       saved.push(document);
     }
 
@@ -60,6 +63,7 @@ export async function POST(request: Request, { params }: RouteContext) {
       title: `${saved.length} document${saved.length > 1 ? "s" : ""} ajouté${saved.length > 1 ? "s" : ""}`,
       details: files.map((file) => file.name).join(", "),
     });
+    if (listing.client_case_id) await recordCentralActivity(supabase, { userId: user.id, clientId: centralCase?.primary_client_id || null, caseId: listing.client_case_id, eventType: "documents_uploaded", title: `${saved.length} document${saved.length > 1 ? "s" : ""} ajouté${saved.length > 1 ? "s" : ""}`, details: files.map((file) => file.name).join(", ") });
     await supabase.from("seller_listings").update({ updated_at: new Date().toISOString() }).eq("id", id).eq("user_id", user.id);
     return NextResponse.json({ documents: saved });
   } catch (error) {

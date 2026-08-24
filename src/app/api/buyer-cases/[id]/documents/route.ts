@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { recordCentralActivity, syncCentralDocument } from "@/lib/server/central-crm";
 
 type RouteContext = { params: Promise<{ id: string }> };
 const MAX_FILES = 12;
@@ -14,7 +15,7 @@ export async function POST(request: Request, { params }: RouteContext) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ error: "Ta session a expiré.", reconnectUrl: "/connexion" }, { status: 401 });
 
-    const { data: buyerCase } = await supabase.from("buyer_cases").select("id").eq("id", id).eq("user_id", user.id).maybeSingle();
+    const { data: buyerCase } = await supabase.from("buyer_cases").select("id,contact_id,property_id,client_case_id").eq("id", id).eq("user_id", user.id).maybeSingle();
     if (!buyerCase) return NextResponse.json({ error: "Dossier acheteur introuvable." }, { status: 404 });
 
     const formData = await request.formData();
@@ -45,6 +46,9 @@ export async function POST(request: Request, { params }: RouteContext) {
         await supabase.storage.from("seller-listing-files").remove([path]);
         return NextResponse.json({ error: error?.message || "Le document n’a pas pu être enregistré." }, { status: 500 });
       }
+      if (buyerCase.client_case_id) {
+        await syncCentralDocument(supabase, { userId: user.id, clientId: buyerCase.contact_id, caseId: buyerCase.client_case_id, propertyId: buyerCase.property_id, document: data, legacySource: "buyer_case_documents" });
+      }
       saved.push(data);
     }
 
@@ -55,6 +59,7 @@ export async function POST(request: Request, { params }: RouteContext) {
       title: `${saved.length} document${saved.length > 1 ? "s" : ""} ajouté${saved.length > 1 ? "s" : ""}`,
       details: files.map((file) => file.name).join(", "),
     });
+    if (buyerCase.client_case_id) await recordCentralActivity(supabase, { userId: user.id, clientId: buyerCase.contact_id, caseId: buyerCase.client_case_id, eventType: "documents_uploaded", title: `${saved.length} document${saved.length > 1 ? "s" : ""} ajouté${saved.length > 1 ? "s" : ""}`, details: files.map((file) => file.name).join(", ") });
 
     return NextResponse.json({ documents: saved });
   } catch (error) {

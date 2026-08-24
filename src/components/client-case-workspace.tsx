@@ -1,0 +1,98 @@
+"use client";
+
+import Link from "next/link";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { ArrowRight, CheckCircle2, Circle, FileText, Home, Loader2, Sparkles, UserRound } from "lucide-react";
+
+import { SessionStatusNotice, useDashboardAuth } from "@/components/auth/DashboardAuthProvider";
+
+type Payload = {
+  case: Record<string, any>;
+  clients: Array<Record<string, any>>;
+  caseRoles: Array<Record<string, any>>;
+  documents: Array<Record<string, any>>;
+  tasks: Array<Record<string, any>>;
+  automations: Array<Record<string, any>>;
+  communications: Array<Record<string, any>>;
+  appointments: Array<Record<string, any>>;
+  activity: Array<Record<string, any>>;
+  buyer?: Record<string, any> | null;
+  seller?: Record<string, any> | null;
+  financing?: Record<string, any> | null;
+  partners: Array<Record<string, any>>;
+};
+
+export function ClientCaseWorkspace({ caseId }: { caseId: string }) {
+  const { status, authenticatedFetch } = useDashboardAuth();
+  const [data, setData] = useState<Payload | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [savingId, setSavingId] = useState("");
+  const [error, setError] = useState("");
+
+  const load = useCallback(async () => {
+    if (status !== "authenticated") return;
+    setLoading(true);
+    try {
+      const response = await authenticatedFetch(`/api/client-cases/${caseId}`, { cache: "no-store" });
+      const payload = await response.json() as Payload & { error?: string };
+      if (!response.ok) throw new Error(payload.error || "Chargement impossible.");
+      setData(payload);
+      setError("");
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "Chargement impossible."); }
+    finally { setLoading(false); }
+  }, [authenticatedFetch, caseId, status]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  async function update(target: "task" | "automation", id: string, nextStatus: string) {
+    setSavingId(id);
+    try {
+      const response = await authenticatedFetch(`/api/client-cases/${caseId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ target, id, status: nextStatus }) });
+      const payload = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(payload.error || "Modification impossible.");
+      await load();
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "Modification impossible."); }
+    finally { setSavingId(""); }
+  }
+
+  const primary = useMemo(() => data?.clients.find((item) => item.id === data.case.primary_client_id) || data?.clients[0], [data]);
+  if (loading || !data) return <div className="flex min-h-96 items-center justify-center">{error ? <p className="text-red-700">{error}</p> : <Loader2 className="h-8 w-8 animate-spin text-teal-700" />}</div>;
+  const item = data.case;
+  const missing = missingInformation(data);
+  const specializedHref = data.buyer ? `/tableau-de-bord/acheteurs/${data.buyer.id}` : data.seller ? `/tableau-de-bord/inscriptions/${data.seller.id}` : null;
+
+  return <div className="space-y-6">
+    <nav className="flex flex-wrap items-center gap-2 text-sm text-slate-500"><Link href="/tableau-de-bord/clients" className="hover:text-teal-700">Clients & dossiers</Link><span>›</span>{primary ? <Link href={`/tableau-de-bord/clients/${primary.id}`} className="hover:text-teal-700">{clientName(primary)}</Link> : <span>Client</span>}<span>›</span><span>{item.title}</span></nav>
+    <header className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+      <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between"><div><p className="text-sm font-semibold text-teal-700">Dossier {caseType(item.case_type)}</p><h1 className="mt-2 text-3xl font-semibold">{item.title}</h1><p className="mt-2 text-slate-500">Étape actuelle : <strong className="text-slate-900 dark:text-white">{label(item.pipeline_stage)}</strong></p></div><div className="min-w-64 rounded-2xl bg-teal-50 p-4 text-teal-950 dark:bg-teal-950 dark:text-teal-50"><p className="text-xs font-bold uppercase tracking-wide">Prochaine action</p><p className="mt-2 font-semibold">{item.next_action || "Continuer le dossier"}</p><a href="#a-completer" className="mt-3 inline-flex items-center gap-2 text-sm font-bold text-teal-700 dark:text-teal-300">Continuer le dossier <ArrowRight className="h-4 w-4" /></a></div></div>
+      <div className="mt-6 h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800"><div className="h-full rounded-full bg-teal-600" style={{ width: `${item.progress || 0}%` }} /></div><div className="mt-2 flex justify-between text-xs text-slate-500"><span>{label(item.status)}</span><span>{item.progress || 0}% complété</span></div>
+    </header>
+    <SessionStatusNotice />{error ? <p className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</p> : null}
+
+    <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <Metric title="Clients" value={data.clients.length} /><Metric title="Documents" value={data.documents.length} /><Metric title="Tâches ouvertes" value={data.tasks.filter((task) => task.status === "pending").length} /><Metric title="Automatisations" value={data.automations.length} />
+    </section>
+
+    <section id="a-completer" className="rounded-3xl border border-amber-200 bg-amber-50 p-5 dark:border-amber-900 dark:bg-amber-950/30"><h2 className="font-semibold text-amber-950 dark:text-amber-100">Informations manquantes ou à confirmer</h2>{missing.length ? <ul className="mt-3 grid gap-2 md:grid-cols-2">{missing.map((value) => <li key={value} className="flex items-center gap-2 text-sm text-amber-900 dark:text-amber-200"><Circle className="h-3 w-3" />{value}</li>)}</ul> : <p className="mt-3 text-sm text-amber-900 dark:text-amber-200">Les renseignements essentiels sont présents.</p>}{specializedHref ? <Link href={specializedHref} className="mt-4 inline-flex items-center gap-2 rounded-xl bg-amber-950 px-4 py-2 text-sm font-semibold text-white dark:bg-amber-100 dark:text-amber-950">Ouvrir les détails du parcours <ArrowRight className="h-4 w-4" /></Link> : null}</section>
+
+    <div className="grid gap-6 xl:grid-cols-2">
+      <Panel title="Client et propriété" empty="Aucun client relié.">{data.clients.map((client) => <Link key={client.id} href={`/tableau-de-bord/clients/${client.id}`} className="flex items-center justify-between rounded-xl border border-slate-200 p-3 dark:border-slate-800"><span className="inline-flex items-center gap-3"><UserRound className="h-5 w-5 text-teal-700" /><span><strong className="block">{clientName(client)}</strong><span className="text-xs text-slate-500">{client.email || client.phone || "Coordonnées à compléter"}</span></span></span><ArrowRight className="h-4 w-4" /></Link>)}{item.property ? <div className="flex items-center gap-3 rounded-xl border border-slate-200 p-3 dark:border-slate-800"><Home className="h-5 w-5 text-teal-700" /><span><strong className="block">{property(item.property)?.address}</strong><span className="text-xs text-slate-500">{[property(item.property)?.city, property(item.property)?.property_type].filter(Boolean).join(" · ")}</span></span></div> : null}</Panel>
+      <Panel title="Financement et partenaires" empty="Aucun renseignement financier ou partenaire.">{data.financing ? <div className="grid grid-cols-2 gap-3 rounded-2xl bg-slate-50 p-4 text-sm dark:bg-slate-950"><Datum label="Statut" value={label(data.financing.status)} /><Datum label="Budget maximal" value={money(data.financing.maximum_purchase_price)} /><Datum label="Mise de fonds" value={money(data.financing.down_payment)} /><Datum label="Hypothèque" value={money(data.financing.mortgage_amount)} /></div> : null}{data.partners.map((row, index) => { const partner = Array.isArray(row.partner) ? row.partner[0] : row.partner; return <div key={partner?.id || index} className="rounded-xl border border-slate-200 p-3 text-sm dark:border-slate-800"><strong>{clientName(partner || {})}</strong><p className="text-slate-500">{partner?.organization || label(row.role)}</p></div>; })}</Panel>
+      <Panel title="Tâches" empty="Aucune tâche.">{data.tasks.map((task) => <button key={task.id} type="button" disabled={savingId === task.id} onClick={() => update("task", task.id, task.status === "completed" ? "pending" : "completed")} className="flex w-full items-center gap-3 rounded-xl border border-slate-200 p-3 text-left dark:border-slate-800">{savingId === task.id ? <Loader2 className="h-5 w-5 animate-spin" /> : task.status === "completed" ? <CheckCircle2 className="h-5 w-5 text-teal-700" /> : <Circle className="h-5 w-5 text-slate-400" />}<span><strong className={task.status === "completed" ? "line-through opacity-60" : ""}>{task.title}</strong><span className="block text-xs text-slate-500">{label(task.category)}{task.due_at ? ` · ${date(task.due_at)}` : ""}</span></span></button>)}</Panel>
+      <Panel title="Documents" empty="Aucun document classé.">{data.documents.map((document) => <div key={document.id} className="flex items-center gap-3 rounded-xl border border-slate-200 p-3 dark:border-slate-800"><FileText className="h-5 w-5 text-teal-700" /><span><strong className="block text-sm">{document.name}</strong><span className="text-xs text-slate-500">{document.category} · {label(document.analysis_status)}</span></span></div>)}</Panel>
+      <Panel title="Automatisations proposées" empty="Aucune automatisation proposée.">{data.automations.map((automation) => <div key={automation.id} className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 p-3 dark:border-slate-800"><span className="inline-flex items-center gap-2 text-sm font-semibold"><Sparkles className="h-4 w-4 text-violet-600" />{automation.name}</span><button type="button" disabled={savingId === automation.id} onClick={() => update("automation", automation.id, automation.status === "approved" ? "disabled" : "approved")} className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold dark:bg-slate-800">{savingId === automation.id ? "…" : label(automation.status)}</button></div>)}</Panel>
+      <Panel title="Historique" empty="Aucun événement.">{data.activity.map((event) => <div key={event.id} className="border-l-2 border-teal-200 pl-4"><strong className="block text-sm">{event.title}</strong><span className="text-xs text-slate-500">{date(event.created_at)}</span>{event.details ? <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">{event.details}</p> : null}</div>)}</Panel>
+    </div>
+  </div>;
+}
+
+function Panel({ title, empty, children }: { title: string; empty: string; children: React.ReactNode }) { const count = Array.isArray(children) ? children.filter(Boolean).length : children ? 1 : 0; return <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900"><h2 className="text-lg font-semibold">{title}</h2><div className="mt-4 space-y-3">{count ? children : <p className="text-sm text-slate-500">{empty}</p>}</div></section>; }
+function Metric({ title, value }: { title: string; value: number }) { return <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900"><p className="text-sm text-slate-500">{title}</p><p className="mt-2 text-2xl font-semibold">{value}</p></div>; }
+function Datum({ label: key, value }: { label: string; value: string }) { return <div><p className="text-xs text-slate-500">{key}</p><p className="font-semibold">{value}</p></div>; }
+function property(value: any) { return Array.isArray(value) ? value[0] : value; }
+function clientName(value: Record<string, any>) { return `${value.first_name || ""} ${value.last_name || ""}`.trim() || "Personne à identifier"; }
+function label(value?: string) { return (value || "").replace(/_/g, " ").replace(/^./, (letter) => letter.toUpperCase()); }
+function caseType(value: string) { return ({ buyer: "acheteur", seller: "vendeur", buy_sell: "acheteur + vendeur", prospect: "prospect", renewal: "renouvellement", post_transaction: "après-vente", other: "autre" } as Record<string, string>)[value] || label(value); }
+function date(value: string) { return new Intl.DateTimeFormat("fr-CA", { dateStyle: "medium" }).format(new Date(value)); }
+function money(value: number | null | undefined) { return value == null ? "À confirmer" : new Intl.NumberFormat("fr-CA", { style: "currency", currency: "CAD", maximumFractionDigits: 0 }).format(value); }
+function missingInformation(data: Payload) { const missing: string[] = []; const primary = data.clients.find((item) => item.id === data.case.primary_client_id) || data.clients[0]; if (!primary?.email) missing.push("Courriel du client"); if (!primary?.phone) missing.push("Téléphone du client"); if (data.buyer) { if (!data.buyer.budget && !data.financing?.maximum_purchase_price) missing.push("Budget maximal"); if (!data.buyer.sectors?.length) missing.push("Secteurs recherchés"); if (!data.buyer.property_type) missing.push("Type de propriété recherché"); if (!data.buyer.timeline) missing.push("Échéancier"); if (!data.financing || data.financing.status === "missing") missing.push("Préqualification hypothécaire"); } if (data.seller && !data.case.property_id) missing.push("Propriété à vendre"); return missing; }

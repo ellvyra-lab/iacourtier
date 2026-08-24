@@ -9,6 +9,7 @@ import {
   type BuyerSource,
 } from "@/lib/buyer-cases";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { ensureCentralCase, recordCentralActivity, syncCentralWorkflow } from "@/lib/server/central-crm";
 
 export const runtime = "nodejs";
 
@@ -125,24 +126,34 @@ export async function POST(request: Request) {
       if (error || !data) return NextResponse.json({ error: databaseMessage(error?.message || "Création du dossier acheteur impossible.") }, { status: 500 });
       caseId = data.id;
 
-      const [tasksResult, automationsResult] = await Promise.all([
-        supabase.from("buyer_case_tasks").insert(BUYER_TASK_TEMPLATES.map((task) => ({
-          user_id: user.id,
-          case_id: caseId,
-          category: task.category,
-          title: task.title,
-          validation_required: true,
-        }))),
-        supabase.from("buyer_case_automations").insert(BUYER_AUTOMATION_TEMPLATES.map((name) => ({
-          user_id: user.id,
-          case_id: caseId,
-          name,
-          status: "validation_required",
-          external_delivery_enabled: false,
-        }))),
-      ]);
-      const setupError = tasksResult.error || automationsResult.error;
-      if (setupError) return NextResponse.json({ error: databaseMessage(setupError.message) }, { status: 500 });
+    }
+
+    const pipelineStage = criteria.preapprovalStatus && criteria.preapprovalStatus !== "missing" ? "financing" : "qualification";
+    const clientName = `${contact.first_name} ${contact.last_name}`.trim() || "Client";
+    const centralCaseId = await ensureCentralCase(supabase, {
+      userId: user.id, primaryClientId: contact.id, participantIds: [contact.id], caseType: "buyer",
+      title: `Achat — ${clientName}`, status: "active", pipelineStage, source: body.source || "manual", buyerCaseId: caseId,
+      nextAction: missingBuyerAction(criteria),
+    });
+
+    if (!reusedCase) {
+      const { error: tasksError } = await supabase.from("buyer_case_tasks").insert(BUYER_TASK_TEMPLATES.map((task) => ({
+        user_id: user.id,
+        case_id: caseId,
+        category: task.category,
+        title: task.title,
+        validation_required: true,
+      })));
+      if (tasksError) return NextResponse.json({ error: databaseMessage(tasksError.message) }, { status: 500 });
+
+      const { error: automationsError } = await supabase.from("buyer_case_automations").insert(BUYER_AUTOMATION_TEMPLATES.map((name) => ({
+        user_id: user.id,
+        case_id: caseId,
+        name,
+        status: "validation_required",
+        external_delivery_enabled: false,
+      })));
+      if (automationsError) return NextResponse.json({ error: databaseMessage(automationsError.message) }, { status: 500 });
     }
 
     await supabase.from("buyer_case_activity").insert({
@@ -153,8 +164,13 @@ export async function POST(request: Request) {
       details: duplicate ? "La fiche client existante a été reconnue et réutilisée; aucun doublon n’a été créé." : `Source : ${body.source || "manual"}.`,
     });
 
+    await syncCentralWorkflow(supabase, { userId: user.id, clientId: contact.id, caseId: centralCaseId, buyerCaseId: caseId });
+    await recordCentralActivity(supabase, { userId: user.id, clientId: contact.id, caseId: centralCaseId, eventType: reusedCase ? "case_reused" : "case_created", title: reusedCase ? "Dossier acheteur existant relié" : "Dossier acheteur créé" });
+
     return NextResponse.json({
       id: caseId,
+      centralCaseId,
+      primaryHref: `/tableau-de-bord/dossiers/${centralCaseId}`,
       clientId: contact.id,
       reusedClient: Boolean(duplicate || body.existingContactId),
       reusedCase,
@@ -178,6 +194,14 @@ function findDuplicate(contacts: ContactRow[], buyer: BuyerContactInput) {
 
 function emptyCriteria(): BuyerCriteriaInput {
   return { budget: "", preapprovalStatus: "missing", sectors: [], propertyType: "", bedrooms: "", importantNeeds: "", timeline: "", propertyToSell: null };
+}
+
+function missingBuyerAction(criteria: BuyerCriteriaInput) {
+  if (!criteria.budget.trim()) return "Confirmer le budget maximal";
+  if (!criteria.sectors.length) return "Confirmer les secteurs recherchés";
+  if (!criteria.propertyType.trim()) return "Confirmer le type de propriété";
+  if (!criteria.timeline.trim()) return "Confirmer l’échéancier";
+  return "Continuer la qualification acheteur";
 }
 
 function expiredSession() {

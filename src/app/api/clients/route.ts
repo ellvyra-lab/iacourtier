@@ -1,19 +1,40 @@
 import { NextResponse } from "next/server";
 
-import { buyerProgress, normalizeClientValue } from "@/lib/buyer-cases";
+import { normalizeClientValue } from "@/lib/buyer-cases";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
-type Contact = {
+type ClientRow = {
   id: string;
   first_name: string;
   last_name: string;
   email: string | null;
   phone: string | null;
   mailing_address: string | null;
-  roles?: string[] | null;
-  tags?: string[] | null;
-  client_status?: string | null;
+  city: string | null;
+  postal_code: string | null;
+  birth_date: string | null;
+  purchase_date: string | null;
+  sale_date: string | null;
+  mortgage_renewal_date: string | null;
+  roles: string[] | null;
+  tags: string[] | null;
+  client_status: string | null;
+  source: string | null;
+  notes: string | null;
   updated_at: string;
+};
+
+type CentralCaseRow = {
+  id: string;
+  primary_client_id: string | null;
+  case_type: string;
+  title: string;
+  status: string;
+  pipeline_stage: string;
+  progress: number;
+  next_action: string | null;
+  updated_at: string;
+  property: { id?: string; address?: string; city?: string; property_type?: string } | Array<{ id?: string; address?: string; city?: string; property_type?: string }> | null;
 };
 
 export async function GET(request: Request) {
@@ -22,55 +43,45 @@ export async function GET(request: Request) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ error: "Ta session a expiré.", reconnectUrl: "/connexion" }, { status: 401 });
 
-    const contactsWithRoles = await supabase.from("clients").select("id,first_name,last_name,email,phone,mailing_address,roles,tags,client_status,updated_at").eq("user_id", user.id).order("updated_at", { ascending: false });
-    const contactsWithoutRoles = contactsWithRoles.error && /roles|schema cache/i.test(contactsWithRoles.error.message)
-      ? await supabase.from("clients").select("id,first_name,last_name,email,phone,mailing_address,updated_at").eq("user_id", user.id).order("updated_at", { ascending: false })
-      : null;
-    const contactsError = contactsWithoutRoles?.error || contactsWithRoles.error;
-    if (contactsError && !contactsWithoutRoles?.data) return NextResponse.json({ error: contactsError.message }, { status: 500 });
-    const contactsData = contactsWithoutRoles?.data || contactsWithRoles.data || [];
-
-    const [partiesResult, listingsResult, buyerResult] = await Promise.all([
-      supabase.from("seller_listing_parties").select("contact_id,listing_id").eq("user_id", user.id),
-      supabase.from("seller_listings").select("id,status,updated_at,property:properties(address,city,property_type)").eq("user_id", user.id),
-      supabase.from("buyer_cases").select("*").eq("user_id", user.id).order("updated_at", { ascending: false }),
+    const [clientsResult, relationsResult, casesResult] = await Promise.all([
+      supabase.from("clients").select("id,first_name,last_name,email,phone,mailing_address,city,postal_code,birth_date,purchase_date,sale_date,mortgage_renewal_date,roles,tags,client_status,source,notes,updated_at").eq("user_id", user.id).order("updated_at", { ascending: false }),
+      supabase.from("client_case_clients").select("client_id,case_id,role").eq("user_id", user.id),
+      supabase.from("client_cases").select("id,primary_client_id,case_type,title,status,pipeline_stage,progress,next_action,updated_at,property:properties(id,address,city,property_type)").eq("user_id", user.id).order("updated_at", { ascending: false }),
     ]);
 
-    if (partiesResult.error || listingsResult.error) {
-      return NextResponse.json({ error: partiesResult.error?.message || listingsResult.error?.message }, { status: 500 });
+    const firstError = clientsResult.error || relationsResult.error || casesResult.error;
+    if (firstError) return NextResponse.json({ error: firstError.message }, { status: 500 });
+
+    const cases = (casesResult.data || []) as CentralCaseRow[];
+    const casesById = new Map(cases.map((item) => [item.id, item]));
+    const casesByClient = new Map<string, CentralCaseRow[]>();
+    const rolesByClient = new Map<string, string[]>();
+
+    for (const relation of relationsResult.data || []) {
+      const item = casesById.get(relation.case_id);
+      if (!item) continue;
+      casesByClient.set(relation.client_id, [...(casesByClient.get(relation.client_id) || []), item]);
+      rolesByClient.set(relation.client_id, [...(rolesByClient.get(relation.client_id) || []), relation.role]);
     }
 
-    const listings = new Map((listingsResult.data || []).map((listing) => [listing.id, listing]));
-    const sellersByContact = new Map<string, unknown[]>();
-    for (const party of partiesResult.data || []) {
-      const listing = listings.get(party.listing_id);
-      if (!listing) continue;
-      sellersByContact.set(party.contact_id, [...(sellersByContact.get(party.contact_id) || []), listing]);
+    for (const item of cases) {
+      if (!item.primary_client_id) continue;
+      const current = casesByClient.get(item.primary_client_id) || [];
+      if (!current.some((existing) => existing.id === item.id)) casesByClient.set(item.primary_client_id, [...current, item]);
     }
 
-    const buyersByContact = new Map<string, Record<string, unknown>[]>();
-    if (!buyerResult.error) {
-      for (const buyerCase of buyerResult.data || []) {
-        buyersByContact.set(buyerCase.contact_id, [...(buyersByContact.get(buyerCase.contact_id) || []), buyerCase]);
-      }
-    }
-
-    const clients = (contactsData as Contact[]).map((contact) => {
-      const sellerCases = sellersByContact.get(contact.id) || [];
-      const buyerCases = buyersByContact.get(contact.id) || [];
+    const clients = ((clientsResult.data || []) as ClientRow[]).map((client) => {
+      const clientCases = casesByClient.get(client.id) || [];
       const roles = Array.from(new Set([
-        ...(contact.roles || []),
-        ...(sellerCases.length ? ["seller"] : []),
-        ...(buyerCases.length ? ["buyer"] : []),
-      ]));
+        ...(client.roles || []),
+        ...(rolesByClient.get(client.id) || []),
+        ...clientCases.flatMap((item) => item.case_type === "buy_sell" ? ["buyer", "seller"] : [item.case_type]),
+      ])).filter(Boolean);
       return {
-        ...contact,
-        name: `${contact.first_name} ${contact.last_name}`.trim() || "Client à identifier",
+        ...client,
+        name: `${client.first_name} ${client.last_name}`.trim() || "Client à identifier",
         roles,
-        cases: [
-          ...sellerCases.map((item) => ({ type: "seller", ...(item as Record<string, unknown>) })),
-          ...buyerCases.map((item) => ({ type: "buyer", progress: buyerProgress(item), ...item })),
-        ],
+        cases: clientCases,
       };
     });
 
@@ -80,16 +91,19 @@ export async function GET(request: Request) {
       client.email,
       client.phone,
       client.mailing_address,
-      ...client.cases.map((item) => JSON.stringify(item)),
+      client.city,
+      client.postal_code,
+      client.client_status,
+      client.source,
+      client.notes,
+      ...(client.tags || []),
+      ...client.cases.flatMap((item) => {
+        const property = Array.isArray(item.property) ? item.property[0] : item.property;
+        return [item.title, item.case_type, item.status, item.pipeline_stage, item.next_action, property?.address, property?.city, property?.property_type];
+      }),
     ].filter(Boolean).join(" ")).includes(query)) : clients;
 
-    return NextResponse.json({
-      clients: filtered,
-      buyerCasesAvailable: !buyerResult.error,
-      warning: buyerResult.error && /buyer_|schema cache|does not exist/i.test(buyerResult.error.message)
-        ? "La migration Supabase des parcours guidés reste à appliquer."
-        : undefined,
-    });
+    return NextResponse.json({ clients: filtered });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Impossible de charger les clients et dossiers." }, { status: 500 });
   }
