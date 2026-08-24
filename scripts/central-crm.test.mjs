@@ -17,6 +17,10 @@ test("migration — crée le dossier maître, les objets partagés et quatre pol
   assert.match(sql, /enable row level security/);
   for (const policy of ["owner_select", "owner_insert", "owner_update", "owner_delete"]) assert.match(sql, new RegExp(`create policy "${policy}"`));
   assert.doesNotMatch(sql, /drop table|truncate table|delete from public\.clients/i);
+  const hardening = read("supabase/migrations/202608242030_central_crm_rls_hardening.sql");
+  assert.match(hardening, /exists \(select 1 from public\.client_cases/);
+  assert.match(hardening, /exists \(select 1 from public\.clients/);
+  assert.match(hardening, /exists \(select 1 from public\.properties/);
 });
 
 test("import universel — respecte personne → dossier → tâches → documents → automatisations", () => {
