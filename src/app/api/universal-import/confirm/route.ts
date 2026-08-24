@@ -163,12 +163,9 @@ export async function POST(request: Request) {
       listingId = existing?.id || null;
       reusedListing = Boolean(listingId);
       if (!listingId) {
-        const { data, error } = await supabase.from("seller_listings").insert({ user_id: user.id, property_id: propertyId, status: "review", pipeline_stage: analysis.sellerStage || "lead", validation_required: true }).select("id").single();
+        const { data, error } = await supabase.from("seller_listings").insert({ user_id: user.id, property_id: propertyId, status: "review", pipeline_stage: "lead", validation_required: true }).select("id").single();
         if (error || !data) throw error || new Error("Création du dossier vendeur impossible.");
         listingId = data.id;
-      } else {
-        const { error } = await supabase.from("seller_listings").update({ pipeline_stage: analysis.sellerStage || "lead", updated_at: new Date().toISOString() }).eq("id", listingId).eq("user_id", user.id);
-        if (error) throw error;
       }
       const { error: partiesError } = await supabase.from("seller_listing_parties").upsert(sellerContactIds.map((contactId) => ({ user_id: user.id, listing_id: listingId, contact_id: contactId, role: "seller" })), { onConflict: "listing_id,contact_id,role" });
       if (partiesError) throw partiesError;
@@ -184,7 +181,7 @@ export async function POST(request: Request) {
       if (!buyerCaseId) {
         const { data, error } = await supabase.from("buyer_cases").insert({
           user_id: user.id, contact_id: primaryContactId, property_id: propertyId, source: "document",
-          status: technicalBuyerStatus(analysis.buyerStage), pipeline_stage: analysis.buyerStage || "qualification",
+          status: "qualification", pipeline_stage: "qualification",
           budget: criteria.budget || null, preapproval_status: criteria.preapprovalStatus || "missing", sectors: criteria.sectors,
           property_type: criteria.propertyType || analysis.property.propertyType || null, bedrooms: criteria.bedrooms || null,
           important_needs: criteria.importantNeeds || null, timeline: criteria.timeline || null,
@@ -194,7 +191,7 @@ export async function POST(request: Request) {
         buyerCaseId = data.id;
       } else {
         const { error } = await supabase.from("buyer_cases").update({
-          property_id: propertyId, status: technicalBuyerStatus(analysis.buyerStage), pipeline_stage: analysis.buyerStage || "qualification",
+          property_id: propertyId,
           budget: criteria.budget || null, preapproval_status: criteria.preapprovalStatus || "missing", sectors: criteria.sectors,
           property_type: criteria.propertyType || analysis.property.propertyType || null, bedrooms: criteria.bedrooms || null,
           important_needs: criteria.importantNeeds || null, timeline: criteria.timeline || null,
@@ -207,12 +204,17 @@ export async function POST(request: Request) {
       if (partiesError) throw partiesError;
     }
 
-    // Steps are persisted on the cases above. Tasks then automations follow.
-    if (listingId) await ensureSellerWorkflow(supabase, user.id, listingId, analysis);
-    if (buyerCaseId) await ensureBuyerWorkflow(supabase, user.id, buyerCaseId, analysis);
-
     const sellerDocumentIds = new Map<string, string>();
     const buyerDocumentIds = new Map<string, string>();
+
+    // L'ordre métier est volontaire : dossier, financement, partenaire,
+    // document, étape de pipeline, tâches, puis automatisations.
+    let partnersLinked = 0;
+    if (buyerCaseId) {
+      await persistBuyerFinancing(supabase, user.id, buyerCaseId, analysis, buyerDocumentIds);
+      partnersLinked = await linkBuyerPartners(supabase, user.id, buyerCaseId, analysis);
+    }
+
     for (const item of stored) {
       const source = analysis.sources.find((candidate) => candidate.name === item.file.name);
       const metadata = { confidence: source?.confidence, pageCount: source?.pageCount, analysisMode: source?.analysisMode, importId };
@@ -236,11 +238,18 @@ export async function POST(request: Request) {
       }
     }
 
-    let partnersLinked = 0;
     if (buyerCaseId) {
       await persistBuyerFinancing(supabase, user.id, buyerCaseId, analysis, buyerDocumentIds);
-      partnersLinked = await linkBuyerPartners(supabase, user.id, buyerCaseId, analysis);
+      const { error } = await supabase.from("buyer_cases").update({ status: technicalBuyerStatus(analysis.buyerStage), pipeline_stage: analysis.buyerStage || "qualification", updated_at: new Date().toISOString() }).eq("id", buyerCaseId).eq("user_id", user.id);
+      if (error) throw error;
     }
+    if (listingId) {
+      const { error } = await supabase.from("seller_listings").update({ pipeline_stage: analysis.sellerStage || "lead", updated_at: new Date().toISOString() }).eq("id", listingId).eq("user_id", user.id);
+      if (error) throw error;
+    }
+
+    if (listingId) await ensureSellerWorkflow(supabase, user.id, listingId, analysis);
+    if (buyerCaseId) await ensureBuyerWorkflow(supabase, user.id, buyerCaseId, analysis);
 
     if (listingId) await insertSellerFacts(supabase, user.id, listingId, analysis, sellerDocumentIds);
     if (buyerCaseId) await insertBuyerFacts(supabase, user.id, buyerCaseId, analysis, buyerDocumentIds);
@@ -457,3 +466,4 @@ function safeName(name: string) {
 }
 
 function personName(person: UniversalPerson) { return `${person.firstName} ${person.lastName}`.trim() || person.email || person.phone || "cette personne"; }
+
