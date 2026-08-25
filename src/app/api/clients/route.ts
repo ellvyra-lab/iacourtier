@@ -20,6 +20,7 @@ type ClientRow = {
   tags: string[] | null;
   client_status: string | null;
   source: string | null;
+  language: string | null;
   notes: string | null;
   updated_at: string;
 };
@@ -50,7 +51,7 @@ export async function GET(request: Request) {
     if (!user) return NextResponse.json({ error: "Ta session a expiré.", reconnectUrl: "/connexion" }, { status: 401 });
 
     const [clientsResult, relationsResult, casesResult] = await Promise.all([
-      supabase.from("clients").select("id,first_name,last_name,email,phone,mailing_address,city,postal_code,birth_date,purchase_date,sale_date,mortgage_renewal_date,roles,tags,client_status,source,notes,updated_at").eq("user_id", user.id).order("updated_at", { ascending: false }),
+      supabase.from("clients").select("id,first_name,last_name,email,phone,mailing_address,city,postal_code,birth_date,purchase_date,sale_date,mortgage_renewal_date,roles,tags,client_status,source,language,notes,updated_at").eq("user_id", user.id).order("updated_at", { ascending: false }),
       supabase.from("client_case_clients").select("client_id,case_id,role").eq("user_id", user.id),
       supabase.from("client_cases").select("id,primary_client_id,case_type,title,status,pipeline_stage,current_stage,progress,pipeline_progress,completion_score,health_score,priority_score,next_action,next_action_reason,updated_at,property:properties(id,address,city,property_type)").eq("user_id", user.id).order("updated_at", { ascending: false }),
     ]);
@@ -114,4 +115,3 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Impossible de charger les clients et dossiers." }, { status: 500 });
   }
 }
-

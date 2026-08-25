@@ -8,6 +8,8 @@ import { ArrowDown, ArrowUp, Check, FileText, ImagePlus, Loader2, Megaphone, Sav
 import { loadBrokerProfile } from "@/lib/broker-profile";
 import { PHOTO_CATEGORIES, type ListingGeneratedContent, type ListingFactStatus } from "@/lib/seller-listings";
 import { useDashboardAuth } from "@/components/auth/DashboardAuthProvider";
+import { ClientQuickPanel, type QuickClient } from "@/components/client-quick-panel";
+import { PropertyQuickCard } from "@/components/property-quick-card";
 
 type Fact = { id: string; key: string; label: string; value: string; status: ListingFactStatus; sourceLabel: string; sourceDocumentId?: string | null; confidence?: number | null; note?: string };
 type Media = { id: string; name: string; url: string; category: string; position: number; is_cover: boolean; is_virtual_staging: boolean };
@@ -21,9 +23,9 @@ type WorkspaceData = {
     validation_required: boolean;
     prepared_at: string | null;
     generated_content: ListingGeneratedContent;
-    property: { address?: string; city?: string; postal_code?: string; property_type?: string; lot_number?: string } | null;
+    property: { id: string; address?: string; city?: string; postal_code?: string; property_type?: string; lot_number?: string } | null;
   };
-  parties: Array<{ id: string; role: string; contact: { id: string; first_name: string; last_name: string; email?: string; phone?: string; mailing_address?: string } | Array<{ id: string; first_name: string; last_name: string; email?: string; phone?: string; mailing_address?: string }> }>;
+  parties: Array<{ id: string; role: string; contact: QuickClient | QuickClient[] }>;
   documents: Array<{ id: string; name: string; document_type: string; analysis_status: string; created_at: string }>;
   facts: Fact[];
   media: Media[];
@@ -180,8 +182,8 @@ export function SellerListingWorkspace({ id }: { id: string }) {
     <section id="dossier" className="scroll-mt-6 space-y-5">
       <SectionHeading eyebrow="Dossier" title="Vendeur(s), propriété et documents" />
       <div className="grid gap-4 lg:grid-cols-2">
-        <Panel title="Vendeur(s)" icon={Users}>{data.parties.map((party) => { const contact = Array.isArray(party.contact) ? party.contact[0] : party.contact; return contact ? <div key={party.id} className="rounded-xl bg-slate-50 p-4 dark:bg-slate-950"><p className="font-semibold">{contact.first_name} {contact.last_name}</p><p className="mt-1 text-sm text-slate-500">{contact.email || "Courriel à compléter"} · {contact.phone || "Téléphone à compléter"}</p></div> : null; })}</Panel>
-        <Panel title="Propriété" icon={FileText}><DefinitionGrid items={[["Adresse",property?.address],["Ville",property?.city],["Code postal",property?.postal_code],["Type",property?.property_type],["Lot",property?.lot_number]]} /></Panel>
+        <Panel title="Vendeur(s)" icon={Users}>{data.parties.map((party) => { const contact = Array.isArray(party.contact) ? party.contact[0] : party.contact; return contact ? <ClientQuickPanel key={party.id} client={contact} caseId={data.listing.client_case_id} caseLabel={property?.address || "dossier vendeur"} returnHref={`/tableau-de-bord/inscriptions/${id}`} returnLabel="au dossier vendeur" onUpdated={() => { void load(); }} /> : null; })}</Panel>
+        <Panel title="Propriété" icon={FileText}>{property?.id ? <PropertyQuickCard property={property} caseId={data.listing.client_case_id} returnHref={`/tableau-de-bord/inscriptions/${id}`} returnLabel="au dossier vendeur" specializedHref={`/tableau-de-bord/inscriptions/${id}`} /> : <DefinitionGrid items={[["Adresse",property?.address],["Ville",property?.city],["Code postal",property?.postal_code],["Type",property?.property_type],["Lot",property?.lot_number]]} />}</Panel>
       </div>
       <Panel title="Documents de la propriété" icon={UploadCloud} action={<Link href={data.listing.client_case_id ? `/tableau-de-bord/dossiers/${data.listing.client_case_id}?add=document#ajouter-source` : "/tableau-de-bord/importer"} className="rounded-xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white dark:bg-white dark:text-slate-950">Ajouter et analyser</Link>}>
         {data.documents.length ? <div className="grid gap-2 md:grid-cols-2">{data.documents.map((document) => <div key={document.id} className="rounded-xl border border-slate-200 p-3 dark:border-slate-700"><p className="truncate text-sm font-semibold">{document.name}</p><p className="mt-1 text-xs text-slate-500">{document.document_type} · Sauvegardé</p></div>)}</div> : <Empty text="Aucun document sauvegardé." />}
@@ -241,4 +243,3 @@ function ContentCard({ title, text, warning }: { title: string; text: string; wa
 function ListCard({ title, items }: { title: string; items: string[] }) { return <article className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900"><h3 className="font-semibold">{title}</h3><ul className="mt-3 space-y-2 text-sm text-slate-600 dark:text-slate-300">{items.map((item,index) => <li key={`${item}-${index}`}>• {item}</li>)}</ul></article>; }
 function ArrayCard({ title, items }: { title: string; items: string[] }) { return <ListCard title={title} items={items.length ? items : ["À préparer"]} />; }
 function TwoLists({ leftTitle, left, rightTitle, right }: { leftTitle: string; left: string[]; rightTitle: string; right: string[] }) { return <div className="grid gap-4 lg:grid-cols-2"><ListCard title={leftTitle} items={left} /><ListCard title={rightTitle} items={right} /></div>; }
-

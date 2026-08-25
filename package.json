@@ -11,6 +11,7 @@
     "test:clients": "node --test scripts/client-list-import.test.mjs",
     "test:crm": "node --test scripts/central-crm.test.mjs",
     "test:crm-os": "node --test scripts/crm-operating-system.test.mjs",
+    "test:quick-access": "node --test scripts/client-quick-access.test.mjs",
     "test:pdf": "node scripts/test-real-pdf.mjs"
   },
   "dependencies": {
@@ -43,4 +44,3 @@
     "typescript": "^5.5.4"
   }
 }
-

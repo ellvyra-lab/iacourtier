@@ -49,7 +49,8 @@ test("ancien seller_contacts — aucune requête applicative ne subsiste", () =>
 });
 
 test("navigation — Client 360, dossier unifié, Documents et Automatisations utilisent le CRM", () => {
-  assert.match(read("src/components/clients-cases-dashboard.tsx"), /\/tableau-de-bord\/clients\/\$\{client\.id\}/);
+  assert.match(read("src/components/clients-cases-dashboard.tsx"), /<ClientQuickPanel/);
+  assert.match(read("src/components/client-quick-panel.tsx"), /\/tableau-de-bord\/clients\/\$\{current\.id\}/);
   assert.match(read("src/components/client-360-workspace.tsx"), /\/tableau-de-bord\/dossiers\/\$\{item\.id\}/);
   assert.match(read("src/components/client-case-workspace.tsx"), /Prochaine action/);
   assert.match(read("src/app/tableau-de-bord/automatisations/page.tsx"), /CentralResourcesDashboard/);
@@ -91,4 +92,3 @@ function collect(directory) {
     return statSync(path).isDirectory() ? collect(path) : [path];
   });
 }
-

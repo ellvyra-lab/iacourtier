@@ -14,7 +14,7 @@ export async function GET(_request: Request, { params }: RouteContext) {
     if (!user) return expiredSession();
     const { data: buyerCase, error } = await supabase
       .from("buyer_cases")
-      .select("*,contact:clients(id,first_name,last_name,email,phone,mailing_address,roles)")
+      .select("*,contact:clients(id,first_name,last_name,email,phone,mailing_address,city,postal_code,birth_date,language,source,notes,tags,roles)")
       .eq("id", id)
       .eq("user_id", user.id)
       .maybeSingle();

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowRight, FileSpreadsheet, Home, KeyRound, Loader2, Search, UserRound } from "lucide-react";
 import { SessionStatusNotice, useDashboardAuth } from "@/components/auth/DashboardAuthProvider";
+import { ClientQuickPanel, type QuickClient } from "@/components/client-quick-panel";
 
 type ClientCase = {
   id: string;
@@ -22,7 +23,7 @@ type ClientCase = {
   updated_at?: string;
   property?: { address?: string; city?: string; property_type?: string } | Array<{ address?: string; city?: string; property_type?: string }>;
 };
-type Client = { id: string; name: string; email?: string; phone?: string; mailing_address?: string; roles: string[]; tags?: string[]; client_status?: string; cases: ClientCase[] };
+type Client = QuickClient & { name: string; roles: string[]; client_status?: string; cases: ClientCase[] };
 type Filter = "all" | "prospect" | "buyer" | "seller" | "buy_sell" | "transaction" | "after-sale" | "former";
 
 const filters: Array<[Filter,string]> = [["all","Tous"],["prospect","Prospects"],["buyer","Acheteurs"],["seller","Vendeurs"],["buy_sell","Acheteurs + vendeurs"],["transaction","Transactions"],["after-sale","Après-vente"],["former","Anciens clients"]];
@@ -68,12 +69,12 @@ export function ClientsCasesDashboard() {
     <div className="relative"><Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Nom, téléphone, courriel, adresse, propriété ou dossier" className="min-h-13 w-full rounded-2xl border border-slate-200 bg-white pl-12 pr-4 shadow-sm dark:border-slate-800 dark:bg-slate-900" /></div>
     <nav className="flex flex-wrap gap-2">{filters.map(([key,label]) => <button key={key} type="button" onClick={() => setFilter(key)} className={`rounded-full border px-4 py-2 text-sm font-semibold ${filter === key ? "border-teal-700 bg-teal-700 text-white" : "border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900"}`}>{label}</button>)}</nav>
     {warning ? <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">{warning}</div> : null}{error ? <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{error}</div> : null}
-    {loading ? <div className="flex min-h-64 items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-teal-700" /></div> : visible.length ? <div className="grid gap-4 xl:grid-cols-2">{visible.map((client) => <ClientCard key={client.id} client={client} />)}</div> : <div className="rounded-2xl border border-dashed border-slate-300 p-10 text-center text-slate-500 dark:border-slate-700">Aucun client ne correspond à cette vue.</div>}
+    {loading ? <div className="flex min-h-64 items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-teal-700" /></div> : visible.length ? <div className="grid gap-4 xl:grid-cols-2">{visible.map((client) => <ClientCard key={client.id} client={client} onUpdated={() => { void load(); }} />)}</div> : <div className="rounded-2xl border border-dashed border-slate-300 p-10 text-center text-slate-500 dark:border-slate-700">Aucun client ne correspond à cette vue.</div>}
   </div>;
 }
 
-function ClientCard({ client }: { client: Client }) {
-  return <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900"><div className="flex items-start justify-between gap-4"><div className="flex min-w-0 gap-3"><span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-teal-50 text-teal-700 dark:bg-teal-950"><UserRound className="h-5 w-5" /></span><div><Link href={`/tableau-de-bord/clients/${client.id}`} className="group inline-flex items-center gap-2 text-lg font-semibold hover:text-teal-700">{client.name}<ArrowRight className="h-4 w-4 opacity-0 transition group-hover:opacity-100" /></Link><p className="mt-1 text-sm text-slate-500">{client.email || client.phone || "Coordonnées à compléter"}</p><div className="mt-2 flex flex-wrap gap-1">{client.roles.map((role) => <span key={role} className="rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold capitalize dark:bg-slate-800">{role === "seller" ? "Vendeur" : role === "buyer" ? "Acheteur" : role === "buy_sell" ? "Acheteur + vendeur" : role}</span>)}{(client.tags || []).slice(0, 5).map((tag) => <span key={tag} className="rounded-full bg-teal-50 px-2 py-1 text-xs text-teal-800 dark:bg-teal-950 dark:text-teal-100">{tag}</span>)}</div></div></div></div>
+function ClientCard({ client, onUpdated }: { client: Client; onUpdated: () => void }) {
+  return <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900"><div className="flex min-w-0 gap-3"><span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-teal-50 text-teal-700 dark:bg-teal-950"><UserRound className="h-5 w-5" /></span><div className="min-w-0 flex-1"><ClientQuickPanel compact client={client} caseId={client.cases[0]?.id || null} caseLabel={client.cases[0]?.title} returnHref="/tableau-de-bord/clients" returnLabel="à Clients & dossiers" onUpdated={onUpdated} /><div className="mt-2 flex flex-wrap gap-1">{client.roles.map((role) => <span key={role} className="rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold capitalize dark:bg-slate-800">{role === "seller" ? "Vendeur" : role === "buyer" ? "Acheteur" : role === "buy_sell" ? "Acheteur + vendeur" : role}</span>)}{(client.tags || []).slice(0, 5).map((tag) => <span key={tag} className="rounded-full bg-teal-50 px-2 py-1 text-xs text-teal-800 dark:bg-teal-950 dark:text-teal-100">{tag}</span>)}</div></div></div>
     <div className="mt-5 space-y-2 border-l-2 border-slate-200 pl-4 dark:border-slate-700">{client.cases.length ? client.cases.map((item) => <CaseRow key={item.id} item={item} />) : <p className="text-sm text-slate-500">Prospect · Aucun dossier actif</p>}</div></article>;
 }
 
@@ -87,4 +88,3 @@ function CaseRow({ item }: { item: ClientCase }) {
 }
 function formatStatus(value: string) { return value.replace(/_/g, " ").replace(/^./, (letter) => letter.toUpperCase()); }
 function caseTypeLabel(value: ClientCase["case_type"]) { return ({ seller: "Vendeur", buyer: "Acheteur", buy_sell: "Acheteur + vendeur", prospect: "Prospect", renewal: "Renouvellement", post_transaction: "Après-vente", other: "Autre" })[value]; }
-
