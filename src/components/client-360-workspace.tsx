@@ -60,7 +60,7 @@ export function Client360Workspace({ clientId }: { clientId: string }) {
     </section>
 
     <Section title="Dossiers et pipelines" empty="Aucun dossier relié à cette personne.">
-      {data.cases.map((item) => <Link key={item.id} href={`/tableau-de-bord/dossiers/${item.id}`} className="flex items-center justify-between rounded-2xl border border-slate-200 p-4 transition hover:border-teal-500 dark:border-slate-800"><span><strong className="block">{item.title}</strong><span className="mt-1 block text-sm text-slate-500">{caseType(item.case_type)} · {label(item.pipeline_stage)} · {item.progress}%</span>{item.next_action ? <span className="mt-2 block text-sm font-medium text-teal-700">Prochaine action : {item.next_action}</span> : null}</span><ArrowRight className="h-5 w-5 text-slate-400" /></Link>)}
+      {data.cases.map((item) => <Link key={item.id} href={`/tableau-de-bord/dossiers/${item.id}`} className="flex items-center justify-between rounded-2xl border border-slate-200 p-4 transition hover:border-teal-500 dark:border-slate-800"><span><strong className="block">{item.title}</strong><span className="mt-1 block text-sm text-slate-500">{caseType(item.case_type)} · {label(item.current_stage || item.pipeline_stage)} · pipeline {item.pipeline_progress ?? item.progress}% · complet {item.completion_score ?? 0}% · santé {item.health_score ?? 100}%</span>{item.next_action ? <span className="mt-2 block text-sm font-medium text-teal-700">Prochaine action : {item.next_action}</span> : null}{item.next_action_reason ? <span className="mt-1 block text-xs text-slate-500">{item.next_action_reason}</span> : null}</span><ArrowRight className="h-5 w-5 text-slate-400" /></Link>)}
     </Section>
 
     <div className="grid gap-6 xl:grid-cols-2">
@@ -84,3 +84,4 @@ function groupTasks(tasks: Array<Record<string, any>>) { const open = tasks.filt
 function formatDate(value?: string) { if (!value) return "Date à confirmer"; return new Intl.DateTimeFormat("fr-CA", { dateStyle: "medium", timeStyle: value.includes("T") ? "short" : undefined }).format(new Date(value)); }
 function label(value?: string) { return (value || "").replace(/_/g, " ").replace(/^./, (letter) => letter.toUpperCase()); }
 function caseType(value: string) { return ({ buyer: "Acheteur", seller: "Vendeur", buy_sell: "Acheteur + vendeur", prospect: "Prospect", renewal: "Renouvellement", post_transaction: "Après-vente", other: "Autre" } as Record<string, string>)[value] || label(value); }
+

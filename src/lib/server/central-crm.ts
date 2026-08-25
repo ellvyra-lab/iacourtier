@@ -1,4 +1,5 @@
 import type { createSupabaseServerClient } from "@/lib/supabase/server";
+import { canonicalCrmStage, pipelineProgress, stageDefinition, type CrmPipelineType } from "@/lib/crm-operating-system";
 
 type Supabase = Awaited<ReturnType<typeof createSupabaseServerClient>>;
 export type CentralCaseType = "buyer" | "seller" | "buy_sell" | "prospect" | "renewal" | "post_transaction" | "other";
@@ -33,20 +34,24 @@ export async function ensureCentralCase(supabase: Supabase, input: EnsureCaseInp
   }
 
   let caseId = linkedIds[0];
-  const progress = caseProgress(input.caseType, input.pipelineStage);
-  const nextAction = input.nextAction || nextActionFor(input.caseType, input.pipelineStage);
+  const canonicalStage = canonicalCrmStage(input.caseType, input.pipelineStage);
+  const progress = caseProgress(input.caseType, canonicalStage);
+  const nextAction = input.nextAction || nextActionFor(input.caseType, canonicalStage);
   if (!caseId) {
     const { data, error } = await supabase.from("client_cases").insert({
       user_id: input.userId, primary_client_id: input.primaryClientId, property_id: input.propertyId || null,
-      case_type: input.caseType, title: input.title, status: input.status, pipeline_stage: input.pipelineStage,
-      progress, next_action: nextAction, source: input.source,
+      case_type: input.caseType, pipeline_type: input.caseType, title: input.title, status: input.status,
+      pipeline_stage: canonicalStage, current_stage: canonicalStage, pipeline_progress: progress, progress,
+      next_action: nextAction, next_action_reason: `Action recommandée pour ${stageDefinition(input.caseType, canonicalStage).label}`,
+      source: input.source,
     }).select("id").single();
     if (error || !data) throw error || new Error("Création du dossier CRM central impossible.");
     caseId = data.id;
   } else {
     const { error } = await supabase.from("client_cases").update({
       primary_client_id: input.primaryClientId, property_id: input.propertyId || null, case_type: input.caseType,
-      title: input.title, status: input.status, pipeline_stage: input.pipelineStage, progress,
+      title: input.title, status: input.status, pipeline_type: input.caseType,
+      pipeline_stage: canonicalStage, current_stage: canonicalStage, pipeline_progress: progress, progress,
       next_action: nextAction, updated_at: new Date().toISOString(),
     }).eq("id", caseId).eq("user_id", input.userId);
     if (error) throw error;
@@ -79,9 +84,11 @@ export async function ensureCentralCase(supabase: Supabase, input: EnsureCaseInp
 }
 
 export async function updateCentralCaseStage(supabase: Supabase, input: { userId: string; caseId: string; caseType: CentralCaseType; status: string; pipelineStage: string; nextAction?: string }) {
+  const canonicalStage = canonicalCrmStage(input.caseType, input.pipelineStage);
   const { error } = await supabase.from("client_cases").update({
-    status: input.status, pipeline_stage: input.pipelineStage, progress: caseProgress(input.caseType, input.pipelineStage),
-    next_action: input.nextAction || nextActionFor(input.caseType, input.pipelineStage), updated_at: new Date().toISOString(),
+    status: input.status, pipeline_stage: canonicalStage, current_stage: canonicalStage,
+    pipeline_progress: caseProgress(input.caseType, canonicalStage), progress: caseProgress(input.caseType, canonicalStage),
+    next_action: input.nextAction || nextActionFor(input.caseType, canonicalStage), updated_at: new Date().toISOString(),
   }).eq("id", input.caseId).eq("user_id", input.userId);
   if (error) throw error;
 }
@@ -92,10 +99,11 @@ export async function syncCentralDocument(supabase: Supabase, input: {
 }) {
   const { data, error } = await supabase.from("documents").upsert({
     user_id: input.userId, client_id: input.clientId, case_id: input.caseId, property_id: input.propertyId || null,
-    name: input.document.name, category: input.document.document_type || "Autre", mime_type: input.document.mime_type || null,
+    name: input.document.name, category: input.document.document_type || "Autre", document_type: input.document.document_type || "Autre", mime_type: input.document.mime_type || null,
     size_bytes: input.document.size_bytes || 0, storage_path: input.document.storage_path,
     source_type: input.document.source_type || "file", analysis_status: input.document.analysis_status || "analyzed",
-    analysis_metadata: input.document.analysis_metadata || {}, legacy_source: input.legacySource, legacy_id: input.document.id,
+    analysis_metadata: input.document.analysis_metadata || {}, extracted_facts: input.document.extracted_facts || [],
+    source_date: input.document.source_date || null, legacy_source: input.legacySource, legacy_id: input.document.id,
     is_sensitive: Boolean(input.document.is_sensitive), subject_client_id: input.document.subject_client_id || input.clientId,
     created_at: input.document.created_at || new Date().toISOString(),
   }, { onConflict: "user_id,legacy_source,legacy_id" }).select("id").single();
@@ -142,16 +150,10 @@ export async function recordCentralActivity(supabase: Supabase, input: { userId:
 }
 
 export function caseProgress(type: CentralCaseType, stage: string) {
-  const buyer = ["new_contact", "qualification", "financing", "criteria_defined", "active_search", "visits", "offer", "conditions", "notary", "completed", "post_transaction"];
-  const seller = ["new_prospect", "qualification", "appointment", "evaluation", "mandate_signed", "preparation", "marketing", "visits", "offer_received", "conditions", "notary", "transaction_completed", "post_transaction"];
-  const stages = type === "seller" ? seller : buyer;
-  const index = Math.max(0, stages.indexOf(stage));
-  return Math.round(((index + 1) / stages.length) * 100);
+  return pipelineProgress(type as CrmPipelineType, stage);
 }
 
 export function nextActionFor(type: CentralCaseType, stage: string) {
-  if (type === "buyer") return ({ new_contact: "Qualifier le besoin", qualification: "Obtenir ou valider la préqualification", financing: "Confirmer les secteurs recherchés", criteria_defined: "Démarrer la recherche active", active_search: "Proposer des propriétés", visits: "Planifier la prochaine visite", offer: "Suivre la réponse à l’offre", conditions: "Suivre les conditions", notary: "Confirmer le rendez-vous chez le notaire", completed: "Démarrer le suivi après-vente" } as Record<string, string>)[stage] || "Continuer le dossier acheteur";
-  if (type === "seller") return ({ new_prospect: "Qualifier le projet vendeur", qualification: "Planifier un rendez-vous", appointment: "Préparer l’évaluation", evaluation: "Présenter le mandat", mandate_signed: "Préparer la propriété et l’inscription", preparation: "Finaliser la mise en marché", marketing: "Suivre les visites", visits: "Obtenir la rétroaction des visiteurs", offer_received: "Analyser l’offre", conditions: "Suivre les conditions", notary: "Confirmer le rendez-vous chez le notaire", transaction_completed: "Démarrer le suivi après-vente" } as Record<string, string>)[stage] || "Continuer le dossier vendeur";
-  return "Qualifier le projet et planifier le prochain suivi";
+  return stageDefinition(type as CrmPipelineType, stage).nextAction;
 }
 

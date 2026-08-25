@@ -1,4 +1,5 @@
 import { buildContinuousMergePreview, type ContinuousMergeContext } from "@/lib/continuous-merge";
+import { recalculateCaseOperatingState } from "@/lib/server/crm-operating-system";
 import type { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
   automaticMergeAction,
@@ -250,34 +251,8 @@ async function upsertAddress(supabase: Supabase, userId: string, caseId: string,
 }
 
 async function recalculateReadiness(supabase: Supabase, userId: string, caseId: string) {
-  const [caseResult, relations, documents, conflicts] = await Promise.all([
-    supabase.from("client_cases").select("case_type,primary_client_id,property_id").eq("id", caseId).eq("user_id", userId).single(),
-    supabase.from("client_case_clients").select("client_id").eq("case_id", caseId).eq("user_id", userId),
-    supabase.from("documents").select("id").eq("case_id", caseId).eq("user_id", userId),
-    supabase.from("data_conflicts").select("id").eq("case_id", caseId).eq("user_id", userId).eq("status", "pending"),
-  ]);
-  const firstError = caseResult.error || relations.error || documents.error || conflicts.error;
-  if (firstError) throw firstError;
-  const clientIds = [...new Set([caseResult.data.primary_client_id, ...(relations.data || []).map((row) => row.client_id)].filter(Boolean))] as string[];
-  const clients = clientIds.length ? await supabase.from("clients").select("first_name,last_name,email,phone").eq("user_id", userId).in("id", clientIds) : { data: [], error: null };
-  if (clients.error) throw clients.error;
-  const rows = clients.data || [];
-  let score = 0;
-  if (rows.length) score += 15;
-  if (rows.every((client) => client.first_name || client.last_name)) score += 15;
-  if (rows.every((client) => client.email)) score += 10;
-  if (rows.every((client) => client.phone)) score += 10;
-  if (caseResult.data.case_type === "seller" || caseResult.data.case_type === "buy_sell") score += caseResult.data.property_id ? 25 : 0;
-  else score += 15;
-  score += Math.min(20, (documents.data || []).length * 10);
-  if (!(conflicts.data || []).length) score += 15;
-  const progress = Math.min(100, score);
-  const nextAction = (conflicts.data || []).length ? "Résoudre les informations contradictoires"
-    : !(documents.data || []).length ? "Ajouter les documents du dossier"
-      : progress < 80 ? "Compléter les renseignements manquants" : "Valider la prochaine étape du parcours";
-  const { error } = await supabase.from("client_cases").update({ progress, next_action: nextAction, updated_at: new Date().toISOString() }).eq("id", caseId).eq("user_id", userId);
-  if (error) throw error;
-  return { progress, nextAction };
+  const state = await recalculateCaseOperatingState(supabase, userId, caseId);
+  return { progress: state.completionScore, nextAction: state.nextAction };
 }
 
 function resolutionNote(proposal: MergeProposal, action: string) { return `${proposal.reason} Décision : ${action}.`; }

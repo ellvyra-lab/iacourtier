@@ -12,7 +12,13 @@ type ClientCase = {
   status: string;
   pipeline_stage: string;
   progress: number;
+  current_stage?: string;
+  pipeline_progress?: number;
+  completion_score?: number;
+  health_score?: number;
+  priority_score?: number;
   next_action?: string;
+  next_action_reason?: string;
   updated_at?: string;
   property?: { address?: string; city?: string; property_type?: string } | Array<{ address?: string; city?: string; property_type?: string }>;
 };
@@ -77,7 +83,8 @@ function CaseRow({ item }: { item: ClientCase }) {
   const label = item.title || (seller ? property?.address || "Dossier vendeur" : "Dossier acheteur");
   const href = `/tableau-de-bord/dossiers/${item.id}`;
   const Icon = seller ? Home : KeyRound;
-  return <Link href={href} className="flex items-center justify-between gap-3 rounded-xl p-3 transition hover:bg-slate-50 dark:hover:bg-slate-950"><span className="flex items-center gap-3"><Icon className="h-4 w-4 text-teal-700" /><span><span className="block text-sm font-semibold">{label}</span><span className="text-xs text-slate-500">{caseTypeLabel(item.case_type)} · {formatStatus(item.pipeline_stage)} · {item.progress} %</span>{item.next_action ? <span className="mt-1 block text-xs font-medium text-teal-700">Prochaine action : {item.next_action}</span> : null}</span></span><ArrowRight className="h-4 w-4 text-slate-400" /></Link>;
+  return <Link href={href} className="flex items-center justify-between gap-3 rounded-xl p-3 transition hover:bg-slate-50 dark:hover:bg-slate-950"><span className="flex items-center gap-3"><Icon className="h-4 w-4 text-teal-700" /><span><span className="block text-sm font-semibold">{label}</span><span className="text-xs text-slate-500">{caseTypeLabel(item.case_type)} · {formatStatus(item.current_stage || item.pipeline_stage)} · pipeline {item.pipeline_progress ?? item.progress} % · santé {item.health_score ?? 100} %</span>{item.next_action ? <span className="mt-1 block text-xs font-medium text-teal-700">Prochaine action : {item.next_action}</span> : null}</span></span><ArrowRight className="h-4 w-4 text-slate-400" /></Link>;
 }
 function formatStatus(value: string) { return value.replace(/_/g, " ").replace(/^./, (letter) => letter.toUpperCase()); }
 function caseTypeLabel(value: ClientCase["case_type"]) { return ({ seller: "Vendeur", buyer: "Acheteur", buy_sell: "Acheteur + vendeur", prospect: "Prospect", renewal: "Renouvellement", post_transaction: "Après-vente", other: "Autre" })[value]; }
+

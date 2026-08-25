@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 
 import { BUYER_AUTOMATION_TEMPLATES, BUYER_TASK_TEMPLATES } from "@/lib/buyer-cases";
+import { scoreCentralClientMatch } from "@/lib/crm-operating-system";
 import { EMPTY_GENERATED_CONTENT, SELLER_AUTOMATION_TEMPLATES, SELLER_TASK_TEMPLATES } from "@/lib/seller-listings";
 import { fileExtension } from "@/lib/server/image-analysis";
 import { ensureCentralCase, recordCentralActivity, syncCentralDocument, syncCentralWorkflow } from "@/lib/server/central-crm";
+import { emitCrmEvent, recalculateCaseOperatingState } from "@/lib/server/crm-operating-system";
 import { applyContinuousMerge, loadContinuousMergeContext, MergeValidationError, type LoadedMergeContext } from "@/lib/server/continuous-merge";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
@@ -275,7 +277,7 @@ export async function POST(request: Request) {
         }).select("*").single();
         if (error || !data) throw error || new Error(`Le document ${item.file.name} n’a pas pu être relié au dossier vendeur.`);
         sellerDocumentIds.set(item.file.name, data.id);
-        const centralId = await syncCentralDocument(supabase, { userId: user.id, clientId: subjectClientId, caseId: centralCaseId, propertyId, document: { ...data, source_type: source?.sourceType || "image", analysis_metadata: metadata, is_sensitive: isSensitive, subject_client_id: subjectClientId }, legacySource: "seller_listing_documents" });
+        const centralId = await syncCentralDocument(supabase, { userId: user.id, clientId: subjectClientId, caseId: centralCaseId, propertyId, document: { ...data, source_type: source?.sourceType || "image", analysis_metadata: metadata, extracted_facts: analysis.facts.filter((fact) => fact.sourceName === item.file.name), is_sensitive: isSensitive, subject_client_id: subjectClientId }, legacySource: "seller_listing_documents" });
         centralDocumentIds.set(item.file.name, centralId);
       }
       if (buyerCaseId) {
@@ -286,19 +288,26 @@ export async function POST(request: Request) {
         }).select("*").single();
         if (error || !data) throw error || new Error(`Le document ${item.file.name} n’a pas pu être relié au dossier acheteur.`);
         buyerDocumentIds.set(item.file.name, data.id);
-        const centralId = await syncCentralDocument(supabase, { userId: user.id, clientId: subjectClientId, caseId: centralCaseId, propertyId, document: { ...data, source_type: source?.sourceType || "image", analysis_metadata: metadata, is_sensitive: isSensitive, subject_client_id: subjectClientId }, legacySource: "buyer_case_documents" });
+        const centralId = await syncCentralDocument(supabase, { userId: user.id, clientId: subjectClientId, caseId: centralCaseId, propertyId, document: { ...data, source_type: source?.sourceType || "image", analysis_metadata: metadata, extracted_facts: analysis.facts.filter((fact) => fact.sourceName === item.file.name), is_sensitive: isSensitive, subject_client_id: subjectClientId }, legacySource: "buyer_case_documents" });
         if (!centralDocumentIds.has(item.file.name)) centralDocumentIds.set(item.file.name, centralId);
       }
       if (!listingId && !buyerCaseId) {
         const { data, error } = await supabase.from("documents").insert({
           user_id: user.id, client_id: subjectClientId, subject_client_id: subjectClientId, case_id: centralCaseId,
-          property_id: propertyId, name: item.file.name, category: source?.type || "Autre", mime_type: normalizedMime(item.file),
+          property_id: propertyId, name: item.file.name, category: source?.type || "Autre", document_type: source?.type || "Autre", mime_type: normalizedMime(item.file),
           size_bytes: item.file.size, storage_path: item.path, source_type: source?.sourceType || "image",
-          analysis_status: "analyzed", analysis_metadata: metadata, is_sensitive: isSensitive,
+          analysis_status: "analyzed", analysis_metadata: metadata,
+          extracted_facts: analysis.facts.filter((fact) => fact.sourceName === item.file.name), is_sensitive: isSensitive,
         }).select("id").single();
         if (error || !data) throw error || new Error(`Le document ${item.file.name} n’a pas pu être relié au dossier central.`);
         centralDocumentIds.set(item.file.name, data.id);
       }
+    }
+    for (const [sourceName, documentId] of centralDocumentIds) {
+      await emitCrmEvent(supabase, {
+        userId: user.id, eventType: "document_uploaded", clientId: primaryClientId, caseId: centralCaseId,
+        propertyId, documentId, payload: { sourceName, importId }, idempotencyKey: `document-uploaded:${documentId}`,
+      });
     }
 
     if (buyerCaseId && !reusedBuyerCase) await persistBuyerFinancing(supabase, user.id, buyerCaseId, analysis, buyerDocumentIds);
@@ -331,13 +340,19 @@ export async function POST(request: Request) {
       title: `${stored.map((item) => item.file.name).join(", ")} analysé${stored.length > 1 ? "s" : ""}`,
       details: `${mergeResult.added} information(s) ajoutée(s), ${mergeResult.confirmed} confirmée(s), ${mergeResult.queued} élément(s) classé(s) « À vérifier ». Dossier prêt à ${mergeResult.progress} %.`,
     });
+    const operatingState = await recalculateCaseOperatingState(supabase, user.id, centralCaseId);
+    await emitCrmEvent(supabase, {
+      userId: user.id, eventType: "document_ingestion_completed", clientId: primaryClientId, caseId: centralCaseId,
+      propertyId, payload: { importId, files: stored.length, projectType: analysis.projectType, operatingState },
+      idempotencyKey: `document-ingestion:${importId}`,
+    });
 
     const primaryHref = `/tableau-de-bord/dossiers/${centralCaseId}`;
     return NextResponse.json({
       ok: true, listingId, buyerCaseId, centralCaseId, primaryHref, createdContacts, reusedContacts, reusedProperty,
       reusedListing, reusedBuyerCase, uploadedFiles: stored.length, partnersLinked,
       mode, ingestionPipeline: AUTOMATIC_INGESTION_PIPELINE, reviewItems: reviewItems.length + mergeResult.queued, draftsPrepared,
-      merge: mergeResult, summary: `${analysis.coachSummary} ${mergeResult.added} information(s) ajoutée(s); ${reviewItems.length + mergeResult.queued} élément(s) à vérifier; dossier prêt à ${mergeResult.progress} %.`
+      merge: mergeResult, operatingState, summary: `${analysis.coachSummary} ${mergeResult.added} information(s) ajoutée(s); ${reviewItems.length + mergeResult.queued} élément(s) à vérifier; dossier complet à ${operatingState.completionScore} %.`
     });
   } catch (error) {
     console.error("[universal-import/confirm]", error);
@@ -454,14 +469,10 @@ function validateConfirmation(analysis: UniversalAnalysis, files: File[], enrich
 }
 
 function isDuplicate(person: UniversalPerson, contact: ContactRow) {
-  const email = normalizeUniversalValue(person.email);
-  const phone = person.phone.replace(/\D/g, "");
-  const name = normalizeUniversalValue(`${person.firstName}${person.lastName}`);
-  return Boolean(
-    (email && email === normalizeUniversalValue(contact.email))
-    || (phone && phone === (contact.phone || "").replace(/\D/g, ""))
-    || (name && name === normalizeUniversalValue(`${contact.first_name}${contact.last_name}`)),
-  );
+  return scoreCentralClientMatch(
+    { firstName: person.firstName, lastName: person.lastName, email: person.email, phone: person.phone, address: person.mailingAddress },
+    { firstName: contact.first_name, lastName: contact.last_name, email: contact.email, phone: contact.phone, address: contact.mailing_address },
+  ).confidence !== "none";
 }
 
 function crmRoles(person: UniversalPerson, projectType: UniversalAnalysis["projectType"]) {

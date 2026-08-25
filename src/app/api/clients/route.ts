@@ -33,6 +33,12 @@ type CentralCaseRow = {
   pipeline_stage: string;
   progress: number;
   next_action: string | null;
+  next_action_reason: string | null;
+  current_stage: string;
+  pipeline_progress: number;
+  completion_score: number;
+  health_score: number;
+  priority_score: number;
   updated_at: string;
   property: { id?: string; address?: string; city?: string; property_type?: string } | Array<{ id?: string; address?: string; city?: string; property_type?: string }> | null;
 };
@@ -46,7 +52,7 @@ export async function GET(request: Request) {
     const [clientsResult, relationsResult, casesResult] = await Promise.all([
       supabase.from("clients").select("id,first_name,last_name,email,phone,mailing_address,city,postal_code,birth_date,purchase_date,sale_date,mortgage_renewal_date,roles,tags,client_status,source,notes,updated_at").eq("user_id", user.id).order("updated_at", { ascending: false }),
       supabase.from("client_case_clients").select("client_id,case_id,role").eq("user_id", user.id),
-      supabase.from("client_cases").select("id,primary_client_id,case_type,title,status,pipeline_stage,progress,next_action,updated_at,property:properties(id,address,city,property_type)").eq("user_id", user.id).order("updated_at", { ascending: false }),
+      supabase.from("client_cases").select("id,primary_client_id,case_type,title,status,pipeline_stage,current_stage,progress,pipeline_progress,completion_score,health_score,priority_score,next_action,next_action_reason,updated_at,property:properties(id,address,city,property_type)").eq("user_id", user.id).order("updated_at", { ascending: false }),
     ]);
 
     const firstError = clientsResult.error || relationsResult.error || casesResult.error;
@@ -108,3 +114,4 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Impossible de charger les clients et dossiers." }, { status: 500 });
   }
 }
+

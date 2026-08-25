@@ -8,7 +8,7 @@ export async function GET() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ error: "Ta session a expiré.", reconnectUrl: "/connexion" }, { status: 401 });
     const [cases, clients, properties, documents, automations] = await Promise.all([
-      supabase.from("client_cases").select("id,title,case_type,pipeline_stage,primary_client_id,property_id").eq("user_id", user.id),
+      supabase.from("client_cases").select("id,title,case_type,pipeline_type,pipeline_stage,current_stage,pipeline_progress,completion_score,health_score,priority_score,next_action,primary_client_id,property_id").eq("user_id", user.id),
       supabase.from("clients").select("id,first_name,last_name").eq("user_id", user.id),
       supabase.from("properties").select("id,address,city").eq("user_id", user.id),
       supabase.from("documents").select("*").eq("user_id", user.id).order("created_at", { ascending: false }),

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { parseJsonObject } from "@/lib/mandate-document-extraction";
 import { buildContinuousMergePreview } from "@/lib/continuous-merge";
+import { scoreCentralClientMatch } from "@/lib/crm-operating-system";
 import { generateWithOpenAIFile, generateWithOpenAIVision, getOpenAIErrorPayload } from "@/lib/openai";
 import { fileExtension, imageDataUrlForVision } from "@/lib/server/image-analysis";
 import { extractPdfContent } from "@/lib/server/pdf-analysis";
@@ -103,7 +104,7 @@ export async function POST(request: Request) {
 
     const analysis = mergeUniversalAnalyses(analyses);
     const [contactsResult, propertiesResult] = await Promise.all([
-      supabase.from("clients").select("id,first_name,last_name,email,phone,roles").eq("user_id", user.id),
+      supabase.from("clients").select("id,first_name,last_name,email,phone,mailing_address,roles").eq("user_id", user.id),
       supabase.from("properties").select("id,address,city").eq("user_id", user.id),
     ]);
     if (contactsResult.error) return NextResponse.json({ error: contactsResult.error.message }, { status: 500 });
@@ -152,17 +153,14 @@ function validateFiles(files: File[]) {
 }
 
 function duplicateForPerson(person: UniversalAnalysis["people"][number], contact: Record<string, unknown>): DuplicateMatch | null {
-  const matchedOn: string[] = [];
-  const email = normalizeUniversalValue(person.email);
-  const phone = person.phone.replace(/\D/g, "");
-  const name = normalizeUniversalValue(`${person.firstName}${person.lastName}`);
-  if (email && email === normalizeUniversalValue(String(contact.email || ""))) matchedOn.push("courriel");
-  if (phone && phone === String(contact.phone || "").replace(/\D/g, "")) matchedOn.push("téléphone");
-  if (name && name === normalizeUniversalValue(`${String(contact.first_name || "")}${String(contact.last_name || "")}`)) matchedOn.push("nom");
-  if (!matchedOn.length) return null;
+  const result = scoreCentralClientMatch(
+    { firstName: person.firstName, lastName: person.lastName, email: person.email, phone: person.phone, address: person.mailingAddress },
+    { firstName: String(contact.first_name || ""), lastName: String(contact.last_name || ""), email: String(contact.email || ""), phone: String(contact.phone || ""), address: String(contact.mailing_address || "") },
+  );
+  if (result.confidence === "none") return null;
   return {
     id: String(contact.id), name: `${String(contact.first_name || "")} ${String(contact.last_name || "")}`.trim(),
-    email: String(contact.email || ""), phone: String(contact.phone || ""), roles: Array.isArray(contact.roles) ? contact.roles.map(String) : [], matchedOn,
+    email: String(contact.email || ""), phone: String(contact.phone || ""), roles: Array.isArray(contact.roles) ? contact.roles.map(String) : [], matchedOn: result.reasons,
   };
 }
 

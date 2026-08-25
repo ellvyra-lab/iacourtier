@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { recalculateCaseOperatingState, transitionCentralCaseStage } from "@/lib/server/crm-operating-system";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 type PatchBody = {
@@ -16,6 +17,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
     const supabase = await createSupabaseServerClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return expiredSession();
+    await recalculateCaseOperatingState(supabase, user.id, id);
 
     const { data: clientCase, error: caseError } = await supabase.from("client_cases").select("*,property:properties(id,address,city,postal_code,property_type,lot_number)").eq("id", id).eq("user_id", user.id).maybeSingle();
     if (caseError) return NextResponse.json({ error: caseError.message }, { status: 500 });
@@ -45,14 +47,17 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
       : { data: [], error: null };
     if (clientsError) return NextResponse.json({ error: clientsError.message }, { status: 500 });
 
-    const [addressesResult, factsResult, conflictsResult] = await Promise.all([
+    const [addressesResult, factsResult, conflictsResult, requirementsResult, crmEventsResult, dependenciesResult] = await Promise.all([
       clientIds.length
         ? supabase.from("client_addresses").select("*").eq("user_id", user.id).in("client_id", clientIds).order("created_at", { ascending: false })
         : Promise.resolve({ data: [], error: null }),
       supabase.from("crm_facts").select("*").eq("case_id", id).eq("user_id", user.id).order("created_at", { ascending: false }).limit(250),
       supabase.from("data_conflicts").select("*").eq("case_id", id).eq("user_id", user.id).order("created_at", { ascending: false }).limit(100),
+      supabase.from("case_requirements").select("*").eq("case_id", id).eq("user_id", user.id).order("created_at", { ascending: true }),
+      supabase.from("crm_events").select("*").eq("case_id", id).eq("user_id", user.id).order("occurred_at", { ascending: false }).limit(100),
+      supabase.from("case_dependencies").select("*").eq("user_id", user.id).or(`predecessor_case_id.eq.${id},successor_case_id.eq.${id}`),
     ]);
-    const mergeError = addressesResult.error || factsResult.error || conflictsResult.error;
+    const mergeError = addressesResult.error || factsResult.error || conflictsResult.error || requirementsResult.error || crmEventsResult.error || dependenciesResult.error;
     if (mergeError) return NextResponse.json({ error: mergeError.message }, { status: 500 });
 
     let financing = null;
@@ -84,6 +89,9 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
       addresses: addressesResult.data || [],
       facts: factsResult.data || [],
       conflicts: conflictsResult.data || [],
+      requirements: requirementsResult.data || [],
+      crmEvents: crmEventsResult.data || [],
+      dependencies: dependenciesResult.data || [],
     });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Impossible de charger le dossier." }, { status: 500 });
@@ -98,23 +106,29 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return expiredSession();
 
-    const { data: ownerCase } = await supabase.from("client_cases").select("id").eq("id", caseId).eq("user_id", user.id).maybeSingle();
+    const { data: ownerCase } = await supabase.from("client_cases").select("id,pipeline_stage,current_stage").eq("id", caseId).eq("user_id", user.id).maybeSingle();
     if (!ownerCase) return NextResponse.json({ error: "Dossier introuvable." }, { status: 404 });
 
     if (body.target === "case") {
-      const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
-      if (body.status) updates.status = body.status;
-      if (body.pipelineStage) updates.pipeline_stage = body.pipelineStage;
-      if (typeof body.nextAction === "string") updates.next_action = body.nextAction;
-      const { error } = await supabase.from("client_cases").update(updates).eq("id", caseId).eq("user_id", user.id);
-      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      if (body.pipelineStage) {
+        await transitionCentralCaseStage(supabase, { userId: user.id, caseId, pipelineStage: body.pipelineStage, status: body.status, nextAction: body.nextAction });
+      } else {
+        const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
+        if (body.status) updates.status = body.status;
+        if (typeof body.nextAction === "string") updates.next_action = body.nextAction;
+        const { error } = await supabase.from("client_cases").update(updates).eq("id", caseId).eq("user_id", user.id);
+        if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+        await recalculateCaseOperatingState(supabase, user.id, caseId);
+      }
     } else if (body.target === "task" && body.id && body.status) {
-      const { data: task, error } = await supabase.from("tasks").update({ status: body.status, updated_at: new Date().toISOString() }).eq("id", body.id).eq("case_id", caseId).eq("user_id", user.id).select("legacy_source,legacy_id").maybeSingle();
+      const now = new Date().toISOString();
+      const { data: task, error } = await supabase.from("tasks").update({ status: body.status, completed_at: body.status === "completed" ? now : null, updated_at: now }).eq("id", body.id).eq("case_id", caseId).eq("user_id", user.id).select("legacy_source,legacy_id").maybeSingle();
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
       if (task?.legacy_source && task.legacy_id) {
         const table = task.legacy_source === "buyer_case_tasks" ? "buyer_case_tasks" : task.legacy_source === "seller_listing_tasks" ? "seller_listing_tasks" : null;
         if (table) await supabase.from(table).update({ status: body.status, updated_at: new Date().toISOString() }).eq("id", task.legacy_id).eq("user_id", user.id);
       }
+      await recalculateCaseOperatingState(supabase, user.id, caseId);
     } else if (body.target === "automation" && body.id && body.status) {
       const { data: automation, error } = await supabase.from("automations").update({ status: body.status, updated_at: new Date().toISOString() }).eq("id", body.id).eq("case_id", caseId).eq("user_id", user.id).select("legacy_source,legacy_id").maybeSingle();
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -122,6 +136,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
         const table = automation.legacy_source === "buyer_case_automations" ? "buyer_case_automations" : automation.legacy_source === "seller_listing_automations" ? "seller_listing_automations" : null;
         if (table) await supabase.from(table).update({ status: body.status, updated_at: new Date().toISOString() }).eq("id", automation.legacy_id).eq("user_id", user.id);
       }
+      await recalculateCaseOperatingState(supabase, user.id, caseId);
     } else {
       return NextResponse.json({ error: "Modification invalide." }, { status: 400 });
     }

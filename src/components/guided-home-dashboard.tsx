@@ -10,7 +10,7 @@ import { useDashboardAuth } from "@/components/auth/DashboardAuthProvider";
 type ClientCase = { id: string; case_type: "seller" | "buyer" | "buy_sell" | "prospect" | "renewal" | "post_transaction" | "other"; title: string; status: string; pipeline_stage: string; progress: number; next_action?: string; property?: { address?: string } | Array<{ address?: string }> };
 type RecentClient = { id: string; name: string; cases: ClientCase[] };
 type CoachAnswer = { reply: string; action: { label: string; href: string } };
-type DayData = { tasks: Array<{ id: string; case_id: string; title: string; due_at?: string }>; appointments: Array<{ id: string; case_id?: string; title: string; starts_at: string }> };
+type DayData = { tasks: Array<{ id: string; case_id: string; title: string; due_at?: string }>; appointments: Array<{ id: string; case_id?: string; title: string; starts_at: string }>; nextActions: Array<{ id: string; title: string; next_action: string; next_action_reason?: string; priority_score: number }> };
 
 const actions: Array<{ icon: ElementType; label: string; href: string; primary?: boolean }> = [
   { icon: FileUp, label: "Importer un document ou une conversation", href: "/tableau-de-bord/importer", primary: true },
@@ -27,7 +27,7 @@ export function GuidedHomeDashboard() {
   const { status: authStatus, user, authenticatedFetch } = useDashboardAuth();
   const [prospects, setProspects] = useState<SoniaProspect[]>([]);
   const [clients, setClients] = useState<RecentClient[]>([]);
-  const [day, setDay] = useState<DayData>({ tasks: [], appointments: [] });
+  const [day, setDay] = useState<DayData>({ tasks: [], appointments: [], nextActions: [] });
   const [prompt, setPrompt] = useState("");
   const [answer, setAnswer] = useState<CoachAnswer | null>(null);
   const [sending, setSending] = useState(false);
@@ -42,7 +42,7 @@ export function GuidedHomeDashboard() {
   useEffect(() => {
     if (authStatus !== "authenticated") return;
     authenticatedFetch("/api/clients", { cache: "no-store" }).then((response) => response.json()).then((payload: { clients?: RecentClient[] }) => setClients(payload.clients || [])).catch(() => undefined);
-    authenticatedFetch("/api/crm/day", { cache: "no-store" }).then((response) => response.json()).then((payload: Partial<DayData>) => setDay({ tasks: payload.tasks || [], appointments: payload.appointments || [] })).catch(() => undefined);
+    authenticatedFetch("/api/crm/day", { cache: "no-store" }).then((response) => response.json()).then((payload: Partial<DayData>) => setDay({ tasks: payload.tasks || [], appointments: payload.appointments || [], nextActions: payload.nextActions || [] })).catch(() => undefined);
   }, [authStatus, authenticatedFetch, user]);
 
   const plan = useMemo(() => buildSoniaBattlePlan(prospects), [prospects]);
@@ -52,7 +52,8 @@ export function GuidedHomeDashboard() {
       ...day.tasks.map((task) => ({ title: task.title, detail: task.due_at ? `Tâche · ${formatDayDate(task.due_at)}` : "Tâche à planifier", href: `/tableau-de-bord/dossiers/${task.case_id}` })),
       ...day.appointments.map((appointment) => ({ title: appointment.title, detail: `Rendez-vous · ${formatDayDate(appointment.starts_at)}`, href: appointment.case_id ? `/tableau-de-bord/dossiers/${appointment.case_id}` : "/tableau-de-bord/clients" })),
     ];
-    const crm = clients.flatMap((client) => client.cases.filter((item) => item.status === "active" && item.next_action).map((item) => ({ title: item.next_action || "Continuer le dossier", detail: `${client.name} · ${item.title}`, href: `/tableau-de-bord/dossiers/${item.id}` })));
+    const central = day.nextActions.map((item) => ({ title: item.next_action, detail: `${item.title} · ${item.next_action_reason || `priorité ${item.priority_score}/100`}`, href: `/tableau-de-bord/dossiers/${item.id}` }));
+    const crm = central.length ? central : clients.flatMap((client) => client.cases.filter((item) => item.status === "active" && item.next_action).map((item) => ({ title: item.next_action || "Continuer le dossier", detail: `${client.name} · ${item.title}`, href: `/tableau-de-bord/dossiers/${item.id}` })));
     return operations.length ? [...operations, ...crm] : crm.length ? crm : buildPriorities(prospects, plan);
   }, [clients, day, prospects, plan]);
   const nextBest = priorities[0] || { title: "Trouver ton prochain prospect", href: "/tableau-de-bord/radar-prospection" };
@@ -114,3 +115,4 @@ function inferHomeIntent(message: string): CoachAnswer | null {
   return null;
 }
 function formatDayDate(value: string) { return new Intl.DateTimeFormat("fr-CA", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)); }
+
