@@ -184,7 +184,7 @@ export function NewSellerListing() {
         </header>
         <SessionStatusNotice />
         <div className="grid gap-4 lg:grid-cols-2">
-          <ChoiceCard icon={FileSearch} title="J’ai des documents" text="Dépose l’acte de vente, le certificat, le contrat, MO, CCV, déclaration du vendeur, taxes ou autres pièces. Le client sera identifié automatiquement." onClick={() => chooseMode("documents")} featured disabled={authStatus !== "authenticated"} />
+          <ChoiceCard icon={FileSearch} title="J’ai des documents" text="Dépose l’acte de vente, le certificat, le contrat, MO, CCV, déclaration du vendeur, taxes ou autres pièces. Le moteur universel identifiera les clients et préparera automatiquement le dossier." onClick={() => window.location.assign("/tableau-de-bord/importer")} featured disabled={authStatus !== "authenticated"} />
           <ChoiceCard icon={UserPlus} title="J’ai seulement les informations du client" text="Saisis les informations disponibles. IACourtier recherchera quand même les doublons avant de créer une fiche." onClick={() => chooseMode("new")} />
         </div>
         {notice ? <Notice text={notice} /> : null}
@@ -426,3 +426,4 @@ function mergeManualFacts(facts: ListingFact[], fields: ExtractedMandateFields, 
   }
   return output;
 }
+

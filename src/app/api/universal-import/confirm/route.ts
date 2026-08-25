@@ -1,12 +1,14 @@
 import { NextResponse } from "next/server";
 
 import { BUYER_AUTOMATION_TEMPLATES, BUYER_TASK_TEMPLATES } from "@/lib/buyer-cases";
-import { SELLER_AUTOMATION_TEMPLATES, SELLER_TASK_TEMPLATES } from "@/lib/seller-listings";
+import { EMPTY_GENERATED_CONTENT, SELLER_AUTOMATION_TEMPLATES, SELLER_TASK_TEMPLATES } from "@/lib/seller-listings";
 import { fileExtension } from "@/lib/server/image-analysis";
 import { ensureCentralCase, recordCentralActivity, syncCentralDocument, syncCentralWorkflow } from "@/lib/server/central-crm";
 import { applyContinuousMerge, loadContinuousMergeContext, MergeValidationError, type LoadedMergeContext } from "@/lib/server/continuous-merge";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
+  AUTOMATIC_INGESTION_PIPELINE,
+  automaticReviewItems,
   normalizeUniversalValue,
   sanitizeAnalysisForConfirmation,
   type PersonDecision,
@@ -46,6 +48,7 @@ export async function POST(request: Request) {
     const decisions = Array.isArray(decisionsRaw) ? decisionsRaw as PersonDecision[] : [];
     const mergeDecisionsRaw = parseFormJson(formData.get("mergeDecisions") || "[]", "Les décisions de fusion sont invalides.");
     const mergeDecisions = Array.isArray(mergeDecisionsRaw) ? mergeDecisionsRaw as MergeDecision[] : [];
+    const mode = formData.get("mode") === "automatic" ? "automatic" : "manual";
     const requestedCaseId = typeof formData.get("caseId") === "string" ? String(formData.get("caseId") || "").trim() : "";
     let existingMergeContext: LoadedMergeContext | null = requestedCaseId ? await loadContinuousMergeContext(supabase, user.id, requestedCaseId) : null;
     const files = formData.getAll("files").filter((item): item is File => item instanceof File && item.size > 0);
@@ -57,7 +60,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Les fichiers ont changé depuis l’analyse. Relance l’analyse avant de confirmer." }, { status: 409 });
     }
 
-    // Store the already-confirmed incoming sources first. If any upload fails,
+    // Store the analyzed incoming sources first. If any upload fails,
     // no client or dossier has yet been created.
     const importId = crypto.randomUUID();
     const stored = [] as Array<{ file: File; path: string }>;
@@ -92,7 +95,7 @@ export async function POST(request: Request) {
       if (matches.length > 1 && !decision) {
         return await conflictWithCleanup(supabase, uploadedPaths, `Un doublon possible existe pour ${personName(person)}. Choisis « Utiliser cette fiche » ou « Créer quand même » avant de confirmer.`);
       }
-      if (existingMergeContext && !decision && !matches.length) {
+      if (existingMergeContext && mode !== "automatic" && !decision && !matches.length) {
         return await conflictWithCleanup(supabase, uploadedPaths, `Indique à qui appartient le document de ${personName(person)} dans « ${existingMergeContext.title} », ou confirme explicitement la création d’une nouvelle personne.`);
       }
 
@@ -312,22 +315,29 @@ export async function POST(request: Request) {
     }));
     const mergeResult = await applyContinuousMerge(supabase, {
       userId: user.id, analysis, context: mergeContext, personDecisions: effectivePersonDecisions,
-      mergeDecisions, centralDocumentIds,
+      mergeDecisions, centralDocumentIds, mode,
     });
 
-    if (listingId) await supabase.from("seller_listing_activity").insert({ user_id: user.id, listing_id: listingId, event_type: "universal_import_confirmed", title: "Import intelligent confirmé", details: analysis.coachSummary });
-    if (buyerCaseId) await supabase.from("buyer_case_activity").insert({ user_id: user.id, case_id: buyerCaseId, event_type: "universal_import_confirmed", title: "Import intelligent confirmé", details: analysis.coachSummary });
+    const reviewItems = mode === "automatic" ? automaticReviewItems(analysis) : [];
+    if (reviewItems.length) await ensureAutomaticReviewTasks(supabase, user.id, centralCaseId, primaryClientId, reviewItems);
+    const draftsPrepared = mode === "automatic" && listingId
+      ? await prepareAutomaticSellerDrafts(supabase, user.id, listingId, analysis, reviewItems)
+      : false;
+
+    if (listingId) await supabase.from("seller_listing_activity").insert({ user_id: user.id, listing_id: listingId, event_type: "automatic_ingestion_completed", title: "Import intelligent terminé", details: analysis.coachSummary });
+    if (buyerCaseId) await supabase.from("buyer_case_activity").insert({ user_id: user.id, case_id: buyerCaseId, event_type: "automatic_ingestion_completed", title: "Import intelligent terminé", details: analysis.coachSummary });
     await recordCentralActivity(supabase, {
       userId: user.id, clientId: primaryClientId, caseId: centralCaseId, eventType: "document_enrichment_completed",
       title: `${stored.map((item) => item.file.name).join(", ")} analysé${stored.length > 1 ? "s" : ""}`,
-      details: `${mergeResult.added} information(s) ajoutée(s), ${mergeResult.confirmed} confirmée(s), ${mergeResult.conflicts} conflit(s) traité(s). Dossier prêt à ${mergeResult.progress} %.`,
+      details: `${mergeResult.added} information(s) ajoutée(s), ${mergeResult.confirmed} confirmée(s), ${mergeResult.queued} élément(s) classé(s) « À vérifier ». Dossier prêt à ${mergeResult.progress} %.`,
     });
 
     const primaryHref = `/tableau-de-bord/dossiers/${centralCaseId}`;
     return NextResponse.json({
       ok: true, listingId, buyerCaseId, centralCaseId, primaryHref, createdContacts, reusedContacts, reusedProperty,
       reusedListing, reusedBuyerCase, uploadedFiles: stored.length, partnersLinked,
-      merge: mergeResult, summary: `${analysis.coachSummary} ${mergeResult.added} information(s) ajoutée(s); dossier prêt à ${mergeResult.progress} %.`
+      mode, ingestionPipeline: AUTOMATIC_INGESTION_PIPELINE, reviewItems: reviewItems.length + mergeResult.queued, draftsPrepared,
+      merge: mergeResult, summary: `${analysis.coachSummary} ${mergeResult.added} information(s) ajoutée(s); ${reviewItems.length + mergeResult.queued} élément(s) à vérifier; dossier prêt à ${mergeResult.progress} %.`
     });
   } catch (error) {
     console.error("[universal-import/confirm]", error);
@@ -339,6 +349,95 @@ export async function POST(request: Request) {
     } catch { /* the original error remains the useful one */ }
     return NextResponse.json({ error: error instanceof Error ? error.message : "La création du dossier a échoué." }, { status: error instanceof MergeValidationError ? 409 : 500 });
   }
+}
+
+async function prepareAutomaticSellerDrafts(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  userId: string,
+  listingId: string,
+  analysis: UniversalAnalysis,
+  reviewItems: string[],
+) {
+  const { data: listing, error: readError } = await supabase.from("seller_listings").select("generated_content").eq("id", listingId).eq("user_id", userId).maybeSingle();
+  if (readError) throw readError;
+  const current = listing?.generated_content as { listing?: { publicDescription?: string }; marketing?: { facebook?: string } } | null;
+  if (current?.listing?.publicDescription || current?.marketing?.facebook) return false;
+
+  const property = analysis.property;
+  const confirmedFacts = analysis.facts.filter((fact) => fact.status === "confirmed" && fact.value.trim());
+  if (!property.address || !property.city || (!property.propertyType && confirmedFacts.length < 3)) return false;
+
+  const base = [property.propertyType || "Propriété", `située au ${property.address}`, property.city, property.postalCode].filter(Boolean).join(", ");
+  const distinctFacts = [...new Map(confirmedFacts
+    .filter((fact) => !["address", "city", "postalCode", "owners", "name", "firstName", "lastName"].includes(fact.field))
+    .map((fact) => [`${fact.label}:${fact.value}`, fact])).values()].slice(0, 8);
+  const factLines = distinctFacts.map((fact) => `${fact.label} : ${fact.value}`);
+  const description = [base, ...factLines].join(". ") + ".";
+  const validationPoints = [...new Set([...reviewItems, ...analysis.facts.filter((fact) => fact.status !== "confirmed").map((fact) => `${fact.label} : ${fact.value || "à confirmer"}`)])];
+  const prefix = "[BROUILLON À VALIDER]";
+  const generated = structuredClone(EMPTY_GENERATED_CONTENT);
+  generated.listing.publicDescription = `${prefix} ${description}`;
+  generated.listing.shortDescription = `${prefix} ${base}.`;
+  generated.listing.addendum = factLines.length ? `${prefix}\n${factLines.join("\n")}` : "";
+  generated.listing.highlights = distinctFacts.slice(0, 5).map((fact) => `${fact.label} : ${fact.value}`);
+  generated.listing.characteristics = factLines;
+  generated.listing.sellerSummary = `${prefix} ${confirmedFacts.length} renseignement(s) confirmé(s) provenant de ${analysis.sources.length} source(s).`;
+  generated.listing.validationPoints = validationPoints;
+  generated.listing.dossierChecklist = SELLER_TASK_TEMPLATES.filter((task) => task.category === "dossier" || task.category === "inscription").map((task) => task.title);
+  generated.listing.marketingChecklist = SELLER_TASK_TEMPLATES.filter((task) => task.category === "marketing" || task.category === "photos").map((task) => task.title);
+  generated.marketing.facebook = `${prefix} ${base}. ${factLines.slice(0, 3).join(". ")}`.trim();
+  generated.marketing.instagram = generated.marketing.facebook;
+  generated.marketing.facebookStory = [`${prefix} ${base}.`];
+  generated.marketing.instagramStory = [`${prefix} ${base}.`];
+  generated.marketing.carousel = distinctFacts.slice(0, 5).map((fact) => ({ title: fact.label, text: fact.value }));
+  generated.marketing.comingSoon = `${prefix} ${base}.`;
+  generated.marketing.newListing = `${prefix} ${description}`;
+  generated.marketing.reelScript = `${prefix} Présenter uniquement ces faits confirmés : ${factLines.join("; ") || base}.`;
+  generated.marketing.presentationVideoScript = generated.marketing.reelScript;
+  generated.marketing.shortVideoScript = generated.marketing.reelScript;
+  generated.marketing.buyerEmail = `${prefix}\n${description}`;
+  generated.marketing.brokerEmail = generated.marketing.buyerEmail;
+  generated.marketing.sms = `${prefix} ${base}.`;
+
+  const { error } = await supabase.from("seller_listings").update({
+    generated_content: generated,
+    validation_required: true,
+    updated_at: new Date().toISOString(),
+  }).eq("id", listingId).eq("user_id", userId);
+  if (error) throw error;
+  await supabase.from("seller_listing_activity").insert({
+    user_id: userId,
+    listing_id: listingId,
+    event_type: "automatic_drafts_prepared",
+    title: "Brouillons factuels préparés automatiquement",
+    details: "Les contenus utilisent seulement les faits confirmés et exigent une validation avant diffusion.",
+  });
+  return true;
+}
+
+async function ensureAutomaticReviewTasks(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  userId: string,
+  caseId: string,
+  clientId: string,
+  items: string[],
+) {
+  const titles = items.map((item) => `À vérifier — ${item}`);
+  const { data: existing, error: readError } = await supabase.from("tasks").select("title").eq("user_id", userId).eq("case_id", caseId).in("title", titles);
+  if (readError) throw readError;
+  const existingTitles = new Set((existing || []).map((item) => item.title));
+  const rows = titles.filter((title) => !existingTitles.has(title)).map((title) => ({
+    user_id: userId,
+    client_id: clientId,
+    case_id: caseId,
+    category: "review",
+    title,
+    status: "pending",
+    validation_required: true,
+  }));
+  if (!rows.length) return;
+  const { error } = await supabase.from("tasks").insert(rows);
+  if (error) throw error;
 }
 
 function validateConfirmation(analysis: UniversalAnalysis, files: File[], enrichingExistingCase = false) {

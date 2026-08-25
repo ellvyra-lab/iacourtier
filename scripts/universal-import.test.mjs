@@ -2,6 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  AUTOMATIC_INGESTION_PIPELINE,
+  automaticIngestionBlockers,
+  automaticMergeAction,
+  automaticReviewItems,
+  buildAutomaticPersonDecisions,
   inferDocumentType,
   mergeUniversalAnalyses,
   normalizeUniversalPartial,
@@ -92,5 +97,82 @@ test("H — une adresse de pièce d’identité reste une donnée personne, jama
   const addressFact = analysis.facts.find((fact) => fact.field === "mailingAddress");
   assert.equal(addressFact?.entity, "person");
   assert.equal(addressFact?.value, "125 rue ABC");
+});
+
+test("I — le mode automatique crée deux vendeurs distincts sans demander une confirmation inutile", () => {
+  const ccv = normalizeUniversalPartial({
+    projectType: "seller",
+    documents: [source("CCV.pdf", "Contrat de courtage vente", "pdf")],
+    people: [
+      { id: "seller-a", firstName: "Julie", lastName: "Roy", roles: ["seller"], sourceName: "CCV.pdf", confidence: 0.98 },
+      { id: "seller-b", firstName: "Marc", lastName: "Roy", roles: ["seller"], sourceName: "CCV.pdf", confidence: 0.98 },
+    ],
+    property: { address: "145 rue des Hirondelles", city: "Repentigny", propertyType: "Maison" },
+  }, []);
+  const certificate = normalizeUniversalPartial({
+    projectType: "seller",
+    documents: [source("certificat.pdf", "Certificat de localisation", "pdf")],
+    property: { address: "145 rue des Hirondelles", city: "Repentigny", lotNumber: "1 234 567" },
+  }, []);
+  const identityA = normalizeUniversalPartial({
+    projectType: "seller",
+    documents: [source("permis-julie.jpg", "Pièce d’identité")],
+    people: [{ id: "seller-a", firstName: "Julie", lastName: "Roy", mailingAddress: "125 rue A", roles: ["seller"], sourceName: "permis-julie.jpg", confidence: 0.99 }],
+  }, []);
+  const identityB = normalizeUniversalPartial({
+    projectType: "seller",
+    documents: [source("permis-marc.jpg", "Pièce d’identité")],
+    people: [{ id: "seller-b", firstName: "Marc", lastName: "Roy", mailingAddress: "456 rue B", roles: ["seller"], sourceName: "permis-marc.jpg", confidence: 0.99 }],
+  }, []);
+  const deed = normalizeUniversalPartial({ projectType: "seller", documents: [source("acte.pdf", "Acte de vente", "pdf")], property: { address: "145 rue des Hirondelles", city: "Repentigny" } }, []);
+  const analysis = mergeUniversalAnalyses([ccv, identityA, identityB, certificate, deed]);
+  const plan = buildAutomaticPersonDecisions(analysis);
+
+  assert.equal(analysis.people.length, 2);
+  assert.equal(analysis.property.address, "145 rue des Hirondelles");
+  assert.deepEqual(new Set(analysis.people.map((person) => person.mailingAddress)), new Set(["125 rue A", "456 rue B"]));
+  assert.equal(plan.decisions.filter((decision) => decision.action === "create").length, 2);
+  assert.deepEqual(plan.ambiguousPersonIds, []);
+  assert.deepEqual(automaticIngestionBlockers(analysis), []);
+  assert.deepEqual(AUTOMATIC_INGESTION_PIPELINE, ["ingest", "extract", "resolve_entities", "merge", "classify", "update_workflow"]);
+});
+
+test("J — seule une identité réellement ambiguë interrompt le parcours automatique", () => {
+  const analysis = normalizeUniversalPartial({
+    projectType: "buyer",
+    documents: [source("prequalification.pdf", "Préapprobation", "pdf")],
+    people: [{ id: "karelle", firstName: "Karelle", lastName: "Sauvageau", roles: ["buyer"], sourceName: "prequalification.pdf", confidence: 0.98 }],
+  }, []);
+  const personId = analysis.people[0].id;
+  analysis.duplicates = [{ personId, matches: [
+    { id: "one", name: "Karelle Sauvageau", email: "", phone: "", roles: ["buyer"], matchedOn: ["nom"] },
+    { id: "two", name: "Karelle Sauvageau", email: "", phone: "", roles: ["prospect"], matchedOn: ["nom"] },
+  ] }];
+  const plan = buildAutomaticPersonDecisions(analysis);
+  assert.deepEqual(plan.ambiguousPersonIds, [personId]);
+  assert.match(automaticIngestionBlockers(analysis).join(" "), /plusieurs fiches/);
+});
+
+test("K — une contradiction personnelle va dans À vérifier, une modification contractuelle fiable peut être appliquée", () => {
+  const base = {
+    id: "proposal", entityId: "entity", personId: "person", currentValue: "125 rue A", incomingValue: "456 rue B",
+    sourceName: "permis.jpg", sourceType: "image", sourcePriority: 95, currentSourcePriority: 40, confidence: 0.99,
+    status: "conflict", recommendedAction: "replace", reason: "Valeur différente.",
+  };
+  assert.equal(automaticMergeAction({ ...base, entityType: "client", field: "mailingAddress", label: "Adresse personnelle" }), "queue_review");
+  assert.equal(automaticMergeAction({ ...base, personId: undefined, entityType: "mandate", field: "askingPrice", label: "Prix demandé", sourceName: "MO.pdf", sourceType: "pdf", sourcePriority: 90, currentSourcePriority: 80 }), "replace");
+});
+
+test("L — les informations manquantes deviennent une file non bloquante", () => {
+  const analysis = normalizeUniversalPartial({
+    projectType: "buyer",
+    documents: [source("texto.png", "Conversation client", "screenshot")],
+    people: [{ firstName: "Alex", lastName: "Roy", roles: ["buyer"], sourceName: "texto.png", confidence: 0.9 }],
+  }, []);
+  const review = automaticReviewItems(analysis);
+  assert.ok(review.some((item) => item.includes("Courriel manquant")));
+  assert.ok(review.some((item) => item.includes("Téléphone manquant")));
+  assert.ok(review.includes("Budget maximal manquant"));
+  assert.equal(automaticIngestionBlockers(analysis).length, 0);
 });
 

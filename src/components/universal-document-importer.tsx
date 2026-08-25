@@ -5,7 +5,15 @@ import { useMemo, useRef, useState, type ChangeEvent } from "react";
 import { AlertTriangle, ArrowRight, Camera, CheckCircle2, FileSearch, FileText, Images, Loader2, Search, Sparkles, UploadCloud, UserRound, X } from "lucide-react";
 
 import { useDashboardAuth } from "@/components/auth/DashboardAuthProvider";
-import type { MergeDecision, MergeProposal, PersonDecision, UniversalAnalysis, UniversalPerson, UniversalProjectType } from "@/lib/universal-import";
+import {
+  automaticIngestionBlockers,
+  buildAutomaticPersonDecisions,
+  type MergeProposal,
+  type PersonDecision,
+  type UniversalAnalysis,
+  type UniversalPerson,
+  type UniversalProjectType,
+} from "@/lib/universal-import";
 
 type ConfirmResult = {
   ok: boolean;
@@ -17,7 +25,8 @@ type ConfirmResult = {
   uploadedFiles: number;
   partnersLinked: number;
   summary: string;
-  merge?: { added: number; confirmed: number; conflicts: number; resolved: number; progress: number };
+  reviewItems?: number;
+  merge?: { added: number; confirmed: number; conflicts: number; resolved: number; queued: number; progress: number };
 };
 
 const ACCEPTED = ".pdf,.jpg,.jpeg,.png,.heic,.heif,.webp";
@@ -30,7 +39,6 @@ export function UniversalDocumentImporter({ caseId, caseTitle }: { caseId?: stri
   const [files, setFiles] = useState<File[]>([]);
   const [analysis, setAnalysis] = useState<UniversalAnalysis | null>(null);
   const [decisions, setDecisions] = useState<Record<string, PersonDecision>>({});
-  const [mergeDecisions, setMergeDecisions] = useState<Record<string, MergeDecision>>({});
   const [status, setStatus] = useState<"idle" | "analyzing" | "confirming" | "done">("idle");
   const [error, setError] = useState("");
   const [result, setResult] = useState<ConfirmResult | null>(null);
@@ -38,10 +46,17 @@ export function UniversalDocumentImporter({ caseId, caseTitle }: { caseId?: stri
   const unresolvedDuplicates = useMemo(() => (analysis?.duplicates || []).filter((duplicate) => !decisions[duplicate.personId]), [analysis, decisions]);
   const unresolvedAssignments = useMemo(() => caseId && analysis?.existingCase
     ? analysis.people.filter((person) => !decisions[person.id]) : [], [analysis, caseId, decisions]);
-  const unresolvedMergeConflicts = useMemo(() => (analysis?.mergePreview?.proposals || [])
-    .filter((proposal) => proposal.status === "conflict" && !mergeDecisions[proposal.id]), [analysis, mergeDecisions]);
   const missingInformation = useMemo(() => analysis ? findMissingInformation(analysis) : [], [analysis]);
-  const canConfirm = Boolean(analysis && analysis.projectType !== "unknown" && analysis.people.length && !unresolvedDuplicates.length && !unresolvedAssignments.length && !unresolvedMergeConflicts.length && status === "idle");
+  const canConfirm = Boolean(
+    analysis
+    && analysis.projectType !== "unknown"
+    && analysis.people.length
+    && analysis.people.every((person) => person.firstName || person.lastName)
+    && (analysis.existingCase || !["seller", "buy_sell"].includes(analysis.projectType) || (analysis.property.address && analysis.property.city))
+    && !unresolvedDuplicates.length
+    && !unresolvedAssignments.length
+    && status === "idle",
+  );
 
   function receiveFiles(event: ChangeEvent<HTMLInputElement>) {
     const incoming = Array.from(event.target.files || []);
@@ -56,7 +71,6 @@ export function UniversalDocumentImporter({ caseId, caseTitle }: { caseId?: stri
     setAnalysis(null);
     setResult(null);
     setDecisions({});
-    setMergeDecisions({});
     setError("");
     event.target.value = "";
   }
@@ -65,7 +79,6 @@ export function UniversalDocumentImporter({ caseId, caseTitle }: { caseId?: stri
     setFiles((current) => current.filter((_, itemIndex) => itemIndex !== index));
     setAnalysis(null);
     setDecisions({});
-    setMergeDecisions({});
     setResult(null);
   }
 
@@ -82,28 +95,34 @@ export function UniversalDocumentImporter({ caseId, caseTitle }: { caseId?: stri
       const payload = await response.json() as { analysis?: UniversalAnalysis; error?: string; detail?: string };
       if (!response.ok || !payload.analysis) throw new Error([payload.error, payload.detail].filter(Boolean).join(" — ") || "L’analyse a échoué.");
       setAnalysis(payload.analysis);
-      const automatic: Record<string, PersonDecision> = {};
-      for (const duplicate of payload.analysis.duplicates || []) {
-        if (duplicate.matches.length === 1) automatic[duplicate.personId] = { personId: duplicate.personId, action: "use", existingContactId: duplicate.matches[0].id };
-      }
+      const plan = buildAutomaticPersonDecisions(payload.analysis);
+      const automatic = Object.fromEntries(plan.decisions.map((decision) => [decision.personId, decision]));
       setDecisions(automatic);
-      setMergeDecisions({});
+      if (!automaticIngestionBlockers(payload.analysis).length) {
+        await confirmPrepared(payload.analysis, automatic);
+      } else {
+        setStatus("idle");
+      }
     } catch (analysisError) {
       setError(analysisError instanceof Error ? analysisError.message : "L’analyse a échoué.");
-    } finally {
       setStatus("idle");
     }
   }
 
   async function confirm() {
     if (!analysis || !canConfirm) return;
+    await confirmPrepared(analysis, decisions);
+  }
+
+  async function confirmPrepared(nextAnalysis: UniversalAnalysis, nextDecisions: Record<string, PersonDecision>) {
     setStatus("confirming");
     setError("");
     try {
       const body = new FormData();
-      body.append("analysis", JSON.stringify(analysis));
-      body.append("decisions", JSON.stringify(Object.values(decisions)));
-      body.append("mergeDecisions", JSON.stringify(Object.values(mergeDecisions)));
+      body.append("analysis", JSON.stringify(nextAnalysis));
+      body.append("decisions", JSON.stringify(Object.values(nextDecisions)));
+      body.append("mergeDecisions", "[]");
+      body.append("mode", "automatic");
       if (caseId) body.append("caseId", caseId);
       files.forEach((file) => body.append("files", file));
       const response = await authenticatedFetch("/api/universal-import/confirm", { method: "POST", body });
@@ -111,6 +130,7 @@ export function UniversalDocumentImporter({ caseId, caseTitle }: { caseId?: stri
       if (!response.ok || !payload.ok) throw new Error(payload.error || (caseId ? "L’enrichissement du dossier a échoué." : "La création du dossier a échoué."));
       setResult(payload);
       setStatus("done");
+      window.location.assign(`${payload.primaryHref}?import=automatic`);
     } catch (confirmationError) {
       setError(confirmationError instanceof Error ? confirmationError.message : (caseId ? "L’enrichissement du dossier a échoué." : "La création du dossier a échoué."));
       setStatus("idle");
@@ -151,11 +171,6 @@ export function UniversalDocumentImporter({ caseId, caseTitle }: { caseId?: stri
       });
       return { ...current, mergePreview: summarizePreview(current.mergePreview, proposals) };
     });
-    setMergeDecisions((current) => {
-      const next = { ...current };
-      analysis?.mergePreview?.proposals.filter((proposal) => proposal.personId === personId).forEach((proposal) => { delete next[proposal.id]; });
-      return next;
-    });
   }
 
   if (result) {
@@ -168,13 +183,13 @@ export function UniversalDocumentImporter({ caseId, caseTitle }: { caseId?: stri
         <Stat label="Clients créés" value={String(result.createdContacts.length)} />
         <Stat label="Clients réutilisés" value={String(result.reusedContacts.length)} />
       </div>
-      {result.merge ? <p className="mt-4 rounded-xl bg-white p-3 text-sm dark:bg-slate-950">{result.merge.added} ajout(s), {result.merge.confirmed} confirmation(s), {result.merge.conflicts} conflit(s) traité(s) · dossier prêt à {result.merge.progress} %.</p> : null}
-      <div className="mt-6 flex flex-wrap gap-3"><Link href={result.primaryHref} className="inline-flex min-h-12 items-center gap-2 rounded-xl bg-teal-700 px-5 font-semibold text-white">Ouvrir le dossier <ArrowRight className="h-4 w-4" /></Link><button type="button" onClick={() => { setFiles([]); setAnalysis(null); setResult(null); setDecisions({}); setMergeDecisions({}); setStatus("idle"); }} className="min-h-12 rounded-xl border border-emerald-300 px-5 font-semibold">Ajouter une autre source</button></div>
+      {result.merge ? <p className="mt-4 rounded-xl bg-white p-3 text-sm dark:bg-slate-950">{result.merge.added} ajout(s), {result.merge.confirmed} confirmation(s), {result.merge.queued} élément(s) classé(s) « À vérifier » · dossier prêt à {result.merge.progress} %.</p> : null}
+      <div className="mt-6 flex flex-wrap gap-3"><Link href={`${result.primaryHref}?import=automatic`} className="inline-flex min-h-12 items-center gap-2 rounded-xl bg-teal-700 px-5 font-semibold text-white">Ouvrir le dossier <ArrowRight className="h-4 w-4" /></Link><button type="button" onClick={() => { setFiles([]); setAnalysis(null); setResult(null); setDecisions({}); setStatus("idle"); }} className="min-h-12 rounded-xl border border-emerald-300 px-5 font-semibold">Ajouter une autre source</button></div>
     </section>;
   }
 
   return <div className="mx-auto max-w-6xl space-y-6 overflow-x-hidden">
-    <header className="space-y-2"><p className="text-sm font-semibold text-teal-700">Analyse intelligente universelle</p><h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">{caseId ? "Ajouter des informations au dossier" : "Importer un document ou une conversation"}</h1><p className="max-w-3xl text-sm leading-6 text-slate-600 dark:text-slate-300">{caseId ? `Chaque source enrichit ${caseTitle ? `« ${caseTitle} »` : "ce dossier"}. IACourtier compare les données et ne remplace jamais une contradiction sans ta décision.` : "PDF, photo de document ou captures d’écran : IACourtier identifie les personnes, recherche les doublons et prépare le bon dossier. Rien n’est créé avant ta confirmation."}</p></header>
+    <header className="space-y-2"><p className="text-sm font-semibold text-teal-700">Mode automatique du CRM</p><h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">{caseId ? "Ajouter des informations au dossier" : "Importer un document ou une conversation"}</h1><p className="max-w-3xl text-sm leading-6 text-slate-600 dark:text-slate-300">{caseId ? `IACourtier analyse toutes les sources ensemble, enrichit ${caseTitle ? `« ${caseTitle} »` : "ce dossier"} et classe les vraies contradictions dans « À vérifier » sans bloquer l’import.` : "Dépose tes sources une seule fois : IACourtier identifie les personnes, évite les doublons, prépare le dossier, les étapes, les tâches et les automatisations. Il intervient seulement lorsqu’une identité ou le type de dossier est réellement ambigu."}</p></header>
 
     <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:p-6">
       <div className="grid gap-3 sm:grid-cols-3">
@@ -189,10 +204,10 @@ export function UniversalDocumentImporter({ caseId, caseTitle }: { caseId?: stri
 
       {files.length ? <div className="mt-5 space-y-2"><p className="text-sm font-semibold">{files.length} fichier{files.length > 1 ? "s" : ""} prêt{files.length > 1 ? "s" : ""}</p>{files.map((file, index) => <div key={`${file.name}-${file.lastModified}`} className="flex min-w-0 items-center gap-3 rounded-xl border border-slate-200 p-3 dark:border-slate-800"><FileText className="h-4 w-4 shrink-0 text-teal-700" /><span className="min-w-0 flex-1 truncate text-sm">{file.name}</span><span className="shrink-0 text-xs text-slate-500">{formatBytes(file.size)}</span><button type="button" onClick={() => removeFile(index)} aria-label={`Retirer ${file.name}`} className="rounded-lg p-2 hover:bg-slate-100 dark:hover:bg-slate-800"><X className="h-4 w-4" /></button></div>)}</div> : null}
 
-      <button type="button" disabled={!files.length || status !== "idle"} onClick={() => void analyze()} className="mt-5 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-teal-700 px-5 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto">{status === "analyzing" ? <Loader2 className="h-5 w-5 animate-spin" /> : <FileSearch className="h-5 w-5" />}{status === "analyzing" ? "Analyse des sources…" : analysis ? "Relancer l’analyse" : "Analyser sans créer"}</button>
+      <button type="button" disabled={!files.length || status !== "idle"} onClick={() => void analyze()} className="mt-5 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-teal-700 px-5 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto">{status === "analyzing" || status === "confirming" ? <Loader2 className="h-5 w-5 animate-spin" /> : <FileSearch className="h-5 w-5" />}{status === "analyzing" ? "Analyse des sources…" : status === "confirming" ? "Préparation automatique du dossier…" : analysis ? "Relancer l’import automatique" : "Importer et préparer le dossier"}</button>
     </section>
 
-    {status === "analyzing" ? <section className="rounded-3xl border border-teal-200 bg-teal-50 p-6 dark:border-teal-900 dark:bg-teal-950/20" role="status"><div className="flex items-center gap-3"><Loader2 className="h-5 w-5 animate-spin text-teal-700" /><div><p className="font-semibold">Lecture du contenu et recherche des doublons…</p><p className="mt-1 text-sm text-slate-600 dark:text-slate-300">Les PDF numérisés et les captures sont lus visuellement. Aucun dossier n’est créé pendant cette étape.</p></div></div></section> : null}
+    {status === "analyzing" || status === "confirming" ? <section className="rounded-3xl border border-teal-200 bg-teal-50 p-6 dark:border-teal-900 dark:bg-teal-950/20" role="status"><div className="flex items-center gap-3"><Loader2 className="h-5 w-5 animate-spin text-teal-700" /><div><p className="font-semibold">{status === "analyzing" ? "Lecture du contenu et recherche des doublons…" : "Création et enrichissement du dossier…"}</p><p className="mt-1 text-sm text-slate-600 dark:text-slate-300">{status === "analyzing" ? "Les PDF numérisés et les captures sont lus ensemble avant toute décision CRM." : "Les clients, la propriété, le dossier, le parcours, les tâches et les sources sont reliés dans l’ordre logique."}</p></div></div></section> : null}
     {error ? <div className="flex items-start gap-3 rounded-2xl border border-red-300 bg-red-50 p-4 text-sm text-red-900 dark:border-red-900 dark:bg-red-950/20 dark:text-red-100" role="alert"><AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" /><span>{error}</span></div> : null}
 
     {analysis ? <>
@@ -238,7 +253,7 @@ export function UniversalDocumentImporter({ caseId, caseTitle }: { caseId?: stri
       {analysis.mergePreview ? <Panel title="Comparaison avec le dossier existant" icon={FileSearch}>
         <div className="grid gap-3 sm:grid-cols-4"><Stat label="Nouvelles" value={String(analysis.mergePreview.newCount)} /><Stat label="Déjà confirmées" value={String(analysis.mergePreview.unchangedCount)} /><Stat label="Conflits" value={String(analysis.mergePreview.conflictCount)} /><Stat label="Attributions" value={String(analysis.mergePreview.assignmentCount)} /></div>
         {analysis.mergePreview.proposals.filter((proposal) => proposal.status === "new").length ? <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/20 dark:text-emerald-100"><strong>Enrichissement automatique sans conflit</strong><p className="mt-1">{analysis.mergePreview.proposals.filter((proposal) => proposal.status === "new").map((proposal) => proposal.label).join(", ")}.</p></div> : null}
-        {analysis.mergePreview.proposals.filter((proposal) => proposal.status === "conflict").map((proposal) => <MergeConflict key={proposal.id} proposal={proposal} decision={mergeDecisions[proposal.id]} onDecision={(action) => setMergeDecisions((current) => ({ ...current, [proposal.id]: { proposalId: proposal.id, action } }))} />)}
+        {analysis.mergePreview.conflictCount ? <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-100"><strong>{analysis.mergePreview.conflictCount} information{analysis.mergePreview.conflictCount > 1 ? "s différentes" : " différente"}</strong><p className="mt-1">L’import continuera. Les contradictions qui ne peuvent pas être tranchées de façon sûre seront conservées avec leur source dans « À vérifier ».</p></div> : null}
         {!analysis.mergePreview.conflictCount ? <div className="flex items-center gap-2 text-sm text-emerald-700"><CheckCircle2 className="h-5 w-5" />Aucune donnée contradictoire. Les champs vides seront enrichis et les valeurs identiques confirmeront leur provenance.</div> : null}
       </Panel> : null}
 
@@ -258,7 +273,7 @@ export function UniversalDocumentImporter({ caseId, caseTitle }: { caseId?: stri
 
       {analysis.ambiguities.length ? <Panel title="Ambiguïtés à valider" icon={AlertTriangle}>{analysis.ambiguities.map((ambiguity) => <p key={ambiguity} className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950/20 dark:text-amber-100">{ambiguity}</p>)}</Panel> : null}
 
-      <section className="sticky bottom-3 z-10 rounded-2xl border border-slate-300 bg-white/95 p-4 shadow-xl backdrop-blur dark:border-slate-700 dark:bg-slate-950/95"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-semibold">Confirmation finale</p><p className="text-xs text-slate-500">{caseId ? "Après ce clic seulement : document, provenances et enrichissements validés seront reliés au même dossier." : "Après ce clic seulement : fiche client centrale, dossier, financement, partenaire, document, étape, tâches et automatisations seront reliés."}</p>{unresolvedDuplicates.length ? <p className="mt-1 text-xs font-semibold text-amber-700">Choisis quoi faire pour {unresolvedDuplicates.length} doublon{unresolvedDuplicates.length > 1 ? "s" : ""}.</p> : null}{unresolvedAssignments.length ? <p className="mt-1 text-xs font-semibold text-amber-700">Attribue {unresolvedAssignments.length} personne{unresolvedAssignments.length > 1 ? "s" : ""} au dossier.</p> : null}{unresolvedMergeConflicts.length ? <p className="mt-1 text-xs font-semibold text-amber-700">Résous {unresolvedMergeConflicts.length} information{unresolvedMergeConflicts.length > 1 ? "s" : ""} différente{unresolvedMergeConflicts.length > 1 ? "s" : ""}.</p> : null}</div><button type="button" disabled={!canConfirm} onClick={() => void confirm()} className="inline-flex min-h-12 shrink-0 items-center justify-center gap-2 rounded-xl bg-slate-950 px-5 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40 dark:bg-white dark:text-slate-950">{status === "confirming" ? <Loader2 className="h-5 w-5 animate-spin" /> : <CheckCircle2 className="h-5 w-5" />}{status === "confirming" ? "Enregistrement…" : caseId ? "Confirmer et enrichir ce dossier" : "Confirmer et créer / mettre à jour le dossier"}</button></div></section>
+      <section className="sticky bottom-3 z-10 rounded-2xl border border-amber-300 bg-white/95 p-4 shadow-xl backdrop-blur dark:border-amber-800 dark:bg-slate-950/95"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-semibold">Intervention requise seulement sur l’ambiguïté</p><p className="text-xs text-slate-500">Les données claires et les renseignements manquants ne bloquent pas l’import.</p>{unresolvedDuplicates.length ? <p className="mt-1 text-xs font-semibold text-amber-700">Choisis la bonne fiche pour {unresolvedDuplicates.length} identité{unresolvedDuplicates.length > 1 ? "s" : ""} ambiguë{unresolvedDuplicates.length > 1 ? "s" : ""}.</p> : null}{unresolvedAssignments.length ? <p className="mt-1 text-xs font-semibold text-amber-700">Attribue {unresolvedAssignments.length} personne{unresolvedAssignments.length > 1 ? "s" : ""} au dossier.</p> : null}</div><button type="button" disabled={!canConfirm} onClick={() => void confirm()} className="inline-flex min-h-12 shrink-0 items-center justify-center gap-2 rounded-xl bg-slate-950 px-5 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40 dark:bg-white dark:text-slate-950">{status === "confirming" ? <Loader2 className="h-5 w-5 animate-spin" /> : <CheckCircle2 className="h-5 w-5" />}{status === "confirming" ? "Préparation…" : "Continuer l’import automatique"}</button></div></section>
     </> : null}
   </div>;
 }
@@ -272,25 +287,6 @@ function Editable({ label, value, onChange, wide }: { label: string; value: stri
 function FieldLabel({ label, children, wide }: { label: string; children: React.ReactNode; wide?: boolean }) { return <label className={`block ${wide ? "sm:col-span-2" : ""}`}><span className="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-300">{label}</span>{children}</label>; }
 function ReadOnly({ label, value }: { label: string; value: string }) { return <div className="rounded-xl bg-slate-50 p-3 dark:bg-slate-950"><p className="text-xs font-semibold text-slate-500">{label}</p><p className="mt-1 text-sm font-medium">{value.replace(/_/g, " ")}</p></div>; }
 function Stat({ label, value }: { label: string; value: string }) { return <div><p className="text-xs text-slate-500">{label}</p><p className="mt-1 text-xl font-semibold">{value}</p></div>; }
-function MergeConflict({ proposal, decision, onDecision }: { proposal: MergeProposal; decision?: MergeDecision; onDecision: (action: MergeDecision["action"]) => void }) {
-  const choices = mergeChoices(proposal);
-  return <div className="space-y-4 rounded-2xl border border-amber-300 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950/20">
-    <div className="flex items-start gap-3"><AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" /><div><h3 className="font-semibold">Information différente détectée — {proposal.label}</h3><p className="mt-1 text-sm text-slate-600 dark:text-slate-300">{proposal.reason}</p></div></div>
-    <div className="grid gap-3 sm:grid-cols-2"><ReadOnly label="Valeur actuelle" value={proposal.currentValue || "Aucune"} /><ReadOnly label="Nouvelle valeur" value={proposal.incomingValue} /></div>
-    <p className="text-xs text-slate-500">Source : {proposal.sourceName} · confiance {proposal.confidence == null ? "à confirmer" : `${Math.round(proposal.confidence * 100)} %`} · priorité {proposal.sourcePriority}/100</p>
-    <div className="grid gap-2 sm:grid-cols-2">{choices.map((choice) => <label key={choice.action} className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 ${decision?.action === choice.action ? "border-teal-600 bg-teal-50 dark:bg-teal-950/30" : "border-amber-200 bg-white dark:border-amber-900 dark:bg-slate-950"}`}><input type="radio" name={`merge-${proposal.id}`} checked={decision?.action === choice.action} onChange={() => onDecision(choice.action)} className="mt-1" /><span><strong className="block text-sm">{choice.label}</strong><span className="text-xs text-slate-500">{choice.detail}</span></span></label>)}</div>
-  </div>;
-}
-function mergeChoices(proposal: MergeProposal): Array<{ action: MergeDecision["action"]; label: string; detail: string }> {
-  const secondary = proposal.field === "phone" ? "Ajouter comme deuxième téléphone" : proposal.field === "email" ? "Ajouter comme deuxième courriel" : proposal.field === "mailingAddress" ? "Conserver les deux adresses" : "Conserver comme donnée secondaire";
-  const replace = proposal.field === "mailingAddress" ? "Utiliser comme adresse personnelle" : "Remplacer";
-  return [
-    { action: "replace", label: `${replace}${proposal.recommendedAction === "replace" ? " · recommandé" : ""}`, detail: "La nouvelle valeur devient la valeur principale; l’ancienne reste dans l’historique." },
-    { action: "add_secondary", label: secondary, detail: "La valeur actuelle reste principale et la nouvelle est conservée séparément." },
-    { action: "keep_existing", label: `Conserver l’actuelle${proposal.recommendedAction === "keep_existing" ? " · recommandé" : ""}`, detail: "La source est archivée, sans modifier la fiche active." },
-    { action: "ignore", label: "Ignorer cette nouvelle valeur", detail: "La valeur proposée est journalisée comme rejetée." },
-  ];
-}
 function summarizePreview(preview: NonNullable<UniversalAnalysis["mergePreview"]>, proposals: MergeProposal[]) {
   return {
     ...preview, proposals,

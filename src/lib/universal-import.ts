@@ -195,6 +195,79 @@ export type PersonDecision = {
   existingContactId?: string;
 };
 
+export const AUTOMATIC_INGESTION_PIPELINE = [
+  "ingest",
+  "extract",
+  "resolve_entities",
+  "merge",
+  "classify",
+  "update_workflow",
+] as const;
+
+export type AutomaticMergeAction = MergeResolutionAction | "queue_review";
+
+export function buildAutomaticPersonDecisions(analysis: UniversalAnalysis) {
+  const duplicates = new Map((analysis.duplicates || []).map((duplicate) => [duplicate.personId, duplicate.matches]));
+  const decisions: PersonDecision[] = [];
+  const ambiguousPersonIds: string[] = [];
+  for (const person of analysis.people) {
+    const matches = duplicates.get(person.id) || [];
+    if (matches.length === 1) {
+      decisions.push({ personId: person.id, action: "use", existingContactId: matches[0].id });
+    } else if (matches.length > 1) {
+      ambiguousPersonIds.push(person.id);
+    } else {
+      decisions.push({ personId: person.id, action: "create" });
+    }
+  }
+  return { decisions, ambiguousPersonIds };
+}
+
+export function automaticIngestionBlockers(analysis: UniversalAnalysis) {
+  const blockers: string[] = [];
+  if (analysis.projectType === "unknown") blockers.push("Le type de dossier n’est pas assez certain.");
+  if (!analysis.people.length) blockers.push("Aucune personne réelle n’a été identifiée.");
+  if (analysis.people.some((person) => !person.firstName && !person.lastName)) blockers.push("Le nom d’au moins une personne est illisible.");
+  if (!analysis.existingCase && (analysis.projectType === "seller" || analysis.projectType === "buy_sell") && (!analysis.property.address || !analysis.property.city)) {
+    blockers.push("L’adresse ou la ville de la propriété à vendre est introuvable.");
+  }
+  const { ambiguousPersonIds } = buildAutomaticPersonDecisions(analysis);
+  if (ambiguousPersonIds.length) blockers.push(`${ambiguousPersonIds.length} identité${ambiguousPersonIds.length > 1 ? "s sont" : " est"} liée${ambiguousPersonIds.length > 1 ? "s" : ""} à plusieurs fiches possibles.`);
+  return blockers;
+}
+
+export function automaticMergeAction(proposal: MergeProposal): AutomaticMergeAction {
+  if (proposal.status === "new") return "replace";
+  if (proposal.status === "same") return "keep_existing";
+  if (proposal.status === "needs_assignment") return "queue_review";
+
+  // Identity and contact conflicts are never replaced silently. A different
+  // personal address also remains distinct from the property of the dossier.
+  if (proposal.entityType === "client") return "queue_review";
+  if (proposal.entityType === "property" && ["address", "city", "postalCode"].includes(proposal.field)) return "queue_review";
+
+  // A strongly identified authoritative document may advance an operational
+  // value (for example a Modification, a certificate or a prequalification).
+  if (proposal.confidence !== null && proposal.confidence >= 0.9 && proposal.sourcePriority > proposal.currentSourcePriority) {
+    if (proposal.entityType === "mandate" || proposal.entityType === "financing") return "replace";
+    if (proposal.entityType === "property" && ["lotNumber", "propertyType"].includes(proposal.field)) return "replace";
+  }
+  return "queue_review";
+}
+
+export function automaticReviewItems(analysis: UniversalAnalysis) {
+  const items = [...analysis.ambiguities];
+  for (const person of analysis.people) {
+    const name = `${person.firstName} ${person.lastName}`.trim() || "Client";
+    if (!person.email) items.push(`Courriel manquant — ${name}`);
+    if (!person.phone) items.push(`Téléphone manquant — ${name}`);
+  }
+  if ((analysis.projectType === "buyer" || analysis.projectType === "buy_sell") && !analysis.buyerCriteria.budget) items.push("Budget maximal manquant");
+  if ((analysis.projectType === "buyer" || analysis.projectType === "buy_sell") && !analysis.buyerCriteria.propertyType) items.push("Type de propriété recherché manquant");
+  if ((analysis.projectType === "seller" || analysis.projectType === "buy_sell") && !analysis.property.address) items.push("Adresse de la propriété à vendre manquante");
+  return [...new Set(items.map((item) => item.trim()).filter(Boolean))];
+}
+
 const EMPTY_PROPERTY: UniversalProperty = { address: "", city: "", postalCode: "", propertyType: "", lotNumber: "" };
 const EMPTY_BUYER: UniversalBuyerCriteria = {
   budget: "", preapprovalStatus: "missing", downPayment: "", mortgageAmount: "", occupancyType: "", lender: "",

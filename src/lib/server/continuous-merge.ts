@@ -1,6 +1,7 @@
 import { buildContinuousMergePreview, type ContinuousMergeContext } from "@/lib/continuous-merge";
 import type { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
+  automaticMergeAction,
   normalizeUniversalValue,
   type ExistingCaseContext,
   type MergeDecision,
@@ -79,27 +80,33 @@ export async function applyContinuousMerge(supabase: Supabase, input: {
   personDecisions: PersonDecision[];
   mergeDecisions: MergeDecision[];
   centralDocumentIds: Map<string, string>;
+  mode?: "automatic" | "manual";
 }) {
   const assignments = Object.fromEntries(input.personDecisions
     .filter((item) => item.action === "use" && item.existingContactId)
     .map((item) => [item.personId, item.existingContactId as string]));
   const preview = buildContinuousMergePreview(input.analysis, input.context, assignments);
   const decisions = new Map(input.mergeDecisions.map((decision) => [decision.proposalId, decision.action]));
+  const automatic = input.mode === "automatic";
   const unresolvedAssignment = preview.proposals.find((proposal) => proposal.status === "needs_assignment");
-  if (unresolvedAssignment) throw new MergeValidationError(`Choisis à quelle personne du dossier appartient « ${unresolvedAssignment.sourceName} » avant d’enregistrer.`);
+  if (unresolvedAssignment && !automatic) throw new MergeValidationError(`Choisis à quelle personne du dossier appartient « ${unresolvedAssignment.sourceName} » avant d’enregistrer.`);
   const unresolvedConflict = preview.proposals.find((proposal) => proposal.status === "conflict" && !decisions.has(proposal.id));
-  if (unresolvedConflict) throw new MergeValidationError(`Une décision est requise pour ${unresolvedConflict.label} : conserver, remplacer, ajouter ou ignorer.`);
+  if (unresolvedConflict && !automatic) throw new MergeValidationError(`Une décision est requise pour ${unresolvedConflict.label} : conserver, remplacer, ajouter ou ignorer.`);
 
   let added = 0;
   let confirmed = 0;
   let conflicts = 0;
   let resolved = 0;
+  let queued = 0;
   for (const proposal of preview.proposals) {
-    const requested = proposal.status === "conflict" ? decisions.get(proposal.id)! : proposal.status === "same" ? "keep_existing" : "replace";
+    const explicitDecision = decisions.get(proposal.id);
+    const automaticAction = automatic && !explicitDecision ? automaticMergeAction(proposal) : null;
+    const queuedForReview = automaticAction === "queue_review";
+    const requested = explicitDecision || (automaticAction && automaticAction !== "queue_review" ? automaticAction : proposal.status === "same" ? "keep_existing" : "replace");
     const sourceDocumentId = input.centralDocumentIds.get(proposal.sourceName) || null;
-    const becomesActive = requested === "replace" || requested === "add_secondary" || proposal.status === "same";
-    const factStatus = requested === "ignore" ? "rejected" : proposal.status === "conflict" && requested === "keep_existing" ? "rejected" : "confirmed";
-    if (requested === "replace" && proposal.entityId) {
+    const becomesActive = !queuedForReview && (requested === "replace" || requested === "add_secondary" || proposal.status === "same");
+    const factStatus = queuedForReview ? "to_confirm" : requested === "ignore" ? "rejected" : proposal.status === "conflict" && requested === "keep_existing" ? "rejected" : "confirmed";
+    if (!queuedForReview && requested === "replace" && proposal.entityId) {
       const { error } = await supabase.from("crm_facts").update({ is_active: false, status: "superseded", updated_at: new Date().toISOString() })
         .eq("user_id", input.userId).eq("case_id", input.context.id).eq("entity_type", proposal.entityType)
         .eq("entity_id", proposal.entityId).eq("field_key", proposal.field).eq("is_active", true);
@@ -111,7 +118,7 @@ export async function applyContinuousMerge(supabase: Supabase, input: {
       normalized_value: normalizeUniversalValue(proposal.incomingValue), source_document_id: sourceDocumentId,
       source_label: proposal.sourceName, source_type: proposal.sourceType, source_priority: proposal.sourcePriority,
       confidence: proposal.confidence, status: factStatus, is_active: becomesActive && factStatus === "confirmed",
-      resolution_note: resolutionNote(proposal, requested),
+      resolution_note: queuedForReview ? `${proposal.reason} Ajouté automatiquement à « À vérifier » sans bloquer l’import.` : resolutionNote(proposal, requested),
     }).select("id").single();
     if (factError || !fact) throw factError || new Error("La provenance d’une information n’a pas pu être enregistrée.");
 
@@ -122,23 +129,45 @@ export async function applyContinuousMerge(supabase: Supabase, input: {
         user_id: input.userId, case_id: input.context.id, entity_type: proposal.entityType, entity_id: proposal.entityId,
         field_key: proposal.field, label: proposal.label, current_fact_id: active?.id || null, proposed_fact_id: fact.id,
         current_value: proposal.currentValue, proposed_value: proposal.incomingValue,
-        status: requested === "ignore" ? "ignored" : "resolved", resolution: requested,
-        resolved_by: input.userId, resolved_at: new Date().toISOString(),
+        status: queuedForReview ? "pending" : requested === "ignore" ? "ignored" : "resolved",
+        resolution: queuedForReview ? null : requested,
+        resolved_by: queuedForReview ? null : input.userId, resolved_at: queuedForReview ? null : new Date().toISOString(),
       });
       if (error) throw error;
-      resolved += 1;
+      if (queuedForReview) {
+        queued += 1;
+        await ensureReviewTask(supabase, input.userId, input.context.id, proposal);
+      } else {
+        resolved += 1;
+      }
     }
 
     if (proposal.status === "new") added += 1;
     if (proposal.status === "same") confirmed += 1;
-    if (requested === "replace" || requested === "add_secondary" || proposal.status === "same") {
+    if (!queuedForReview && (requested === "replace" || requested === "add_secondary" || proposal.status === "same")) {
       const canonicalAction: "replace" | "add_secondary" = requested === "add_secondary" ? "add_secondary" : "replace";
       await applyCanonicalValue(supabase, input.userId, input.context, proposal, canonicalAction, sourceDocumentId);
     }
   }
 
   const readiness = await recalculateReadiness(supabase, input.userId, input.context.id);
-  return { preview, added, confirmed, conflicts, resolved, ...readiness };
+  return { preview, added, confirmed, conflicts, resolved, queued, ...readiness };
+}
+
+async function ensureReviewTask(supabase: Supabase, userId: string, caseId: string, proposal: MergeProposal) {
+  const title = `À vérifier — ${proposal.label}`;
+  const { data, error: readError } = await supabase.from("tasks").select("id").eq("user_id", userId).eq("case_id", caseId).eq("title", title).eq("status", "pending").limit(1);
+  if (readError) throw readError;
+  if (data?.length) return;
+  const { error } = await supabase.from("tasks").insert({
+    user_id: userId,
+    case_id: caseId,
+    category: "review",
+    title,
+    status: "pending",
+    validation_required: true,
+  });
+  if (error) throw error;
 }
 
 async function applyCanonicalValue(supabase: Supabase, userId: string, context: LoadedMergeContext, proposal: MergeProposal, action: "replace" | "add_secondary", sourceDocumentId: string | null) {

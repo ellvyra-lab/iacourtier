@@ -122,9 +122,9 @@ export function NewBuyerCase() {
     <SessionStatusNotice />
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
       <Choice icon={PenLine} title="Entrer ses informations" onClick={() => start("manual", "manual")} />
-      <Choice icon={Contact} title="Pièce d’identité" onClick={() => start("identity", "identity")} disabled={authStatus !== "authenticated"} />
-      <Choice icon={WalletCards} title="Préapprobation" onClick={() => start("preapproval", "preapproval")} disabled={authStatus !== "authenticated"} />
-      <Choice icon={FileText} title="Autre document" onClick={() => start("document", "document")} disabled={authStatus !== "authenticated"} />
+      <Choice icon={Contact} title="Pièce d’identité" onClick={() => window.location.assign("/tableau-de-bord/importer")} disabled={authStatus !== "authenticated"} />
+      <Choice icon={WalletCards} title="Préapprobation" onClick={() => window.location.assign("/tableau-de-bord/importer")} disabled={authStatus !== "authenticated"} />
+      <Choice icon={FileText} title="Autre document" onClick={() => window.location.assign("/tableau-de-bord/importer")} disabled={authStatus !== "authenticated"} />
       <Choice icon={MessageSquareText} title="Texto ou message" onClick={() => start("message", "message")} />
     </div>
   </div>;
@@ -149,3 +149,4 @@ function Select({ label, value, onChange, options }: { label: string; value: str
 function Back({ onClick }: { onClick: () => void }) { return <button type="button" onClick={onClick} className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600"><ArrowLeft className="h-4 w-4" />Retour</button>; }
 function Primary({ onClick, disabled, children }: { onClick: () => void; disabled?: boolean; children: React.ReactNode }) { return <button type="button" onClick={onClick} disabled={disabled} className="mt-6 inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-teal-700 px-6 font-semibold text-white disabled:opacity-50"><Check className="h-4 w-4" />{children}</button>; }
 function ErrorBox({ text }: { text: string }) { return <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/20 dark:text-red-200">{text}</div>; }
+
