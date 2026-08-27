@@ -7,6 +7,7 @@ import { selectDirectorMessage } from "@/lib/director/message-library";
 import { inferCoachJourney } from "@/lib/coach-journeys";
 import { generateWithOpenAI, getOpenAIErrorPayload } from "@/lib/openai";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { recalculateCaseOperatingState, recalculateUserCases } from "@/lib/server/crm-operating-system";
 
 export const runtime = "nodejs";
 
@@ -99,7 +100,7 @@ export async function POST(request: Request) {
     }
 
     const workflowIntent = inferCoachJourney(message);
-    const crmAnswer = workflowIntent ? null : await findClientCaseAnswer(supabase, user.id, message);
+    const crmAnswer = workflowIntent ? null : await findPipelineQuestionAnswer(supabase, user.id, message) || await findClientCaseAnswer(supabase, user.id, message);
     const communicationRequest = workflowIntent ? null : inferClientCommunicationRequest(message);
     const isSellerListing = workflowIntent?.slug === "mandat-vendeur";
     const isBuyerCase = workflowIntent?.slug === "dossier-acheteur";
@@ -133,6 +134,30 @@ export async function POST(request: Request) {
   }
 }
 
+async function findPipelineQuestionAnswer(supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>, userId: string, message: string): Promise<{ reply: string; action: DirectorAction } | null> {
+  const value = normalizeLookup(message);
+  const asksBlocked = /dossier.*bloqu|bloqu.*dossier|urgent|critique/.test(value);
+  const asksRecall = /rappel|rappeler|relancer|prochaineaction|quoi.*faire/.test(value);
+  const asksSellerReady = /vendeur.*pret|pret.*publ|mise.*marche/.test(value);
+  const asksBuyerContract = /acheteur.*prequal.*contrat|prequal.*sans.*contrat/.test(value);
+  const asksConditions = /condition.*72|condition.*echeance|echeance.*condition/.test(value);
+  if (!asksBlocked && !asksRecall && !asksSellerReady && !asksBuyerContract && !asksConditions) return null;
+
+  await recalculateUserCases(supabase, userId);
+  const { data: cases, error } = await supabase.from("client_cases").select("id,title,case_type,current_stage,next_best_action,next_action,priority_score,priority_level,alerts,missing_items,suggested_stage,completion_score").eq("user_id", userId).eq("status", "active").order("priority_score", { ascending: false }).limit(100);
+  if (error) throw error;
+  let matches = cases || [];
+  if (asksBlocked) matches = matches.filter((item) => item.priority_level === "critical" || (Array.isArray(item.alerts) && item.alerts.some((alert: { level?: string }) => alert.level === "critical")));
+  if (asksSellerReady) matches = matches.filter((item) => item.case_type === "seller" && ["listing_preparation", "ready_to_publish"].includes(item.current_stage));
+  if (asksBuyerContract) matches = matches.filter((item) => (item.case_type === "buyer" || item.case_type === "buy_sell") && ["prequalification", "buyer_brokerage_contract", "criteria_to_complete"].includes(item.current_stage) && Array.isArray(item.missing_items) && item.missing_items.includes("Contrat de courtage achat"));
+  if (asksConditions) matches = matches.filter((item) => Array.isArray(item.alerts) && item.alerts.some((alert: { code?: string }) => String(alert.code || "").startsWith("condition:")));
+  matches = matches.slice(0, 5);
+  if (!matches.length) return { reply: asksConditions ? "Aucune condition à échéance dans les 72 prochaines heures n’est détectée dans les dossiers actifs." : asksBlocked ? "Aucun dossier critique ou bloqué n’est détecté actuellement dans le CRM central." : "Aucun dossier ne correspond à ce filtre pour le moment.", action: { label: "Voir le pipeline", href: "/tableau-de-bord/pipeline" } };
+  const summary = matches.map((item, index) => `${index + 1}. ${item.title} — ${item.next_best_action || item.next_action || "continuer le dossier"}`).join("\n");
+  const lead = asksConditions ? "Conditions à traiter dans les 72 heures" : asksSellerReady ? "Vendeurs prêts à faire avancer" : asksBuyerContract ? "Acheteurs préqualifiés dont le contrat reste à confirmer" : asksBlocked ? "Dossiers critiques à débloquer" : "Prochaines meilleures actions";
+  return { reply: `${lead} :\n${summary}`, action: { label: "Ouvrir le dossier prioritaire", href: `/tableau-de-bord/dossiers/${matches[0].id}` } };
+}
+
 async function findClientCaseAnswer(supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>, userId: string, message: string): Promise<{ reply: string; action: DirectorAction } | null> {
   const normalizedMessage = normalizeLookup(message);
   const { data: clients } = await supabase.from("clients").select("id,first_name,last_name,email,phone").eq("user_id", userId);
@@ -146,7 +171,8 @@ async function findClientCaseAnswer(supabase: Awaited<ReturnType<typeof createSu
   const caseIds = Array.from(new Set((links || []).map((item) => item.case_id)));
   if (!caseIds.length) return { reply: `${client.first_name} ${client.last_name} a une fiche CRM, mais aucun dossier n’est encore relié. La prochaine meilleure action est de qualifier son projet.`, action: { label: "Ouvrir la fiche client", href: `/tableau-de-bord/clients/${client.id}` } };
 
-  const { data: cases } = await supabase.from("client_cases").select("id,title,case_type,pipeline_stage,next_action,updated_at").eq("user_id", userId).in("id", caseIds).order("updated_at", { ascending: false }).limit(1);
+  await Promise.all(caseIds.map((caseId) => recalculateCaseOperatingState(supabase, userId, caseId)));
+  const { data: cases } = await supabase.from("client_cases").select("id,title,case_type,current_stage,pipeline_stage,next_best_action,next_action,next_action_reason,priority_level,missing_items,updated_at").eq("user_id", userId).in("id", caseIds).order("priority_score", { ascending: false }).order("updated_at", { ascending: false }).limit(1);
   const clientCase = cases?.[0];
   if (!clientCase) return null;
   const missing = [!client.phone ? "son téléphone" : "", !client.email ? "son courriel" : ""].filter(Boolean);
@@ -158,7 +184,10 @@ async function findClientCaseAnswer(supabase: Awaited<ReturnType<typeof createSu
   }
   const name = `${client.first_name} ${client.last_name}`.trim();
   const missingText = missing.length ? ` Il manque encore ${joinNatural(missing)}.` : " Les renseignements essentiels sont présents.";
-  return { reply: `${name} est à l’étape « ${String(clientCase.pipeline_stage).replace(/_/g, " ")} » dans ${clientCase.title}.${missingText} La prochaine meilleure action est : ${clientCase.next_action || "continuer le dossier"}.`, action: { label: clientCase.next_action || "Continuer le dossier", href: `/tableau-de-bord/dossiers/${clientCase.id}#a-completer` } };
+  const calculatedMissing = Array.isArray(clientCase.missing_items) ? clientCase.missing_items : [];
+  const allMissing = [...new Set([...missing, ...calculatedMissing])];
+  const operatingMissingText = allMissing.length ? ` Il manque encore ${joinNatural(allMissing)}.` : missingText;
+  return { reply: `${name} est à l’étape « ${String(clientCase.current_stage || clientCase.pipeline_stage).replace(/_/g, " ")} » dans ${clientCase.title}.${operatingMissingText} La prochaine meilleure action est : ${clientCase.next_best_action || clientCase.next_action || "continuer le dossier"}.`, action: { label: clientCase.next_best_action || clientCase.next_action || "Continuer le dossier", href: `/tableau-de-bord/dossiers/${clientCase.id}#a-verifier` } };
 }
 
 function normalizeLookup(value: string) { return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]/g, ""); }
@@ -347,3 +376,4 @@ Réponds directement à ${userName}, comme le ferait un coach d'agence immobili�
 
   return enforceMentorStructure(reply, mentorBrief);
 }
+

@@ -317,6 +317,7 @@ export async function POST(request: Request) {
 
     if (listingId) await insertSellerFacts(supabase, user.id, listingId, analysis, sellerDocumentIds);
     if (buyerCaseId) await insertBuyerFacts(supabase, user.id, buyerCaseId, analysis, buyerDocumentIds);
+    await persistCentralConditions(supabase, user.id, centralCaseId, analysis, centralDocumentIds);
 
     const mergeContext = existingMergeContext || await loadContinuousMergeContext(supabase, user.id, centralCaseId);
     const effectivePersonDecisions: PersonDecision[] = analysis.people.map((person) => ({
@@ -619,6 +620,29 @@ async function insertBuyerFacts(supabase: Awaited<ReturnType<typeof createSupaba
     source_type: fact.sourceType, confidence: fact.confidence, note: fact.note || null,
   }));
   if (rows.length) { const { error } = await supabase.from("buyer_case_facts").insert(rows); if (error) throw error; }
+}
+
+async function persistCentralConditions(supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>, userId: string, caseId: string, analysis: UniversalAnalysis, documents: Map<string, string>) {
+  const conditionFacts = analysis.facts.filter((fact) => {
+    const key = normalizeUniversalValue(`${fact.entity} ${fact.field} ${fact.label}`);
+    return fact.entity === "transaction" && /condition|inspection|financement|echeance|deadline/.test(key);
+  });
+  if (!conditionFacts.length) return;
+  const rows = conditionFacts.map((fact) => {
+    const normalized = normalizeUniversalValue(`${fact.label} ${fact.value}`);
+    const dateMatch = fact.value.match(/\b(20\d{2}-\d{2}-\d{2})(?:[T ](\d{2}:\d{2})(?::\d{2})?)?\b/);
+    const dueAt = dateMatch ? new Date(`${dateMatch[1]}T${dateMatch[2] || "17:00"}:00-04:00`).toISOString() : null;
+    const status = /realisee|satisfaite|levee|waived|satisfied/.test(normalized) ? "satisfied" : "pending";
+    return {
+      user_id: userId, case_id: caseId, document_id: documents.get(fact.sourceName) || null,
+      title: fact.label || "Condition transactionnelle", condition_type: fact.field || "other", status, due_at: dueAt,
+      confirmed_at: status === "satisfied" ? new Date().toISOString() : null,
+      metadata: { value: fact.value, sourceName: fact.sourceName, confidence: fact.confidence, sourceType: fact.sourceType },
+      updated_at: new Date().toISOString(),
+    };
+  });
+  const { error } = await supabase.from("case_conditions").upsert(rows, { onConflict: "case_id,title" });
+  if (error) throw error;
 }
 
 async function conflictWithCleanup(supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>, paths: string[], message: string) {

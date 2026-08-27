@@ -1,6 +1,6 @@
-import { IntelligentPipelineDashboard } from "@/components/intelligent-pipeline-dashboard";
-import { buildPipelineDashboardData } from "@/lib/pipeline-intelligence";
+import { CentralPipelineDashboard } from "@/components/central-pipeline-dashboard";
 
 export default function PipelinePage() {
-  return <IntelligentPipelineDashboard data={buildPipelineDashboardData()} />;
+  return <CentralPipelineDashboard />;
 }
+

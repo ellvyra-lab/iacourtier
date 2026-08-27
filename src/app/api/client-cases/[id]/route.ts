@@ -1,14 +1,16 @@
 import { NextResponse } from "next/server";
 
-import { recalculateCaseOperatingState, transitionCentralCaseStage } from "@/lib/server/crm-operating-system";
+import { recalculateCaseOperatingState, transitionCentralCaseStage, updateCentralCasePipelineMode } from "@/lib/server/crm-operating-system";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 type PatchBody = {
-  target?: "case" | "task" | "automation";
+  target?: "case" | "task" | "automation" | "mode";
   id?: string;
   status?: string;
   pipelineStage?: string;
   nextAction?: string;
+  reason?: string;
+  pipelineMode?: "automatic" | "assisted" | "manual";
 };
 
 export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
@@ -47,7 +49,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
       : { data: [], error: null };
     if (clientsError) return NextResponse.json({ error: clientsError.message }, { status: 500 });
 
-    const [addressesResult, factsResult, conflictsResult, requirementsResult, crmEventsResult, dependenciesResult] = await Promise.all([
+    const [addressesResult, factsResult, conflictsResult, requirementsResult, crmEventsResult, dependenciesResult, conditionsResult] = await Promise.all([
       clientIds.length
         ? supabase.from("client_addresses").select("*").eq("user_id", user.id).in("client_id", clientIds).order("created_at", { ascending: false })
         : Promise.resolve({ data: [], error: null }),
@@ -56,8 +58,9 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
       supabase.from("case_requirements").select("*").eq("case_id", id).eq("user_id", user.id).order("created_at", { ascending: true }),
       supabase.from("crm_events").select("*").eq("case_id", id).eq("user_id", user.id).order("occurred_at", { ascending: false }).limit(100),
       supabase.from("case_dependencies").select("*").eq("user_id", user.id).or(`predecessor_case_id.eq.${id},successor_case_id.eq.${id}`),
+      supabase.from("case_conditions").select("*").eq("case_id", id).eq("user_id", user.id).order("due_at", { ascending: true, nullsFirst: false }),
     ]);
-    const mergeError = addressesResult.error || factsResult.error || conflictsResult.error || requirementsResult.error || crmEventsResult.error || dependenciesResult.error;
+    const mergeError = addressesResult.error || factsResult.error || conflictsResult.error || requirementsResult.error || crmEventsResult.error || dependenciesResult.error || conditionsResult.error;
     if (mergeError) return NextResponse.json({ error: mergeError.message }, { status: 500 });
 
     let financing = null;
@@ -92,6 +95,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
       requirements: requirementsResult.data || [],
       crmEvents: crmEventsResult.data || [],
       dependencies: dependenciesResult.data || [],
+      conditions: conditionsResult.data || [],
     });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Impossible de charger le dossier." }, { status: 500 });
@@ -111,7 +115,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
 
     if (body.target === "case") {
       if (body.pipelineStage) {
-        await transitionCentralCaseStage(supabase, { userId: user.id, caseId, pipelineStage: body.pipelineStage, status: body.status, nextAction: body.nextAction });
+        await transitionCentralCaseStage(supabase, { userId: user.id, caseId, pipelineStage: body.pipelineStage, status: body.status, nextAction: body.nextAction, reason: body.reason, actorType: "user" });
       } else {
         const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
         if (body.status) updates.status = body.status;
@@ -120,6 +124,8 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
         if (error) return NextResponse.json({ error: error.message }, { status: 500 });
         await recalculateCaseOperatingState(supabase, user.id, caseId);
       }
+    } else if (body.target === "mode" && body.pipelineMode) {
+      await updateCentralCasePipelineMode(supabase, { userId: user.id, caseId, mode: body.pipelineMode });
     } else if (body.target === "task" && body.id && body.status) {
       const now = new Date().toISOString();
       const { data: task, error } = await supabase.from("tasks").update({ status: body.status, completed_at: body.status === "completed" ? now : null, updated_at: now }).eq("id", body.id).eq("case_id", caseId).eq("user_id", user.id).select("legacy_source,legacy_id").maybeSingle();

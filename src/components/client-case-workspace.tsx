@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowRight, CheckCircle2, Circle, FileText, LockKeyhole, Loader2, MapPin, Sparkles } from "lucide-react";
+import { AlertTriangle, ArrowRight, CheckCircle2, Circle, FileText, LockKeyhole, Loader2, MapPin, Sparkles } from "lucide-react";
 
 import { SessionStatusNotice, useDashboardAuth } from "@/components/auth/DashboardAuthProvider";
 import { ClientQuickPanel, type QuickClient } from "@/components/client-quick-panel";
@@ -30,6 +30,7 @@ type Payload = {
   requirements: Array<Record<string, any>>;
   crmEvents: Array<Record<string, any>>;
   dependencies: Array<Record<string, any>>;
+  conditions: Array<Record<string, any>>;
 };
 
 export function ClientCaseWorkspace({ caseId, importCompleted = false, addDocument = false }: { caseId: string; importCompleted?: boolean; addDocument?: boolean }) {
@@ -65,6 +66,17 @@ export function ClientCaseWorkspace({ caseId, importCompleted = false, addDocume
     finally { setSavingId(""); }
   }
 
+  async function updateCase(body: Record<string, unknown>) {
+    setSavingId("case");
+    try {
+      const response = await authenticatedFetch(`/api/client-cases/${caseId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const payload = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(payload.error || "Modification impossible.");
+      await load();
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "Modification impossible."); }
+    finally { setSavingId(""); }
+  }
+
   const primary = useMemo(() => data?.clients.find((item) => item.id === data.case.primary_client_id) || data?.clients[0], [data]);
   if (loading || !data) return <div className="flex min-h-96 items-center justify-center">{error ? <p className="text-red-700">{error}</p> : <Loader2 className="h-8 w-8 animate-spin text-teal-700" />}</div>;
   const item = data.case;
@@ -93,6 +105,10 @@ export function ClientCaseWorkspace({ caseId, importCompleted = false, addDocume
     </header>
     <SessionStatusNotice />{error ? <p className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</p> : null}
 
+    {(item.alerts || []).length ? <section className="grid gap-3 md:grid-cols-2">{item.alerts.map((alert: Record<string, any>) => <div key={alert.code} className={`flex gap-3 rounded-2xl border p-4 ${alert.level === "critical" ? "border-red-200 bg-red-50 text-red-950 dark:border-red-900 dark:bg-red-950/30 dark:text-red-100" : "border-amber-200 bg-amber-50 text-amber-950 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100"}`}><AlertTriangle className="h-5 w-5 shrink-0" /><div><strong>{alert.title}</strong><p className="mt-1 text-sm">{alert.detail}</p></div></div>)}</section> : null}
+
+    <section className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900 sm:flex-row sm:items-end sm:justify-between"><div><p className="text-xs font-bold uppercase tracking-wide text-slate-500">Pilotage du pipeline</p>{item.suggested_stage ? <div className="mt-2"><p className="font-semibold">Étape suggérée : {pipelineStages.find((stage) => stage.id === item.suggested_stage)?.label || label(item.suggested_stage)}</p><p className="mt-1 text-xs text-slate-500">{item.suggested_stage_reason} · confiance {Math.round(Number(item.suggestion_confidence || 0) * 100)} %</p></div> : <p className="mt-2 text-sm text-emerald-700">Le dossier est cohérent avec son étape actuelle.</p>}</div><div className="flex flex-wrap items-end gap-2"><label className="text-xs font-semibold text-slate-500">Mode<select value={item.pipeline_mode || "assisted"} disabled={savingId === "case"} onChange={(event) => void updateCase({ target: "mode", pipelineMode: event.target.value })} className="mt-1 block min-h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-white"><option value="assisted">Assisté</option><option value="automatic">Automatique</option><option value="manual">Manuel</option></select></label>{item.suggested_stage ? <button type="button" disabled={savingId === "case"} onClick={() => void updateCase({ target: "case", pipelineStage: item.suggested_stage, reason: item.suggested_stage_reason || "Étape suggérée confirmée" })} className="min-h-10 rounded-xl bg-teal-700 px-4 text-sm font-semibold text-white disabled:opacity-50">Confirmer la suggestion</button> : null}</div></section>
+
     <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
       <Metric title="Progression" value={`${item.pipeline_progress ?? item.progress ?? 0} %`} /><Metric title="Complétude" value={`${item.completion_score ?? 0} %`} /><Metric title="Santé du dossier" value={`${item.health_score ?? 100} %`} /><Metric title="Priorité" value={`${item.priority_score ?? 0} / 100`} />
     </section>
@@ -112,8 +128,9 @@ export function ClientCaseWorkspace({ caseId, importCompleted = false, addDocume
       <Panel title="Informations et provenance" empty="Aucune information extraite.">{data.facts.slice(0, 12).map((fact) => <div key={fact.id} className="rounded-xl border border-slate-200 p-3 text-sm dark:border-slate-800"><div className="flex items-start justify-between gap-3"><strong>{fact.label}</strong><span className={`rounded-full px-2 py-0.5 text-xs ${fact.status === "confirmed" ? "bg-emerald-100 text-emerald-900" : "bg-amber-100 text-amber-900"}`}>{label(fact.status)}</span></div><p className="mt-1">{fact.value_text}</p><p className="mt-1 text-xs text-slate-500">{fact.source_label} · confiance {fact.confidence == null ? "à confirmer" : `${Math.round(Number(fact.confidence) * 100)} %`}</p></div>)}</Panel>
       <Panel title="Conflits de données" empty="Aucun conflit de données.">{data.conflicts.map((conflict) => <div key={conflict.id} className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-100"><strong>{conflict.label}</strong><p className="mt-1">{conflict.current_value} → {conflict.proposed_value}</p><p className="mt-1 text-xs">{label(conflict.status)}{conflict.resolution ? ` · ${label(conflict.resolution)}` : " · validation requise"}</p></div>)}</Panel>
       <Panel title="Automatisations proposées" empty="Aucune automatisation proposée.">{data.automations.map((automation) => <div key={automation.id} className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 p-3 dark:border-slate-800"><span className="inline-flex items-center gap-2 text-sm font-semibold"><Sparkles className="h-4 w-4 text-violet-600" />{automation.name}</span><button type="button" disabled={savingId === automation.id} onClick={() => update("automation", automation.id, automation.status === "approved" ? "disabled" : "approved")} className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold dark:bg-slate-800">{savingId === automation.id ? "…" : label(automation.status)}</button></div>)}</Panel>
+      <Panel title="Conditions et échéances" empty="Aucune condition enregistrée.">{data.conditions.map((condition) => <div key={condition.id} className="rounded-xl border border-slate-200 p-3 text-sm dark:border-slate-800"><div className="flex items-center justify-between gap-3"><strong>{condition.title}</strong><span className={`rounded-full px-2 py-1 text-xs font-semibold ${condition.status === "pending" ? "bg-amber-100 text-amber-900" : "bg-emerald-100 text-emerald-900"}`}>{label(condition.status)}</span></div>{condition.due_at ? <p className="mt-1 text-xs text-slate-500">Échéance : {date(condition.due_at)}</p> : null}</div>)}</Panel>
       <Panel title="Exigences du dossier" empty="Aucune exigence calculée.">{data.requirements.map((requirement) => <div key={requirement.id} className="flex items-center gap-3 rounded-xl border border-slate-200 p-3 dark:border-slate-800">{requirement.status === "complete" ? <CheckCircle2 className="h-5 w-5 text-emerald-600" /> : <Circle className="h-5 w-5 text-amber-600" />}<span><strong className="block text-sm">{requirement.label}</strong><span className="text-xs text-slate-500">{requirement.status === "complete" ? "Complet" : "À compléter"} · {label(requirement.required_for_stage)}</span></span></div>)}</Panel>
-      <Panel title="Historique" empty="Aucun événement.">{[...data.crmEvents.map((event) => ({ id: `crm-${event.id}`, title: eventTitle(event.event_type), created_at: event.occurred_at, details: event.from_stage && event.to_stage ? `${label(event.from_stage)} → ${label(event.to_stage)}` : "" })), ...data.activity].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).slice(0, 100).map((event) => <div key={event.id} className="border-l-2 border-teal-200 pl-4"><strong className="block text-sm">{event.title}</strong><span className="text-xs text-slate-500">{date(event.created_at)}</span>{event.details ? <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">{event.details}</p> : null}</div>)}</Panel>
+      <Panel title="Historique" empty="Aucun événement.">{[...data.crmEvents.map((event) => ({ id: `crm-${event.id}`, title: eventTitle(event.event_type), created_at: event.occurred_at, details: [event.from_stage && event.to_stage ? `${label(event.from_stage)} → ${label(event.to_stage)}` : "", event.cause || "", event.actor_type ? `acteur : ${label(event.actor_type)}` : "", event.confidence == null ? "" : `confiance : ${Math.round(Number(event.confidence) * 100)} %`].filter(Boolean).join(" · ") })), ...data.activity].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).slice(0, 100).map((event) => <div key={event.id} className="border-l-2 border-teal-200 pl-4"><strong className="block text-sm">{event.title}</strong><span className="text-xs text-slate-500">{date(event.created_at)}</span>{event.details ? <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">{event.details}</p> : null}</div>)}</Panel>
     </div>
   </div>;
 }
@@ -129,3 +146,4 @@ function date(value: string) { return new Intl.DateTimeFormat("fr-CA", { dateSty
 function money(value: number | null | undefined) { return value == null ? "À confirmer" : new Intl.NumberFormat("fr-CA", { style: "currency", currency: "CAD", maximumFractionDigits: 0 }).format(value); }
 function missingInformation(data: Payload) { const missing: string[] = []; for (const client of data.clients) { const name = clientName(client); if (!client.email) missing.push(`Courriel manquant — ${name}`); if (!client.phone) missing.push(`Téléphone manquant — ${name}`); } if (data.buyer) { if (!data.buyer.budget && !data.financing?.maximum_purchase_price) missing.push("Budget maximal manquant"); if (!data.buyer.sectors?.length) missing.push("Secteurs recherchés manquants"); if (!data.buyer.property_type) missing.push("Type de propriété recherché manquant"); if (!data.buyer.timeline) missing.push("Échéancier manquant"); if (!data.financing || data.financing.status === "missing") missing.push("Préqualification hypothécaire manquante"); } if (data.seller && !data.case.property_id) missing.push("Propriété à vendre manquante"); return [...new Set(missing)]; }
 function eventTitle(value: string) { return ({ document_uploaded: "Document téléversé", document_ingestion_completed: "Analyse documentaire terminée", client_created: "Dossier central créé", pipeline_stage_changed: "Étape du pipeline modifiée", mandate_signed: "Mandat signé", offer_accepted: "Offre acceptée", condition_due: "Échéance de condition", transaction_closed: "Transaction clôturée" } as Record<string, string>)[value] || label(value); }
+
