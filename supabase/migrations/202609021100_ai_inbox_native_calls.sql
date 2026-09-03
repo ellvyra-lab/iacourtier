@@ -99,11 +99,13 @@ create policy "owner_insert" on public.inbox_captures for insert with check (
   auth.uid() = user_id
   and (client_id is null or exists (select 1 from public.clients c where c.id=client_id and c.user_id=auth.uid()))
   and (case_id is null or exists (select 1 from public.client_cases d where d.id=case_id and d.user_id=auth.uid()))
+  and (property_id is null or exists (select 1 from public.properties p where p.id=property_id and p.user_id=auth.uid()))
 );
 create policy "owner_update" on public.inbox_captures for update using (auth.uid() = user_id) with check (
   auth.uid() = user_id
   and (client_id is null or exists (select 1 from public.clients c where c.id=client_id and c.user_id=auth.uid()))
   and (case_id is null or exists (select 1 from public.client_cases d where d.id=case_id and d.user_id=auth.uid()))
+  and (property_id is null or exists (select 1 from public.properties p where p.id=property_id and p.user_id=auth.uid()))
 );
 create policy "owner_delete" on public.inbox_captures for delete using (auth.uid() = user_id);
 
@@ -116,12 +118,14 @@ create policy "owner_insert" on public.call_activities for insert with check (
   auth.uid() = user_id
   and exists (select 1 from public.clients c where c.id=client_id and c.user_id=auth.uid())
   and (case_id is null or exists (select 1 from public.client_cases d where d.id=case_id and d.user_id=auth.uid()))
+  and (property_id is null or exists (select 1 from public.properties p where p.id=property_id and p.user_id=auth.uid()))
   and (task_id is null or exists (select 1 from public.tasks t where t.id=task_id and t.user_id=auth.uid()))
 );
 create policy "owner_update" on public.call_activities for update using (auth.uid() = user_id) with check (
   auth.uid() = user_id
   and exists (select 1 from public.clients c where c.id=client_id and c.user_id=auth.uid())
   and (case_id is null or exists (select 1 from public.client_cases d where d.id=case_id and d.user_id=auth.uid()))
+  and (property_id is null or exists (select 1 from public.properties p where p.id=property_id and p.user_id=auth.uid()))
   and (task_id is null or exists (select 1 from public.tasks t where t.id=task_id and t.user_id=auth.uid()))
 );
 create policy "owner_delete" on public.call_activities for delete using (auth.uid() = user_id);

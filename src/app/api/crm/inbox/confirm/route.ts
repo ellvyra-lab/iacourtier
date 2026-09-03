@@ -17,6 +17,7 @@ export async function POST(request: Request) {
     if (captureError) return NextResponse.json({ error: captureError.message }, { status: 500 });
     if (!capture) return NextResponse.json({ error: "Analyse introuvable." }, { status: 404 });
     if (capture.status === "confirmed" && capture.case_id) return NextResponse.json({ ok: true, clientId: capture.client_id, caseId: capture.case_id, reused: true });
+    if (Array.isArray(capture.ambiguity) && capture.ambiguity.length > 0 && !body.clientId) return NextResponse.json({ error: "Choisis la fiche existante à relier avant de confirmer. Aucun doublon ne sera créé automatiquement." }, { status: 409 });
     const analysis = capture.analysis as InboxAnalysis & { engine?: string };
     let client = body.clientId ? await ownedClient(supabase, user.id, body.clientId) : null;
     if (body.clientId && !client) return NextResponse.json({ error: "Le client choisi n’appartient pas à ce compte." }, { status: 403 });
@@ -54,7 +55,7 @@ export async function POST(request: Request) {
 
     let propertyId: string | null = null;
     if (analysis.property.address) {
-      const { data: existing } = await supabase.from("properties").select("id").eq("user_id", user.id).ilike("address", analysis.property.address).maybeSingle();
+      const { data: existing } = await supabase.from("properties").select("id").eq("user_id", user.id).eq("address", analysis.property.address).limit(1).maybeSingle();
       if (existing) propertyId = existing.id;
       else {
         const { data, error } = await supabase.from("properties").insert({ user_id: user.id, address: analysis.property.address, city: analysis.property.city || "", property_type: analysis.property.propertyType || null }).select("id").single();

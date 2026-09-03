@@ -24,6 +24,7 @@ test("capture — analyse avant confirmation et protège les doublons", () => {
   assert.match(analyze, /from\("inbox_captures"\)\.insert/);
   assert.doesNotMatch(analyze, /from\("clients"\)\.insert/);
   assert.match(confirm, /findCertainClient/);
+  assert.match(confirm, /capture\.ambiguity/);
   assert.match(confirm, /ensureCentralCase/);
   assert.match(confirm, /from\("tasks"\)\.upsert/);
 });
@@ -56,5 +57,6 @@ test("migration — étend les tâches centrales et applique les politiques prop
   assert.match(migration, /create table if not exists public\.call_activities/);
   assert.match(migration, /create table if not exists public\.inbox_captures/);
   assert.match(migration, /auth\.uid\(\) = user_id/);
+  assert.match(migration, /p\.user_id=auth\.uid\(\)/);
 });
 

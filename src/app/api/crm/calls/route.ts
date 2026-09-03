@@ -42,6 +42,10 @@ export async function POST(request: Request) {
     const phone = normalizePhone(client.phone);
     if (!phone) return NextResponse.json({ error: "Ajoute un numéro de téléphone valide à la fiche client." }, { status: 400 });
     if (body.caseId && !(await ownsCase(supabase, user.id, client.id, body.caseId))) return NextResponse.json({ error: "Ce dossier n’est pas relié à ce client." }, { status: 403 });
+    if (body.propertyId) {
+      const { data: property } = await supabase.from("properties").select("id").eq("id", body.propertyId).eq("user_id", user.id).maybeSingle();
+      if (!property) return NextResponse.json({ error: "Cette propriété n’appartient pas à ce compte." }, { status: 403 });
+    }
     if (body.taskId) {
       const { data: task } = await supabase.from("tasks").select("id").eq("id", body.taskId).eq("user_id", user.id).eq("client_id", client.id).maybeSingle();
       if (!task) return NextResponse.json({ error: "Cette tâche d’appel n’est pas reliée au client." }, { status: 403 });
