@@ -3,6 +3,7 @@ import { DashboardSidebar } from "@/components/dashboard/DashboardSidebar";
 import { DashboardTopbar } from "@/components/dashboard/DashboardTopbar";
 import { DashboardMobileNav } from "@/components/dashboard/DashboardMobileNav";
 import { DashboardAuthGate, DashboardAuthProvider } from "@/components/auth/DashboardAuthProvider";
+import { UniversalQuickCapture } from "@/components/universal-quick-capture";
 
 export const metadata: Metadata = {
   title: "Tableau de bord",
@@ -24,8 +25,10 @@ export default function DashboardLayout({
             <DashboardMobileNav />
             <main className="min-w-0 flex-1 p-4 sm:p-6">{children}</main>
           </div>
+          <UniversalQuickCapture floating />
         </div>
       </DashboardAuthGate>
     </DashboardAuthProvider>
   );
 }
+

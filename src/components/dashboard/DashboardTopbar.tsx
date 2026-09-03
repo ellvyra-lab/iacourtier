@@ -15,6 +15,7 @@ const titles: Record<string, string> = {
   "/tableau-de-bord/pipeline": "Clients & dossiers",
   "/tableau-de-bord/coach": "Coach IA",
   "/tableau-de-bord/coach/appels": "Faire mes appels",
+  "/tableau-de-bord/appels": "Appels à faire",
   "/tableau-de-bord/prospects": "Faire mes suivis",
   "/tableau-de-bord/formations": "Formations",
   "/tableau-de-bord/prompts": "Recherche de prompts",
@@ -92,3 +93,4 @@ function titleFromPath(pathname: string) {
 function TopbarMenuLink({ href, label, icon: Icon, highlighted = false }: { href: string; label: string; icon: typeof Star; highlighted?: boolean }) {
   return <Link href={href} className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition ${highlighted ? "bg-electric-500/10 font-semibold text-electric-500" : "text-muted hover:bg-background hover:text-foreground"}`}><Icon size={16} />{label}</Link>;
 }
+

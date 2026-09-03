@@ -5,6 +5,8 @@ import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, ExternalLink, FilePlus2, Loader2, Mail, MapPin, MoreHorizontal, NotebookPen, Phone, Save, UserRound, X } from "lucide-react";
 
 import { useDashboardAuth } from "@/components/auth/DashboardAuthProvider";
+import { CrmCallButton } from "@/components/crm-call-button";
+import { formatPhone } from "@/lib/crm-phone";
 
 export type QuickClient = {
   id: string;
@@ -105,14 +107,14 @@ export function ClientQuickPanel({ client, caseId = null, caseLabel, returnHref,
           <MenuButton icon={<NotebookPen className="h-4 w-4" />} label="Ajouter une note" onClick={() => show("note")} />
           {caseId ? <MenuButton icon={<Save className="h-4 w-4" />} label="Ajouter une tâche" onClick={() => show("task")} /> : null}
           <Link href={documentHref} className="flex items-center gap-2 rounded-xl px-3 py-2 hover:bg-slate-100 dark:hover:bg-slate-800"><FilePlus2 className="h-4 w-4" />Ajouter un document</Link>
-          {current.phone ? <a href={`tel:${current.phone}`} className="flex items-center gap-2 rounded-xl px-3 py-2 hover:bg-slate-100 dark:hover:bg-slate-800"><Phone className="h-4 w-4" />Appeler</a> : null}
           {current.email ? <a href={`mailto:${current.email}`} className="flex items-center gap-2 rounded-xl px-3 py-2 hover:bg-slate-100 dark:hover:bg-slate-800"><Mail className="h-4 w-4" />Envoyer un courriel</a> : null}
         </div></details>
       </div>
       <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-sm text-slate-500">
         {current.email ? <a href={`mailto:${current.email}`} className="hover:text-teal-700">{current.email}</a> : <MissingButton label="Courriel à compléter" onClick={() => show("profile", "email")} />}
-        {current.phone ? <a href={`tel:${current.phone}`} className="hover:text-teal-700">{current.phone}</a> : <MissingButton label="Téléphone à compléter" onClick={() => show("profile", "phone")} />}
+        {current.phone ? <span>{formatPhone(current.phone)}</span> : <MissingButton label="Téléphone à compléter" onClick={() => show("profile", "phone")} />}
       </div>
+      <div className="mt-3"><CrmCallButton compact clientId={current.id} caseId={caseId} phone={current.phone} clientName={name} /></div>
       {current.mailing_address ? <button type="button" onClick={() => show("profile", "mailingAddress")} className="mt-2 text-left text-xs text-slate-500 hover:text-teal-700">Adresse personnelle : {[current.mailing_address, current.city, current.postal_code].filter(Boolean).join(", ")}</button> : <div className="mt-2"><MissingButton label="Adresse personnelle à compléter" onClick={() => show("profile", "mailingAddress")} /></div>}
     </article>
 
@@ -147,3 +149,4 @@ function MissingButton({ label, onClick }: { label: string; onClick: () => void 
 function MenuButton({ icon, label, onClick }: { icon: React.ReactNode; label: string; onClick: () => void }) { return <button type="button" onClick={onClick} className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left hover:bg-slate-100 dark:hover:bg-slate-800">{icon}{label}</button>; }
 function Tab({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) { return <button type="button" onClick={onClick} className={`rounded-full px-3 py-1.5 font-semibold ${active ? "bg-teal-100 text-teal-900 dark:bg-teal-950 dark:text-teal-100" : "text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"}`}>{children}</button>; }
 function Field({ label, value, onChange, type = "text", autoFocus = false, hint }: { label: string; value: string; onChange: (value: string) => void; type?: string; autoFocus?: boolean; hint?: string }) { return <label className="block text-sm font-semibold"><span>{label}</span><input type={type} value={value} onChange={(event) => onChange(event.target.value)} autoFocus={autoFocus} className="mt-2 min-h-11 w-full rounded-xl border border-slate-200 bg-white px-3 font-normal dark:border-slate-700 dark:bg-slate-900" />{hint ? <span className="mt-1 block text-xs font-normal text-slate-500">{hint}</span> : null}</label>; }
+

@@ -7,6 +7,8 @@ import { ArrowLeft, ArrowRight, CalendarDays, FileText, Home, Loader2, Mail, Map
 import { SessionStatusNotice, useDashboardAuth } from "@/components/auth/DashboardAuthProvider";
 import { ClientQuickPanel, type QuickClient } from "@/components/client-quick-panel";
 import { PropertyQuickCard } from "@/components/property-quick-card";
+import { CrmCallButton } from "@/components/crm-call-button";
+import { formatPhone } from "@/lib/crm-phone";
 
 type Payload = {
   client: QuickClient & Record<string, any>;
@@ -54,7 +56,8 @@ export function Client360Workspace({ clientId, returnHref, returnLabel }: { clie
     <nav className="flex flex-wrap items-center gap-2 text-sm text-slate-500">{returnHref ? <Link href={returnHref} className="inline-flex items-center gap-2 font-semibold text-teal-700"><ArrowLeft className="h-4 w-4" />Retour {returnLabel ? `à ${returnLabel}` : "au dossier"}</Link> : <><Link href="/tableau-de-bord/clients" className="hover:text-teal-700">Clients & dossiers</Link><span>›</span><span>{name}</span></>}</nav>
     <header className="rounded-3xl bg-slate-950 p-6 text-white shadow-xl dark:bg-slate-900">
       <p className="text-sm font-semibold text-teal-300">Fiche client 360</p><h1 className="mt-2 text-3xl font-semibold">{name}</h1>
-      <div className="mt-4 flex flex-wrap gap-x-5 gap-y-2 text-sm text-slate-300">{client.phone ? <span className="inline-flex items-center gap-2"><Phone className="h-4 w-4" />{client.phone}</span> : null}{client.email ? <span className="inline-flex items-center gap-2"><Mail className="h-4 w-4" />{client.email}</span> : null}{client.mailing_address ? <span className="inline-flex items-center gap-2"><Home className="h-4 w-4" />{[client.mailing_address, client.city, client.postal_code].filter(Boolean).join(", ")}</span> : null}</div>
+      <div className="mt-4 flex flex-wrap gap-x-5 gap-y-2 text-sm text-slate-300">{client.phone ? <span className="inline-flex items-center gap-2"><Phone className="h-4 w-4" />{formatPhone(client.phone)}</span> : null}{client.email ? <span className="inline-flex items-center gap-2"><Mail className="h-4 w-4" />{client.email}</span> : null}{client.mailing_address ? <span className="inline-flex items-center gap-2"><Home className="h-4 w-4" />{[client.mailing_address, client.city, client.postal_code].filter(Boolean).join(", ")}</span> : null}</div>
+      <div className="mt-4"><CrmCallButton clientId={client.id} caseId={data.cases[0]?.id || null} propertyId={data.cases[0]?.property_id || null} phone={client.phone} clientName={name} onCompleted={() => void load()} /></div>
       <div className="mt-4 flex flex-wrap gap-2">{[...(client.roles || []), ...(client.tags || [])].map((tag: string) => <span key={tag} className="rounded-full bg-white/10 px-3 py-1 text-xs font-semibold">{label(tag)}</span>)}</div>
     </header>
     <SessionStatusNotice />
@@ -93,3 +96,4 @@ function groupTasks(tasks: Array<Record<string, any>>) { const open = tasks.filt
 function formatDate(value?: string) { if (!value) return "Date à confirmer"; return new Intl.DateTimeFormat("fr-CA", { dateStyle: "medium", timeStyle: value.includes("T") ? "short" : undefined }).format(new Date(value)); }
 function label(value?: string) { return (value || "").replace(/_/g, " ").replace(/^./, (letter) => letter.toUpperCase()); }
 function caseType(value: string) { return ({ buyer: "Acheteur", seller: "Vendeur", buy_sell: "Acheteur + vendeur", prospect: "Prospect", renewal: "Renouvellement", post_transaction: "Après-vente", other: "Autre" } as Record<string, string>)[value] || label(value); }
+

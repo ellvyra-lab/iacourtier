@@ -1,5 +1,6 @@
-import { CallIntelligenceDashboard } from "@/components/call-intelligence-dashboard";
+import { CallsToMakeDashboard } from "@/components/calls-to-make-dashboard";
 
 export default function CoachCallsPage() {
-  return <CallIntelligenceDashboard />;
+  return <CallsToMakeDashboard />;
 }
+

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, Bot, CalendarDays, FileInput, FileText, LayoutDashboard, Megaphone, Radar, Settings, ShieldCheck, Sparkles, UsersRound, Workflow } from "lucide-react";
+import { BarChart3, Bot, CalendarDays, FileInput, FileText, LayoutDashboard, Megaphone, PhoneCall, Radar, Settings, ShieldCheck, Sparkles, UsersRound, Workflow } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { useDashboardAuth } from "@/components/auth/DashboardAuthProvider";
@@ -11,6 +11,7 @@ import { LogoutButton } from "./LogoutButton";
 const main = [
   { href: "/tableau-de-bord", label: "Accueil", icon: LayoutDashboard },
   { href: "/tableau-de-bord/clients", label: "Clients & dossiers", icon: UsersRound },
+  { href: "/tableau-de-bord/appels", label: "Appels à faire", icon: PhoneCall },
   { href: "/tableau-de-bord/radar-prospection", label: "Prospection", icon: Radar },
   { href: "/tableau-de-bord/actions/prepare-market-analysis", label: "Calendrier", icon: CalendarDays },
   { href: "/tableau-de-bord/coach", label: "Coach IA", icon: Bot },
@@ -36,3 +37,4 @@ export function DashboardSidebar() {
 
 function NavGroup({ items, pathname }: { items: typeof main; pathname: string }) { return <div className="space-y-1">{items.map((item) => <NavLink key={item.href} {...item} active={item.href === "/tableau-de-bord" ? pathname === item.href : pathname.startsWith(item.href)} />)}</div>; }
 function NavLink({ href, label, icon: Icon, active }: { href: string; label: string; icon: typeof LayoutDashboard; active: boolean }) { return <Link href={href} className={cn("flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors", active ? "bg-electric-500/10 font-medium text-electric-500" : "text-muted hover:bg-[var(--bg)] hover:text-[var(--fg)]")}><Icon size={16} />{label}</Link>; }
+
