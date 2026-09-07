@@ -11,7 +11,7 @@ import { UniversalQuickCapture } from "@/components/universal-quick-capture";
 type ClientCase = { id: string; case_type: "seller" | "buyer" | "buy_sell" | "prospect" | "renewal" | "post_transaction" | "other"; title: string; status: string; pipeline_stage: string; progress: number; next_action?: string; property?: { address?: string } | Array<{ address?: string }> };
 type RecentClient = { id: string; name: string; cases: ClientCase[] };
 type CoachAnswer = { reply: string; action: { label: string; href: string } };
-type DayData = { tasks: Array<{ id: string; case_id: string; title: string; due_at?: string; action_type?: string; priority_score?: number }>; appointments: Array<{ id: string; case_id?: string; title: string; starts_at: string }>; nextActions: Array<{ id: string; title: string; next_action: string; next_action_reason?: string; priority_score: number }>; counts: { followUps: number; calls: number; appointments: number; documents: number; overdue: number } };
+type DayData = { tasks: Array<{ id: string; case_id: string; title: string; due_at?: string; due_on?: string; due_context?: string; action_type?: string; priority_score?: number }>; appointments: Array<{ id: string; case_id?: string; title: string; starts_at: string }>; nextActions: Array<{ id: string; title: string; next_action: string; next_action_reason?: string; priority_score: number }>; counts: { followUps: number; calls: number; appointments: number; documents: number; overdue: number } };
 
 const actions: Array<{ icon: ElementType; label: string; href: string; primary?: boolean }> = [
   { icon: FileUp, label: "Importer un document ou une conversation", href: "/tableau-de-bord/importer", primary: true },
@@ -50,7 +50,7 @@ export function GuidedHomeDashboard() {
   const recentCases = useMemo(() => clients.flatMap((client) => client.cases.map((item) => ({ ...item, clientName: client.name }))).slice(0, 3), [clients]);
   const priorities = useMemo(() => {
     const operations = [
-      ...day.tasks.map((task) => ({ title: task.title, detail: task.due_at ? `Tâche · ${formatDayDate(task.due_at)}` : "Tâche à planifier", href: `/tableau-de-bord/dossiers/${task.case_id}` })),
+      ...day.tasks.map((task) => ({ title: task.title, detail: task.due_at ? `Tâche · ${formatDayDate(task.due_at)}` : task.due_on ? `Tâche · ${task.due_context || formatDueOn(task.due_on)}` : task.due_context ? `Tâche · ${task.due_context}` : "Tâche à planifier", href: `/tableau-de-bord/dossiers/${task.case_id}` })),
       ...day.appointments.map((appointment) => ({ title: appointment.title, detail: `Rendez-vous · ${formatDayDate(appointment.starts_at)}`, href: appointment.case_id ? `/tableau-de-bord/dossiers/${appointment.case_id}` : "/tableau-de-bord/clients" })),
     ];
     const central = day.nextActions.map((item) => ({ title: item.next_action, detail: `${item.title} · ${item.next_action_reason || `priorité ${item.priority_score}/100`}`, href: `/tableau-de-bord/dossiers/${item.id}` }));
@@ -117,4 +117,5 @@ function inferHomeIntent(message: string): CoachAnswer | null {
   return null;
 }
 function formatDayDate(value: string) { return new Intl.DateTimeFormat("fr-CA", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)); }
+function formatDueOn(value: string) { return new Intl.DateTimeFormat("fr-CA", { dateStyle: "medium", timeZone: "UTC" }).format(new Date(`${value}T00:00:00Z`)); }
 
