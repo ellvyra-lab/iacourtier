@@ -48,7 +48,7 @@ import {
   type RadarQuotaState,
 } from "@/lib/radar-quota";
 import { coachSalesCall, type CallCoachSuggestion } from "@/lib/sales-intelligence";
-import { addProspectHistory, createSellerProspectFromRadar } from "@/lib/sonia-beta";
+import { createSellerProspectFromRadar } from "@/lib/sonia-beta";
 import { cn } from "@/lib/utils";
 import { VoiceDictationButton } from "@/components/voice-dictation-button";
 
@@ -194,7 +194,7 @@ export function ProspectionRadar() {
     return Array.from(merged.values()).sort((a, b) => b.opportunityScore - a.opportunityScore);
   }, [filtered, isUnlimitedRadar, unlockedRadarOpportunities]);
   const selectedVisible = visibleRadarOpportunities.find((item) => item.id === selectedId) || visibleRadarOpportunities[0];
-  const selectedReachabilityProspect = opportunities.find((item) => item.id === reachabilityProspectId) || selectedVisible;
+  const selectedReachabilityProspect = opportunities.find((item) => item.id === reachabilityProspectId) || null;
   const unlockedAverageScore = Math.round(unlockedRadarOpportunities.reduce((total, item) => total + item.opportunityScore, 0) / Math.max(unlockedRadarOpportunities.length, 1));
   const unlockedHighPriorityCount = unlockedRadarOpportunities.filter((item) => String(item.priority).toLowerCase().includes("lev")).length;
 
@@ -406,6 +406,7 @@ export function ProspectionRadar() {
   function openReachabilityPanel(prospectId: string) {
     setReachabilityProspectId(prospectId);
     setSelectedId(prospectId);
+    window.setTimeout(() => document.getElementById("radar-reachability")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
   }
 
   function updateProspectLocal(prospectId: string, patch: Partial<ProspectRecord>) {
@@ -746,7 +747,7 @@ export function ProspectionRadar() {
         {selectedVisible ? <ActionsPanel opportunity={selectedVisible} style={communicationStyle} onStyleChange={setCommunicationStyle} copied={copied} onCopy={copyAction} /> : <LockedActionsPanel />}
       </div>
 
-      {selectedReachabilityProspect ? <ReachabilityPanel prospect={selectedReachabilityProspect} onUpdate={updateProspectLocal} /> : null}
+      {selectedReachabilityProspect ? <ReachabilityPanel prospect={selectedReachabilityProspect} onUpdate={updateProspectLocal} onClose={() => setReachabilityProspectId("")} /> : null}
     </div>
   );
 }
@@ -947,7 +948,6 @@ function OpportunityCard({
   onFindReachability: (prospectId: string) => void;
 }) {
   const router = useRouter();
-  const [callStatus, setCallStatus] = useState("");
   const [crmStatus, setCrmStatus] = useState("");
 
   function createSellerProspect() {
@@ -968,34 +968,6 @@ function OpportunityCard({
       if (!response.ok || !payload.primaryHref) throw new Error(payload.error || "Liaison CRM impossible.");
       router.push(payload.primaryHref);
     } catch (reason) { setCrmStatus(reason instanceof Error ? reason.message : "Liaison CRM impossible."); }
-  }
-
-  async function startCall() {
-    if (!opportunity.phone) {
-      const prospect = createSellerProspectFromRadar(opportunity);
-      addProspectHistory(prospect.id, {
-        title: "Appel démo lancé depuis le Radar",
-        description: "Mode Sonia Beta : appel simulé créé. Notez le résultat de l’appel pour obtenir le feedback Coach et la prochaine relance.",
-        type: "call",
-      });
-      router.push(`/tableau-de-bord/prospects/${prospect.id}?demoCall=1`);
-      return;
-    }
-
-    setCallStatus("Consentement requis avant tout enregistrement. Démarrage...");
-    const response = await fetch("/api/calls/start", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        to: opportunity.phone,
-        prospectId: opportunity.id,
-        recordingEnabled: true,
-        provider: "twilio",
-        radarContext: buildRadarActionContext(opportunity, "Appel téléphonique"),
-      }),
-    });
-    const payload = (await response.json()) as { message?: string; error?: string };
-    setCallStatus(payload.error || payload.message || "Appel lancé.");
   }
 
   return (
@@ -1068,23 +1040,29 @@ function OpportunityCard({
       </button>
       {crmStatus ? <p className="mt-2 text-xs leading-5 text-slate-500 dark:text-slate-400">{crmStatus}</p> : null}
       <button type="button" onClick={createSellerProspect} className="mt-2 w-full text-xs font-semibold text-slate-500 hover:text-teal-700">Ouvrir l’ancienne fiche de prospection</button>
-      <button
-        type="button"
-        onClick={() => onFindReachability(opportunity.id)}
-        className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm font-semibold text-indigo-800 transition hover:bg-indigo-100 dark:border-indigo-900 dark:bg-indigo-950/30 dark:text-indigo-100 dark:hover:bg-indigo-950/50"
-      >
-        <Search className="h-4 w-4" />
-        Trouver comment le joindre
-      </button>
-      <button
-        type="button"
-        onClick={startCall}
-        className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-teal-200 bg-teal-50 px-4 py-3 text-sm font-semibold text-teal-800 transition hover:bg-teal-100 dark:border-teal-900 dark:bg-teal-950/30 dark:text-teal-100 dark:hover:bg-teal-950/50"
-      >
-        <Phone className="h-4 w-4" />
-        Appeler
-      </button>
-      {callStatus ? <p className="mt-2 text-xs leading-5 text-slate-500 dark:text-slate-400">{callStatus}</p> : null}
+      {opportunity.phone ? (
+        <>
+          <a
+            href={`tel:${opportunity.phone.replace(/[^\d+]/g, "")}`}
+            className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-4 text-base font-bold text-white transition hover:bg-emerald-700"
+          >
+            <Phone className="h-5 w-5" />
+            Appeler {opportunity.phone}
+          </a>
+          <button type="button" onClick={() => onFindReachability(opportunity.id)} className="mt-2 w-full text-xs font-semibold text-indigo-700 hover:underline dark:text-indigo-300">
+            Vérifier ou ajouter une coordonnée
+          </button>
+        </>
+      ) : (
+        <button
+          type="button"
+          onClick={() => onFindReachability(opportunity.id)}
+          className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm font-semibold text-indigo-800 transition hover:bg-indigo-100 dark:border-indigo-900 dark:bg-indigo-950/30 dark:text-indigo-100 dark:hover:bg-indigo-950/50"
+        >
+          <Search className="h-4 w-4" />
+          Trouver comment le joindre
+        </button>
+      )}
       <Link
         href={`/tableau-de-bord/coach?scenario=radar_owner&city=${encodeURIComponent(opportunity.city)}`}
         className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-950"
@@ -1142,127 +1120,277 @@ function buildRadarActionContext(opportunity: ProspectRecord, channel: string) {
   };
 }
 
-function ReachabilityPanel({ prospect, onUpdate }: { prospect: ProspectRecord; onUpdate: (prospectId: string, patch: Partial<ProspectRecord>) => void }) {
-  const [phoneValue, setPhoneValue] = useState("");
-  const [emailValue, setEmailValue] = useState("");
-  const [letter, setLetter] = useState("");
+type ReachabilityHistory = {
+  id: string;
+  event_type: string;
+  source_type: string;
+  source_url?: string | null;
+  title: string;
+  details?: string | null;
+  created_at: string;
+};
+
+type ReachabilitySnapshot = {
+  linked?: boolean;
+  clientId?: string;
+  caseId?: string;
+  contact?: {
+    name?: string;
+    phone?: string | null;
+    email?: string | null;
+    facebookUrl?: string | null;
+    links?: Array<{ link_type: "facebook" | "other"; label?: string | null; url: string }>;
+  } | null;
+  history?: ReachabilityHistory[];
+  error?: string;
+};
+
+function ReachabilityPanel({ prospect, onUpdate, onClose }: { prospect: ProspectRecord; onUpdate: (prospectId: string, patch: Partial<ProspectRecord>) => void; onClose: () => void }) {
+  const [nameValue, setNameValue] = useState(prospect.ownerName || prospect.contactName || "");
+  const [contactType, setContactType] = useState<"phone" | "email" | "facebook" | "other">("phone");
+  const [contactValue, setContactValue] = useState(prospect.phone || "");
+  const [linkLabel, setLinkLabel] = useState("");
+  const [sourceUrl, setSourceUrl] = useState("");
+  const [identityConfirmed, setIdentityConfirmed] = useState(false);
+  const [snapshot, setSnapshot] = useState<ReachabilitySnapshot>({ history: [] });
   const [status, setStatus] = useState("");
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+
+  const prospectPayload = useMemo(() => ({
+    key: prospect.id,
+    name: nameValue,
+    address: prospect.address,
+    city: prospect.city,
+    province: prospect.province || "Québec",
+    postalCode: prospect.postalCode || "",
+    propertyType: prospect.propertyType,
+    reason: prospect.reason,
+    source: sourceLabel(prospect.source),
+  }), [nameValue, prospect]);
+
+  const displayPhone = snapshot.contact?.phone || prospect.phone || "";
+  const displayEmail = snapshot.contact?.email || prospect.email || "";
+  const displayFacebook = snapshot.contact?.facebookUrl || prospect.facebookUrl || "";
+  const contactName = nameValue.trim();
+  const quotedName = contactName ? `"${contactName}"` : "";
+  const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([prospect.address, prospect.city, prospect.province || "Québec", prospect.postalCode || ""].filter(Boolean).join(", "))}`;
+  const searchOptions = [
+    { source: "google" as const, label: "Nom + ville", query: `${quotedName} "${prospect.city}"` },
+    { source: "google" as const, label: "Nom + adresse", query: `${quotedName} "${prospect.address}"` },
+    { source: "google" as const, label: "Nom + téléphone", query: `${quotedName} téléphone` },
+    { source: "google" as const, label: "Nom + immobilier", query: `${quotedName} immobilier "${prospect.city}"` },
+    { source: "google" as const, label: "Nom exact", query: quotedName || `"${prospect.address}"` },
+    { source: "google_facebook" as const, label: "Google → Facebook", query: `site:facebook.com ${quotedName} "${prospect.city}"` },
+  ].map((item) => ({ ...item, url: `https://www.google.com/search?q=${encodeURIComponent(item.query.trim())}` }));
 
   useEffect(() => {
-    setPhoneValue(prospect.phone || "");
-    setEmailValue(prospect.email || "");
+    setNameValue(prospect.ownerName || prospect.contactName || "");
+    setContactType("phone");
+    setContactValue(prospect.phone || "");
+    setLinkLabel("");
+    setSourceUrl("");
+    setIdentityConfirmed(false);
     setStatus("");
-    setLetter("");
-  }, [prospect.id, prospect.phone, prospect.email]);
+    void loadReachability();
+    // Recharger uniquement lorsqu'une autre opportunité est ouverte.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prospect.id]);
 
-  function openGoogleSearch() {
-    const base = prospect.ownerName || prospect.contactName ? `${prospect.ownerName || prospect.contactName} ${prospect.address} ${prospect.city}` : `${prospect.address} ${prospect.city}`;
-    const url = `https://www.google.com/search?q=${encodeURIComponent(base)}`;
-    window.open(url, "_blank", "noopener,noreferrer");
+  async function loadReachability() {
+    setIsLoading(true);
+    try {
+      const response = await fetch(`/api/radar/reachability?prospectKey=${encodeURIComponent(prospect.id)}`, { cache: "no-store" });
+      const payload = await response.json() as ReachabilitySnapshot;
+      if (!response.ok) throw new Error(payload.error || "La recherche n’a pas pu être chargée.");
+      setSnapshot(payload);
+      if (payload.contact?.name) setNameValue(payload.contact.name);
+      syncProspect(payload);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "La recherche n’a pas pu être chargée.");
+    } finally {
+      setIsLoading(false);
+    }
   }
 
-  function openFacebookSearch() {
-    const base = prospect.ownerName || prospect.contactName ? `${prospect.ownerName || prospect.contactName} ${prospect.city}` : `${prospect.address} ${prospect.city}`;
-    const url = `https://www.facebook.com/search/top?q=${encodeURIComponent(base)}`;
-    window.open(url, "_blank", "noopener,noreferrer");
+  function syncProspect(payload: ReachabilitySnapshot) {
+    if (!payload.contact) return;
+    onUpdate(prospect.id, {
+      phone: payload.contact.phone || undefined,
+      email: payload.contact.email || undefined,
+      facebookUrl: payload.contact.facebookUrl || undefined,
+      publicLinks: payload.contact.links?.map((link) => ({ type: link.link_type, label: link.label || undefined, url: link.url })),
+      clientId: payload.clientId,
+      caseId: payload.caseId,
+      contactStatus: payload.contact.phone ? "a_contacter" : "nouveau",
+    });
   }
 
-  function openMaps() {
-    const fullAddress = [prospect.address, prospect.city, prospect.province || "", prospect.postalCode || ""].filter(Boolean).join(", ");
-    const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(fullAddress)}`;
+  function openSearch(source: "google" | "facebook" | "google_facebook" | "google_maps" | "web_ai", label: string, url: string) {
     window.open(url, "_blank", "noopener,noreferrer");
+    void fetch("/api/radar/reachability", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "log_search", prospect: prospectPayload, searchSource: source, searchLabel: label, searchUrl: url }),
+    }).then(async (response) => {
+      if (response.ok) await loadReachability();
+    });
   }
 
-  function addPhone() {
-    const value = phoneValue.trim();
-    if (!value) {
-      setStatus("Entrez un téléphone avant de sauvegarder.");
+  async function confirmContact() {
+    if (!identityConfirmed) {
+      setStatus("Cochez d’abord « C’est la bonne personne ».");
       return;
     }
-    onUpdate(prospect.id, { phone: value });
-    setStatus("Téléphone ajouté localement.");
-  }
-
-  function addEmail() {
-    const value = emailValue.trim();
-    if (!value) {
-      setStatus("Entrez un courriel avant de sauvegarder.");
-      return;
+    setIsSaving(true);
+    setStatus("Vérification des doublons et enregistrement dans le CRM central…");
+    try {
+      const response = await fetch("/api/radar/reachability", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "confirm_contact", prospect: prospectPayload, contactType, value: contactValue, label: linkLabel, sourceUrl, identityConfirmed }),
+      });
+      const payload = await response.json() as ReachabilitySnapshot;
+      if (!response.ok) throw new Error(payload.error || "La coordonnée n’a pas pu être enregistrée.");
+      setSnapshot(payload);
+      syncProspect(payload);
+      setStatus("Coordonnée confirmée et enregistrée dans le CRM central avec sa provenance.");
+      setContactValue("");
+      setSourceUrl("");
+      setIdentityConfirmed(false);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "La coordonnée n’a pas pu être enregistrée.");
+    } finally {
+      setIsSaving(false);
     }
-    onUpdate(prospect.id, { email: value });
-    setStatus("Courriel ajouté localement.");
   }
 
-  function prepareLetter() {
-    const owner = prospect.ownerName || prospect.contactName || "Madame, Monsieur";
-    const generated =
-      `Objet : Information immobilière pour ${prospect.address}\n\n` +
-      `${owner},\n\n` +
-      `Je me permets de vous écrire concernant la propriété située au ${prospect.address}, ${prospect.city}. ` +
-      `Je peux vous fournir un court portrait du marché local et de la valeur actuelle, sans engagement.\n\n` +
-      `Si cela vous convient, je peux vous proposer un court échange cette semaine.\n\n` +
-      `Cordialement,\nVotre courtier`;
-    setLetter(generated);
-    setStatus("Lettre préparée.");
+  async function createFollowUp() {
+    setIsSaving(true);
+    setStatus("Création du suivi dans le dossier CRM…");
+    try {
+      const response = await fetch("/api/radar/reachability", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "create_followup", prospect: prospectPayload }),
+      });
+      const payload = await response.json() as ReachabilitySnapshot;
+      if (!response.ok) throw new Error(payload.error || "Le suivi n’a pas pu être créé.");
+      setSnapshot(payload);
+      syncProspect(payload);
+      setStatus("Suivi créé pour demain dans le dossier CRM.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Le suivi n’a pas pu être créé.");
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  function chooseContactType(type: typeof contactType) {
+    setContactType(type);
+    setContactValue(type === "phone" ? displayPhone : type === "email" ? displayEmail : type === "facebook" ? displayFacebook : "");
+    setIdentityConfirmed(false);
+  }
+
+  async function copyEmail() {
+    if (!displayEmail) return;
+    await navigator.clipboard.writeText(displayEmail);
+    setStatus("Courriel copié.");
   }
 
   return (
-    <section className="rounded-lg border border-indigo-200 bg-indigo-50/50 p-5 shadow-sm dark:border-indigo-900 dark:bg-indigo-950/25">
-      <h2 className="text-lg font-semibold tracking-tight text-indigo-950 dark:text-indigo-100">Trouver comment le joindre</h2>
-      <div className="mt-3 grid gap-2 text-sm text-indigo-950/85 dark:text-indigo-100/85 sm:grid-cols-2 lg:grid-cols-4">
-        <p><span className="font-semibold">Prospect :</span> {prospect.ownerName || prospect.contactName || "Non renseigné"}</p>
-        <p><span className="font-semibold">Adresse :</span> {prospect.address}</p>
-        <p><span className="font-semibold">Ville :</span> {prospect.city}</p>
-        <p><span className="font-semibold">Statut :</span> {reachabilityStatusLabel(prospect)}</p>
-      </div>
-
-      <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-        <button type="button" onClick={openGoogleSearch} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100">
-          Chercher sur Google
-        </button>
-        <button type="button" onClick={openFacebookSearch} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100">
-          Chercher sur Facebook
-        </button>
-        <button type="button" onClick={openMaps} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100">
-          Ouvrir Google Maps
-        </button>
-      </div>
-
-      <div className="mt-4 grid gap-3 sm:grid-cols-2">
-        <div className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-950/45">
-          <label className="text-sm font-semibold">Ajouter téléphone</label>
-          <input
-            value={phoneValue}
-            onChange={(event) => setPhoneValue(event.target.value)}
-            placeholder="514-000-0000"
-            className="mt-2 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-700 dark:bg-slate-950"
-          />
-          <button type="button" onClick={addPhone} className="mt-2 rounded-lg bg-slate-950 px-3 py-2 text-sm font-semibold text-white dark:bg-white dark:text-slate-950">
-            Ajouter téléphone
-          </button>
+    <section id="radar-reachability" className="rounded-lg border border-indigo-200 bg-indigo-50/50 p-5 shadow-sm dark:border-indigo-900 dark:bg-indigo-950/25">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.18em] text-indigo-600 dark:text-indigo-300">Recherche publique assistée</p>
+          <h2 className="mt-1 text-xl font-semibold tracking-tight text-indigo-950 dark:text-indigo-100">Trouver comment le joindre</h2>
+          <p className="mt-1 text-sm text-indigo-900/70 dark:text-indigo-100/70">Aucune identité n’est présumée : vérifiez la personne avant d’enregistrer une coordonnée.</p>
         </div>
-        <div className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-950/45">
-          <label className="text-sm font-semibold">Ajouter courriel</label>
-          <input
-            value={emailValue}
-            onChange={(event) => setEmailValue(event.target.value)}
-            placeholder="nom@exemple.com"
-            className="mt-2 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-700 dark:bg-slate-950"
-          />
-          <button type="button" onClick={addEmail} className="mt-2 rounded-lg bg-slate-950 px-3 py-2 text-sm font-semibold text-white dark:bg-white dark:text-slate-950">
-            Ajouter courriel
-          </button>
+        <button type="button" onClick={onClose} className="rounded-lg border border-indigo-200 bg-white px-3 py-2 text-sm font-semibold text-indigo-800 hover:bg-indigo-50 dark:border-indigo-800 dark:bg-slate-950 dark:text-indigo-100">Fermer</button>
+      </div>
+
+      <div className="mt-4 grid gap-3 rounded-lg border border-indigo-100 bg-white p-4 text-sm dark:border-indigo-900 dark:bg-slate-950/55 sm:grid-cols-2 lg:grid-cols-4">
+        <label>
+          <span className="font-semibold">Prospect</span>
+          <input value={nameValue} onChange={(event) => setNameValue(event.target.value)} placeholder="Nom à confirmer" className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-sm dark:border-slate-700 dark:bg-slate-950" />
+        </label>
+        <p><span className="font-semibold">Adresse :</span><br />{prospect.address}</p>
+        <p><span className="font-semibold">Ville :</span><br />{prospect.city}</p>
+        <p><span className="font-semibold">État :</span><br />{isLoading ? "Chargement…" : reachabilityStatusLabel({ ...prospect, phone: displayPhone, email: displayEmail, facebookUrl: displayFacebook })}</p>
+      </div>
+
+      {displayPhone || displayEmail || displayFacebook ? (
+        <div className="mt-4 grid gap-2 sm:grid-cols-3">
+          {displayPhone ? <a href={`tel:${displayPhone.replace(/[^\d+]/g, "")}`} className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-4 text-base font-bold text-white hover:bg-emerald-700"><Phone className="h-5 w-5" />Appeler {displayPhone}</a> : null}
+          {displayEmail ? <button type="button" onClick={copyEmail} className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm font-semibold dark:border-slate-700 dark:bg-slate-950"><Copy className="h-4 w-4" />Copier {displayEmail}</button> : null}
+          {displayFacebook ? <a href={displayFacebook} target="_blank" rel="noreferrer" className="inline-flex items-center justify-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-800 dark:border-blue-900 dark:bg-blue-950/35 dark:text-blue-100"><ArrowUpRight className="h-4 w-4" />Ouvrir Facebook</a> : null}
+        </div>
+      ) : null}
+
+      <div className="mt-5 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        <button type="button" onClick={() => openSearch("google", "Google — nom et adresse", searchOptions[1].url)} className="rounded-lg bg-slate-950 px-4 py-3 text-sm font-bold text-white hover:bg-slate-800 dark:bg-white dark:text-slate-950">Google</button>
+        <button type="button" onClick={() => openSearch("facebook", "Recherche directe Facebook", `https://www.facebook.com/search/top?q=${encodeURIComponent(`${contactName} ${prospect.city}`.trim())}`)} className="rounded-lg bg-blue-600 px-4 py-3 text-sm font-bold text-white hover:bg-blue-700">Facebook</button>
+        <button type="button" onClick={() => openSearch("google_maps", "Google Maps — adresse", mapsUrl)} className="rounded-lg bg-emerald-600 px-4 py-3 text-sm font-bold text-white hover:bg-emerald-700">Google / Maps</button>
+        <button type="button" onClick={() => openSearch("web_ai", "Web/IA — recherche exacte", searchOptions[4].url)} className="rounded-lg bg-violet-600 px-4 py-3 text-sm font-bold text-white hover:bg-violet-700">Web / IA</button>
+      </div>
+
+      <div className="mt-4 rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950/55">
+        <h3 className="text-sm font-semibold">Recherches préparées</h3>
+        <p className="mt-1 text-xs leading-5 text-slate-500">Ces requêtes consultent uniquement des pages publiques. Un résultat reste une correspondance possible tant que vous ne l’avez pas confirmé.</p>
+        <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {searchOptions.map((option) => (
+            <button key={`${option.source}-${option.label}`} type="button" onClick={() => openSearch(option.source, option.label, option.url)} className="rounded-lg border border-slate-200 px-3 py-2 text-left text-sm font-medium hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-900">
+              {option.label}<span className="mt-1 block truncate text-xs font-normal text-slate-500">{option.query}</span>
+            </button>
+          ))}
         </div>
       </div>
 
-      <div className="mt-4 rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-950/45">
-        <button type="button" onClick={prepareLetter} className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm font-semibold text-indigo-800 hover:bg-indigo-100 dark:border-indigo-900 dark:bg-indigo-950/40 dark:text-indigo-100">
-          Préparer une lettre
+      <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950/25">
+        <p className="text-sm font-bold text-amber-950 dark:text-amber-100">Correspondance possible — non confirmée</p>
+        <p className="mt-1 text-xs leading-5 text-amber-900/75 dark:text-amber-100/75">Saisissez seulement une coordonnée trouvée dans une source publique et confirmez l’identité avant l’enregistrement.</p>
+        <div className="mt-3 grid gap-3 md:grid-cols-[180px_minmax(0,1fr)_minmax(0,1fr)]">
+          <label className="text-sm font-semibold">Type
+            <select value={contactType} onChange={(event) => chooseContactType(event.target.value as typeof contactType)} className="mt-1 h-11 w-full rounded-lg border border-amber-200 bg-white px-3 text-sm dark:border-amber-800 dark:bg-slate-950">
+              <option value="phone">Téléphone</option><option value="email">Courriel</option><option value="facebook">Facebook</option><option value="other">Autre lien</option>
+            </select>
+          </label>
+          <label className="text-sm font-semibold">Coordonnée
+            <input value={contactValue} onChange={(event) => setContactValue(event.target.value)} placeholder={contactType === "phone" ? "514-000-0000" : contactType === "email" ? "nom@exemple.com" : "https://…"} className="mt-1 h-11 w-full rounded-lg border border-amber-200 bg-white px-3 text-sm dark:border-amber-800 dark:bg-slate-950" />
+          </label>
+          <label className="text-sm font-semibold">URL de la source (facultatif)
+            <input value={sourceUrl} onChange={(event) => setSourceUrl(event.target.value)} placeholder="https://…" className="mt-1 h-11 w-full rounded-lg border border-amber-200 bg-white px-3 text-sm dark:border-amber-800 dark:bg-slate-950" />
+          </label>
+        </div>
+        {contactType === "other" ? <input value={linkLabel} onChange={(event) => setLinkLabel(event.target.value)} placeholder="Nom du lien (ex. entreprise)" className="mt-3 h-11 w-full rounded-lg border border-amber-200 bg-white px-3 text-sm dark:border-amber-800 dark:bg-slate-950" /> : null}
+        <label className="mt-3 flex cursor-pointer items-start gap-3 rounded-lg border border-amber-200 bg-white p-3 text-sm dark:border-amber-800 dark:bg-slate-950">
+          <input type="checkbox" checked={identityConfirmed} onChange={(event) => setIdentityConfirmed(event.target.checked)} className="mt-0.5 h-4 w-4" />
+          <span><strong>C’est la bonne personne.</strong> J’ai comparé le nom et l’adresse ou la ville; je confirme cette coordonnée.</span>
+        </label>
+        <button type="button" disabled={isSaving || !identityConfirmed || !contactValue.trim()} onClick={confirmContact} className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-amber-700 px-4 py-3 text-sm font-bold text-white hover:bg-amber-800 disabled:cursor-not-allowed disabled:opacity-50">
+          {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+          C’est la bonne personne — enregistrer dans le CRM
         </button>
-        {letter ? <textarea value={letter} readOnly className="mt-3 min-h-40 w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm leading-6 text-slate-700 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200" /> : null}
       </div>
 
-      {status ? <p className="mt-3 text-sm font-medium text-indigo-900 dark:text-indigo-100">{status}</p> : null}
+      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+        <div className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950/55">
+          <h3 className="text-sm font-semibold">Aucun résultat fiable?</h3>
+          <p className="mt-1 text-xs leading-5 text-slate-500">Les recherches ouvertes apparaissent dans l’historique. Créez un suivi sans inventer de coordonnée.</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button type="button" disabled={isSaving || !nameValue.trim()} onClick={createFollowUp} className="rounded-lg bg-slate-950 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50 dark:bg-white dark:text-slate-950">Créer un suivi</button>
+            <button type="button" onClick={onClose} className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold dark:border-slate-700">Passer au prochain prospect</button>
+          </div>
+        </div>
+        <div className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950/55">
+          <h3 className="text-sm font-semibold">Historique et provenance</h3>
+          {snapshot.history?.length ? <ul className="mt-3 max-h-52 space-y-2 overflow-auto text-xs">
+            {snapshot.history.map((event) => <li key={event.id} className="rounded-lg border border-slate-100 p-2 dark:border-slate-800"><span className="font-semibold">{event.title}</span><span className="ml-2 text-slate-400">{new Date(event.created_at).toLocaleString("fr-CA")}</span>{event.details ? <span className="mt-1 block text-slate-500">{event.details}</span> : null}{event.source_url ? <a href={event.source_url} target="_blank" rel="noreferrer" className="mt-1 block truncate text-indigo-700 hover:underline dark:text-indigo-300">{event.source_url}</a> : null}</li>)}
+          </ul> : <p className="mt-3 text-xs text-slate-500">Aucune recherche enregistrée pour le moment.</p>}
+        </div>
+      </div>
+
+      {status ? <p className="mt-4 rounded-lg border border-indigo-200 bg-white px-3 py-2 text-sm font-medium text-indigo-900 dark:border-indigo-900 dark:bg-slate-950 dark:text-indigo-100">{status}</p> : null}
     </section>
   );
 }
@@ -1629,3 +1757,4 @@ function ActionBlock({
     </div>
   );
 }
+

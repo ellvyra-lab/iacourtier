@@ -31,7 +31,51 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ opportunities: (data ?? []).map(prospectFromRadarRow) });
+  const opportunities = (data ?? []).map(prospectFromRadarRow);
+  const prospectKeys = opportunities.map((item) => item.id).filter(Boolean);
+  if (!prospectKeys.length) return NextResponse.json({ opportunities });
+
+  const { data: links, error: linksError } = await supabaseAuth
+    .from("radar_crm_links")
+    .select("prospect_key,client_id,case_id")
+    .eq("user_id", user.id)
+    .in("prospect_key", prospectKeys);
+  if (linksError) {
+    if (isMissingReachabilitySchema(linksError)) return NextResponse.json({ opportunities });
+    return NextResponse.json({ error: linksError.message }, { status: 500 });
+  }
+  if (!links?.length) return NextResponse.json({ opportunities });
+
+  const clientIds = [...new Set(links.map((item) => item.client_id))];
+  const [clientsResult, methodsResult, publicLinksResult] = await Promise.all([
+    supabaseAuth.from("clients").select("id,phone,email").eq("user_id", user.id).in("id", clientIds),
+    supabaseAuth.from("client_contact_methods").select("client_id,method_type,value,is_primary,updated_at").eq("user_id", user.id).in("client_id", clientIds).order("is_primary", { ascending: false }).order("updated_at", { ascending: false }),
+    supabaseAuth.from("client_public_links").select("client_id,link_type,label,url,updated_at").eq("user_id", user.id).in("client_id", clientIds).order("updated_at", { ascending: false }),
+  ]);
+  const enrichmentError = clientsResult.error || methodsResult.error || publicLinksResult.error;
+  if (enrichmentError) return NextResponse.json({ error: enrichmentError.message }, { status: 500 });
+  const clientsById = new Map((clientsResult.data || []).map((client) => [client.id, client]));
+  const linkByProspect = new Map(links.map((link) => [link.prospect_key, link]));
+
+  return NextResponse.json({
+    opportunities: opportunities.map((opportunity) => {
+      const link = linkByProspect.get(opportunity.id);
+      if (!link) return opportunity;
+      const client = clientsById.get(link.client_id);
+      const methods = (methodsResult.data || []).filter((item) => item.client_id === link.client_id);
+      const publicLinks = (publicLinksResult.data || []).filter((item) => item.client_id === link.client_id);
+      return {
+        ...opportunity,
+        clientId: link.client_id,
+        caseId: link.case_id,
+        phone: methods.find((item) => item.method_type === "phone")?.value || client?.phone || undefined,
+        email: methods.find((item) => item.method_type === "email")?.value || client?.email || undefined,
+        facebookUrl: publicLinks.find((item) => item.link_type === "facebook")?.url || undefined,
+        publicLinks: publicLinks.map((item) => ({ type: item.link_type, label: item.label || undefined, url: item.url })),
+        contactStatus: methods.some((item) => item.method_type === "phone") ? "a_contacter" : opportunity.contactStatus,
+      };
+    }),
+  });
 }
 
 type RadarCrmBody = {
@@ -114,3 +158,8 @@ export async function POST(request: Request) {
 function normalize(value?: string | null) {
   return (value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
 }
+
+function isMissingReachabilitySchema(error: { code?: string; message?: string }) {
+  return error.code === "42P01" || error.code === "PGRST205" || /radar_crm_links/i.test(error.message || "");
+}
+

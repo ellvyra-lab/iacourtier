@@ -55,6 +55,9 @@ export type ProspectRecord = {
   phone?: string;
   email?: string;
   facebookUrl?: string;
+  publicLinks?: Array<{ type: "facebook" | "other"; label?: string; url: string }>;
+  clientId?: string;
+  caseId?: string;
   contactStatus?: ProspectContactStatus;
   notes?: string;
   leadHash?: string;
@@ -87,3 +90,4 @@ export const prospectingCategories: ProspectingCategory[] = [
   "Rôle d'évaluation",
   "Gouvernement",
 ];
+
