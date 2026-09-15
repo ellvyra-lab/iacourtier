@@ -12,6 +12,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     if (!user) return NextResponse.json({ error: "Ta session a expiré.", reconnectUrl: "/connexion" }, { status: 401 });
     const body = await request.json() as { outcome?: CallOutcome; note?: string; objection?: string; interestLevel?: string; nextContactAt?: string | null };
     if (!CALL_OUTCOMES.some((item) => item.value === body.outcome)) return NextResponse.json({ error: "Choisis le résultat de l’appel." }, { status: 400 });
+    if (["follow_up", "appointment"].includes(body.outcome!) && !normalizeDate(body.nextContactAt)) return NextResponse.json({ error: body.outcome === "appointment" ? "Choisis la date et l’heure du rendez-vous." : "Choisis la date et l’heure du rappel." }, { status: 400 });
     const { data: call, error: callError } = await supabase.from("call_activities").select("*").eq("id", id).eq("user_id", user.id).maybeSingle();
     if (callError) return NextResponse.json({ error: callError.message }, { status: 500 });
     if (!call) return NextResponse.json({ error: "Appel introuvable." }, { status: 404 });
@@ -45,5 +46,5 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
 }
 
 function normalizeDate(value?: string | null) { if (!value) return null; const date = new Date(value); return Number.isNaN(date.getTime()) ? null : date.toISOString(); }
-function automaticFollowUp(outcome: CallOutcome, now: Date) { const days = outcome === "no_answer" ? 1 : outcome === "voicemail" ? 2 : outcome === "follow_up" ? 2 : 0; if (!days) return null; const next = new Date(now); next.setDate(next.getDate() + days); next.setHours(10, 0, 0, 0); return next.toISOString(); }
+function automaticFollowUp(outcome: CallOutcome, now: Date) { const days = outcome === "no_answer" ? 2 : outcome === "voicemail" ? 3 : outcome === "future_project" ? 90 : 0; if (!days) return null; const next = new Date(now); next.setDate(next.getDate() + days); next.setHours(10, 0, 0, 0); return next.toISOString(); }
 

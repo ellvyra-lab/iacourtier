@@ -4,6 +4,7 @@ export const CALL_OUTCOMES = [
   { value: "answered", label: "A répondu" },
   { value: "appointment", label: "Rendez-vous obtenu" },
   { value: "follow_up", label: "À rappeler" },
+  { value: "future_project", label: "Projet futur" },
   { value: "not_interested", label: "Pas intéressé" },
   { value: "invalid_number", label: "Mauvais numéro" },
   { value: "do_not_contact", label: "Ne plus contacter" },

@@ -67,6 +67,12 @@ test("appels — journalise le départ et transforme le résultat en actions CRM
   assert.match(result, /from\("appointments"\)\.insert/);
   assert.match(result, /do_not_contact: true/);
   assert.match(result, /phone_status: "invalid"/);
+  assert.match(result, /outcome === "no_answer" \? 2/);
+  assert.match(result, /outcome === "voicemail" \? 3/);
+  assert.match(result, /outcome === "future_project" \? 90/);
+  assert.match(result, /Choisis la date et l’heure du rappel/);
+  assert.match(result, /Choisis la date et l’heure du rendez-vous/);
+  assert.ok(phone.CALL_OUTCOMES.some((item) => item.value === "future_project" && item.label === "Projet futur"));
 });
 
 test("interface — capture globale, page appels et bouton central sont branchés", () => {
@@ -88,6 +94,7 @@ test("migration — étend les tâches centrales et applique les politiques prop
   assert.match(migration, /action_type text not null/);
   assert.match(migration, /create table if not exists public\.call_activities/);
   assert.match(migration, /create table if not exists public\.inbox_captures/);
+  assert.match(migration, /future_project/);
   assert.match(migration, /auth\.uid\(\) = user_id/);
   assert.match(migration, /p\.user_id=auth\.uid\(\)/);
   const voiceMigration = read("supabase/migrations/202609051100_voice_quick_capture.sql");

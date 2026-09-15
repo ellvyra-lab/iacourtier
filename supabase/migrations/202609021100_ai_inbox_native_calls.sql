@@ -70,7 +70,7 @@ create table if not exists public.call_activities (
   task_id uuid references public.tasks(id) on delete set null,
   phone_used text not null,
   status text not null default 'started' check (status in ('started','completed','cancelled')),
-  outcome text check (outcome is null or outcome in ('no_answer','voicemail','answered','appointment','follow_up','not_interested','invalid_number','do_not_contact','other')),
+  outcome text check (outcome is null or outcome in ('no_answer','voicemail','answered','appointment','follow_up','future_project','not_interested','invalid_number','do_not_contact','other')),
   note text,
   objection text,
   interest_level text check (interest_level is null or interest_level in ('hot','warm','cold','unknown')),
@@ -86,6 +86,14 @@ create index if not exists tasks_action_due_idx on public.tasks (user_id, action
 create index if not exists inbox_captures_user_idx on public.inbox_captures (user_id, created_at desc);
 create index if not exists call_activities_user_idx on public.call_activities (user_id, status, started_at desc);
 create index if not exists call_activities_client_idx on public.call_activities (user_id, client_id, started_at desc);
+
+-- Rejouer la migration sur une base déjà initialisée doit aussi faire évoluer
+-- la liste des résultats acceptés, sans supprimer les appels existants.
+alter table public.call_activities
+  drop constraint if exists call_activities_outcome_check;
+alter table public.call_activities
+  add constraint call_activities_outcome_check
+  check (outcome is null or outcome in ('no_answer','voicemail','answered','appointment','follow_up','future_project','not_interested','invalid_number','do_not_contact','other'));
 
 alter table public.inbox_captures enable row level security;
 alter table public.call_activities enable row level security;
