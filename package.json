@@ -13,7 +13,8 @@
     "test:crm-os": "node --test scripts/crm-operating-system.test.mjs",
     "test:quick-access": "node --test scripts/client-quick-access.test.mjs",
     "test:inbox-calls": "node --test scripts/ai-inbox-calls.test.mjs",
-    "test:pdf": "node scripts/test-real-pdf.mjs"
+    "test:pdf": "node scripts/test-real-pdf.mjs",
+    "test:ticket58": "node --test scripts/ticket-058.test.mjs"
   },
   "dependencies": {
     "@napi-rs/canvas": "0.1.80",
@@ -45,4 +46,3 @@
     "typescript": "^5.5.4"
   }
 }
-
