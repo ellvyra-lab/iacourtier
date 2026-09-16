@@ -70,8 +70,24 @@ export function buildContinuousMergePreview(
       personId: person.id, entityType: "client", entityId: targetId, field: "mailingAddress", label: "Adresse personnelle ou postale",
       currentValue: current?.mailingAddress || "", incomingValue: person.mailingAddress, sourceName: person.sourceName, confidence: person.confidence,
     });
+    add(proposals, analysis, context, {
+      personId: person.id, entityType: "client", entityId: targetId, field: "birthDate", label: "Date de naissance",
+      currentValue: current?.birthDate || "", incomingValue: person.birthDate, sourceName: person.sourceName, confidence: person.confidence,
+    });
+    add(proposals, analysis, context, {
+      personId: person.id, entityType: "client", entityId: targetId, field: "language", label: "Langue",
+      currentValue: current?.language || "", incomingValue: person.language, sourceName: person.sourceName, confidence: person.confidence,
+    });
+    add(proposals, analysis, context, {
+      personId: person.id, entityType: "client", entityId: targetId, field: "city", label: "Ville personnelle",
+      currentValue: current?.city || "", incomingValue: person.personalAddress.city, sourceName: person.sourceName, confidence: person.confidence,
+    });
+    add(proposals, analysis, context, {
+      personId: person.id, entityType: "client", entityId: targetId, field: "postalCode", label: "Code postal personnel",
+      currentValue: current?.postalCode || "", incomingValue: person.personalAddress.postalCode, sourceName: person.sourceName, confidence: person.confidence,
+    });
     const onlyPersonForSource = analysis.people.filter((candidate) => candidate.sourceName === person.sourceName).length === 1;
-    const extraPersonFields = onlyPersonForSource ? analysis.facts.filter((fact) => fact.entity === "person" && fact.sourceName === person.sourceName && !["name", "firstName", "lastName", "email", "phone", "mailingAddress", "address"].includes(fact.field)) : [];
+    const extraPersonFields = onlyPersonForSource ? analysis.facts.filter((fact) => fact.entity === "person" && fact.sourceName === person.sourceName && !["name", "firstName", "lastName", "email", "phone", "mailingAddress", "address", "birthDate", "dateOfBirth", "language", "city", "postalCode", "province", "country"].includes(fact.field)) : [];
     for (const fact of extraPersonFields) {
       const clientValues: Record<string, string> = {
         birthDate: current?.birthDate || "", dateOfBirth: current?.birthDate || "", language: current?.language || "",

@@ -29,6 +29,14 @@ export type UniversalSource = {
   analysisMode?: string;
 };
 
+export type UniversalPersonalAddress = {
+  line: string;
+  city: string;
+  postalCode: string;
+  province: string;
+  country: string;
+};
+
 export type UniversalPerson = {
   id: string;
   firstName: string;
@@ -36,6 +44,9 @@ export type UniversalPerson = {
   email: string;
   phone: string;
   mailingAddress: string;
+  personalAddress: UniversalPersonalAddress;
+  birthDate: string;
+  language: string;
   roles: UniversalPersonRole[];
   sourceName: string;
   confidence: number | null;
@@ -117,6 +128,8 @@ export type ExistingCaseClient = {
   email: string;
   phone: string;
   mailingAddress: string;
+  city?: string;
+  postalCode?: string;
   birthDate?: string;
   language?: string;
   communicationPreference?: string;
@@ -301,7 +314,7 @@ Structure obligatoire :
 {
   "projectType":"seller|buyer|buy_sell|prospect|other|unknown",
   "intentions":["veut vendre", "cherche une propriété", "demande une visite", "veut déposer une offre", "souhaite une évaluation", "besoin de préapprobation", "autre intention explicite"],
-  "people":[{"firstName":"","lastName":"","email":"","phone":"","mailingAddress":"","roles":["seller|buyer|owner"],"sourceName":"nom exact","confidence":0.95}],
+  "people":[{"firstName":"","lastName":"","email":"","phone":"","mailingAddress":"","birthDate":"YYYY-MM-DD ou vide","language":"","personalAddress":{"line":"","city":"","postalCode":"","province":"","country":""},"roles":["seller|buyer|owner"],"sourceName":"nom exact","confidence":0.95}],
   "partners":[{"firstName":"","lastName":"","organization":"","email":"","phone":"","partnerType":"mortgage_broker|real_estate_broker|notary|inspector|lender|other","sourceName":"nom exact","confidence":0.95}],
   "property":{"address":"","city":"","postalCode":"","propertyType":"","lotNumber":""},
   "buyerCriteria":{"budget":"","preapprovalStatus":"missing|pending|approved|declined","downPayment":"","mortgageAmount":"","occupancyType":"","lender":"","preapprovalDate":"YYYY-MM-DD ou vide","expiryDate":"YYYY-MM-DD ou vide","sectors":[],"propertyType":"","bedrooms":"","importantNeeds":"","timeline":"","propertyToSell":null},
@@ -376,6 +389,16 @@ export function sanitizeAnalysisForConfirmation(value: unknown): UniversalAnalys
     ? root.mergePreview as ContinuousMergePreview
     : null;
   return normalized;
+}
+
+export function parsePersonalAddress(value: string): UniversalPersonalAddress {
+  const compact = value.replace(/\s+/g, " ").trim();
+  const postalMatch = compact.match(/\b([A-Za-z]\d[A-Za-z])\s?(\d[A-Za-z]\d)\b/);
+  const postalCode = postalMatch ? `${postalMatch[1].toUpperCase()} ${postalMatch[2].toUpperCase()}` : "";
+  const prefix = postalCode.slice(0, 3);
+  const knownCities: Record<string, string> = { J5T: "Lavaltrie" };
+  const line = postalMatch ? compact.slice(0, postalMatch.index).replace(/[\s,;-]+$/, "").trim() : compact;
+  return { line, city: knownCities[prefix] || "", postalCode, province: postalCode ? "Québec" : "", country: postalCode ? "Canada" : "" };
 }
 
 export function normalizeUniversalValue(value?: string | null) {
@@ -491,10 +514,24 @@ function normalizePeople(value: unknown): UniversalPerson[] {
     const person = record(raw);
     const requestedRoles = strings(person.roles).map((role) => normalizeUniversalValue(role));
     const roles = unique(requestedRoles.map((role) => role === "vendeur" ? "seller" : role === "acheteur" ? "buyer" : role).filter((role): role is UniversalPersonRole => ["seller", "buyer", "owner"].includes(role)));
+    const mailingAddress = text(person.mailingAddress);
+    const parsedAddress = parsePersonalAddress(mailingAddress);
+    const suppliedAddress = record(person.personalAddress);
+    const personalAddress = {
+      line: text(suppliedAddress.line) || parsedAddress.line,
+      city: text(suppliedAddress.city) || parsedAddress.city,
+      postalCode: text(suppliedAddress.postalCode) || parsedAddress.postalCode,
+      province: text(suppliedAddress.province) || parsedAddress.province,
+      country: text(suppliedAddress.country) || parsedAddress.country,
+    };
     return {
       id: `person-${index + 1}`,
       firstName: text(person.firstName), lastName: text(person.lastName), email: text(person.email), phone: text(person.phone),
-      mailingAddress: text(person.mailingAddress), roles, sourceName: text(person.sourceName), confidence: confidence(person.confidence),
+      mailingAddress: mailingAddress || personalAddress.line,
+      personalAddress,
+      birthDate: text(person.birthDate) || text(person.dateOfBirth),
+      language: text(person.language),
+      roles, sourceName: text(person.sourceName), confidence: confidence(person.confidence),
     };
   }).filter((person) => person.firstName || person.lastName || person.email || person.phone);
 }
@@ -566,6 +603,12 @@ function addFallbackFacts(facts: UniversalFact[], context: { people: UniversalPe
     add("person", "email", "Courriel", person.email, person.sourceName, person.confidence);
     add("person", "phone", "Téléphone", person.phone, person.sourceName, person.confidence);
     add("person", "mailingAddress", "Adresse personnelle ou postale", person.mailingAddress, person.sourceName, person.confidence);
+    add("person", "birthDate", "Date de naissance", person.birthDate, person.sourceName, person.confidence);
+    add("person", "language", "Langue", person.language, person.sourceName, person.confidence);
+    add("person", "city", "Ville personnelle", person.personalAddress.city, person.sourceName, person.confidence);
+    add("person", "postalCode", "Code postal personnel", person.personalAddress.postalCode, person.sourceName, person.confidence);
+    add("person", "province", "Province personnelle", person.personalAddress.province, person.sourceName, person.confidence);
+    add("person", "country", "Pays personnel", person.personalAddress.country, person.sourceName, person.confidence);
   });
   context.partners.forEach((partner) => {
     const name = `${partner.firstName} ${partner.lastName}`.trim() || partner.organization;
@@ -607,7 +650,17 @@ function mergePeople(people: UniversalPerson[]) {
     });
     if (!match) { output.push({ ...person, id: `person-${output.length + 1}` }); continue; }
     match.firstName ||= person.firstName; match.lastName ||= person.lastName; match.email ||= person.email; match.phone ||= person.phone;
-    match.mailingAddress ||= person.mailingAddress; match.roles = unique([...match.roles, ...person.roles]);
+    match.mailingAddress ||= person.mailingAddress;
+    match.personalAddress = {
+      line: match.personalAddress.line || person.personalAddress.line,
+      city: match.personalAddress.city || person.personalAddress.city,
+      postalCode: match.personalAddress.postalCode || person.personalAddress.postalCode,
+      province: match.personalAddress.province || person.personalAddress.province,
+      country: match.personalAddress.country || person.personalAddress.country,
+    };
+    match.birthDate ||= person.birthDate;
+    match.language ||= person.language;
+    match.roles = unique([...match.roles, ...person.roles]);
     if ((person.confidence || 0) > (match.confidence || 0)) { match.confidence = person.confidence; match.sourceName = person.sourceName; }
   }
   return output;

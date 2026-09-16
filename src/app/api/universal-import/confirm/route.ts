@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 
 import { BUYER_AUTOMATION_TEMPLATES, BUYER_TASK_TEMPLATES } from "@/lib/buyer-cases";
 import { scoreCentralClientMatch } from "@/lib/crm-operating-system";
-import { EMPTY_GENERATED_CONTENT, SELLER_AUTOMATION_TEMPLATES, SELLER_TASK_TEMPLATES } from "@/lib/seller-listings";
+import { buildPropertyMarketingKit } from "@/lib/property-marketing";
+import { SELLER_AUTOMATION_TEMPLATES, SELLER_TASK_TEMPLATES } from "@/lib/seller-listings";
 import { fileExtension } from "@/lib/server/image-analysis";
 import { ensureCentralCase, recordCentralActivity, syncCentralDocument, syncCentralWorkflow } from "@/lib/server/central-crm";
 import { emitCrmEvent, recalculateCaseOperatingState } from "@/lib/server/crm-operating-system";
@@ -33,6 +34,10 @@ type ContactRow = {
   email: string | null;
   phone: string | null;
   mailing_address: string | null;
+  city: string | null;
+  postal_code: string | null;
+  birth_date: string | null;
+  language: string | null;
   roles: string[] | null;
 };
 
@@ -81,7 +86,7 @@ export async function POST(request: Request) {
 
     const { data: currentContacts, error: contactsError } = await supabase
       .from("clients")
-      .select("id,first_name,last_name,email,phone,mailing_address,roles")
+      .select("id,first_name,last_name,email,phone,mailing_address,city,postal_code,birth_date,language,roles")
       .eq("user_id", user.id);
     if (contactsError) throw contactsError;
 
@@ -115,6 +120,10 @@ export async function POST(request: Request) {
         if (!contact.email && person.email) updates.email = person.email;
         if (!contact.phone && person.phone) updates.phone = person.phone;
         if (!contact.mailing_address && person.mailingAddress) updates.mailing_address = person.mailingAddress;
+        if (!contact.city && person.personalAddress.city) updates.city = person.personalAddress.city;
+        if (!contact.postal_code && person.personalAddress.postalCode) updates.postal_code = person.personalAddress.postalCode;
+        if (!contact.birth_date && person.birthDate) updates.birth_date = person.birthDate;
+        if (!contact.language && person.language) updates.language = person.language;
         const { error } = await supabase.from("clients").update(updates).eq("id", contact.id).eq("user_id", user.id);
         if (error) throw error;
         contactIds.set(person.id, contact.id);
@@ -129,8 +138,12 @@ export async function POST(request: Request) {
         email: person.email.trim() || null,
         phone: person.phone.trim() || null,
         mailing_address: person.mailingAddress.trim() || null,
+        city: person.personalAddress.city || null,
+        postal_code: person.personalAddress.postalCode || null,
+        birth_date: person.birthDate || null,
+        language: person.language || null,
         roles,
-      }).select("id,first_name,last_name,email,phone,mailing_address,roles").single();
+      }).select("id,first_name,last_name,email,phone,mailing_address,city,postal_code,birth_date,language,roles").single();
       if (error || !data) throw error || new Error("Création de la fiche client impossible.");
       contacts.push(data as ContactRow);
       contactIds.set(person.id, data.id);
@@ -379,41 +392,19 @@ async function prepareAutomaticSellerDrafts(
   const current = listing?.generated_content as { listing?: { publicDescription?: string }; marketing?: { facebook?: string } } | null;
   if (current?.listing?.publicDescription || current?.marketing?.facebook) return false;
 
-  const property = analysis.property;
   const confirmedFacts = analysis.facts.filter((fact) => fact.status === "confirmed" && fact.value.trim());
-  if (!property.address || !property.city || (!property.propertyType && confirmedFacts.length < 3)) return false;
+  if (!analysis.property.address || !analysis.property.city || (!analysis.property.propertyType && confirmedFacts.length < 3)) return false;
 
-  const base = [property.propertyType || "Propriété", `située au ${property.address}`, property.city, property.postalCode].filter(Boolean).join(", ");
-  const distinctFacts = [...new Map(confirmedFacts
-    .filter((fact) => !["address", "city", "postalCode", "owners", "name", "firstName", "lastName"].includes(fact.field))
-    .map((fact) => [`${fact.label}:${fact.value}`, fact])).values()].slice(0, 8);
-  const factLines = distinctFacts.map((fact) => `${fact.label} : ${fact.value}`);
-  const description = [base, ...factLines].join(". ") + ".";
-  const validationPoints = [...new Set([...reviewItems, ...analysis.facts.filter((fact) => fact.status !== "confirmed").map((fact) => `${fact.label} : ${fact.value || "à confirmer"}`)])];
-  const prefix = "[BROUILLON À VALIDER]";
-  const generated = structuredClone(EMPTY_GENERATED_CONTENT);
-  generated.listing.publicDescription = `${prefix} ${description}`;
-  generated.listing.shortDescription = `${prefix} ${base}.`;
-  generated.listing.addendum = factLines.length ? `${prefix}\n${factLines.join("\n")}` : "";
-  generated.listing.highlights = distinctFacts.slice(0, 5).map((fact) => `${fact.label} : ${fact.value}`);
-  generated.listing.characteristics = factLines;
-  generated.listing.sellerSummary = `${prefix} ${confirmedFacts.length} renseignement(s) confirmé(s) provenant de ${analysis.sources.length} source(s).`;
-  generated.listing.validationPoints = validationPoints;
-  generated.listing.dossierChecklist = SELLER_TASK_TEMPLATES.filter((task) => task.category === "dossier" || task.category === "inscription").map((task) => task.title);
-  generated.listing.marketingChecklist = SELLER_TASK_TEMPLATES.filter((task) => task.category === "marketing" || task.category === "photos").map((task) => task.title);
-  generated.marketing.facebook = `${prefix} ${base}. ${factLines.slice(0, 3).join(". ")}`.trim();
-  generated.marketing.instagram = generated.marketing.facebook;
-  generated.marketing.facebookStory = [`${prefix} ${base}.`];
-  generated.marketing.instagramStory = [`${prefix} ${base}.`];
-  generated.marketing.carousel = distinctFacts.slice(0, 5).map((fact) => ({ title: fact.label, text: fact.value }));
-  generated.marketing.comingSoon = `${prefix} ${base}.`;
-  generated.marketing.newListing = `${prefix} ${description}`;
-  generated.marketing.reelScript = `${prefix} Présenter uniquement ces faits confirmés : ${factLines.join("; ") || base}.`;
-  generated.marketing.presentationVideoScript = generated.marketing.reelScript;
-  generated.marketing.shortVideoScript = generated.marketing.reelScript;
-  generated.marketing.buyerEmail = `${prefix}\n${description}`;
-  generated.marketing.brokerEmail = generated.marketing.buyerEmail;
-  generated.marketing.sms = `${prefix} ${base}.`;
+  const validationPoints = [...new Set([
+    ...reviewItems,
+    ...analysis.facts.filter((fact) => fact.status !== "confirmed").map((fact) => `${fact.label} : ${fact.value || "à confirmer"}`),
+  ])];
+  const generated = buildPropertyMarketingKit({
+    property: analysis.property,
+    facts: confirmedFacts,
+    validationPoints,
+    style: "professional",
+  });
 
   const { error } = await supabase.from("seller_listings").update({
     generated_content: generated,

@@ -10,6 +10,7 @@ import {
   inferDocumentType,
   mergeUniversalAnalyses,
   normalizeUniversalPartial,
+  parsePersonalAddress,
 } from "../src/lib/universal-import.ts";
 
 function source(name, type, sourceType = "image") {
@@ -176,3 +177,33 @@ test("L — les informations manquantes deviennent une file non bloquante", () =
   assert.equal(automaticIngestionBlockers(analysis).length, 0);
 });
 
+
+
+test("M — Jacinthe conserve une adresse personnelle structurée distincte de la propriété", () => {
+  assert.deepEqual(parsePersonalAddress("70 Terrasse Gravel J5T 1B5"), {
+    line: "70 Terrasse Gravel",
+    city: "Lavaltrie",
+    postalCode: "J5T 1B5",
+    province: "Québec",
+    country: "Canada",
+  });
+  const analysis = normalizeUniversalPartial({
+    projectType: "seller",
+    documents: [source("acte-vente.pdf", "Acte de vente", "pdf")],
+    people: [{
+      firstName: "Jacinthe",
+      lastName: "Test",
+      mailingAddress: "70 Terrasse Gravel J5T 1B5",
+      birthDate: "1975-06-12",
+      language: "français",
+      roles: ["seller"],
+      sourceName: "acte-vente.pdf",
+      confidence: 0.98,
+    }],
+    property: { address: "123 rue de la Propriété", city: "Montréal", postalCode: "H2X 1Y4", propertyType: "Maison" },
+  }, []);
+  assert.equal(analysis.people[0].personalAddress.city, "Lavaltrie");
+  assert.equal(analysis.people[0].birthDate, "1975-06-12");
+  assert.equal(analysis.people[0].language, "français");
+  assert.equal(analysis.property.city, "Montréal");
+});

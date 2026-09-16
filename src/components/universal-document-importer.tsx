@@ -147,6 +147,8 @@ export function UniversalDocumentImporter({ caseId, caseTitle }: { caseId?: stri
       people: [...current.people, {
         id: `person-${current.people.length + 1}`,
         firstName: "", lastName: "", email: "", phone: "", mailingAddress: "",
+        personalAddress: { line: "", city: "", postalCode: "", province: "", country: "" },
+        birthDate: "", language: "",
         roles: current.projectType === "buyer" ? ["buyer"] : ["seller"],
         sourceName: "Ajout manuel après analyse", confidence: null,
       }],
@@ -282,7 +284,27 @@ const inputClass = "min-h-11 w-full rounded-xl border border-slate-300 bg-white 
 
 function SourceButton({ icon: Icon, label, detail, onClick }: { icon: typeof Camera; label: string; detail: string; onClick: () => void }) { return <button type="button" onClick={onClick} className="flex min-h-28 items-center gap-4 rounded-2xl border border-slate-200 p-4 text-left transition hover:border-teal-400 hover:bg-teal-50 dark:border-slate-800 dark:hover:border-teal-700 dark:hover:bg-teal-950/20"><span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-teal-100 text-teal-800 dark:bg-teal-950 dark:text-teal-200"><Icon className="h-5 w-5" /></span><span><span className="block font-semibold">{label}</span><span className="mt-1 block text-xs text-slate-500">{detail}</span></span></button>; }
 function Panel({ title, icon: Icon, children }: { title: string; icon: typeof Search; children: React.ReactNode }) { return <section className="space-y-4 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:p-6"><h2 className="flex items-center gap-2 text-lg font-semibold"><Icon className="h-5 w-5 text-teal-700" />{title}</h2>{children}</section>; }
-function PersonEditor({ person, onChange }: { person: UniversalPerson; onChange: (patch: Partial<UniversalPerson>) => void }) { const roleValue = person.roles.includes("seller") && person.roles.includes("buyer") ? "both" : person.roles.includes("buyer") ? "buyer" : "seller"; return <div className="rounded-2xl border border-slate-200 p-4 dark:border-slate-800"><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"><Editable label="Prénom" value={person.firstName} onChange={(firstName) => onChange({ firstName })} /><Editable label="Nom" value={person.lastName} onChange={(lastName) => onChange({ lastName })} /><Editable label="Courriel" value={person.email} onChange={(email) => onChange({ email })} /><Editable label="Téléphone" value={person.phone} onChange={(phone) => onChange({ phone })} /><Editable label="Adresse postale" value={person.mailingAddress} onChange={(mailingAddress) => onChange({ mailingAddress })} wide /><FieldLabel label="Rôle"><select value={roleValue} onChange={(event) => onChange({ roles: event.target.value === "both" ? ["seller", "buyer"] : [event.target.value as "seller" | "buyer"] })} className={inputClass}><option value="seller">Vendeur</option><option value="buyer">Acheteur</option><option value="both">Acheteur + vendeur</option></select></FieldLabel></div><p className="mt-3 text-xs text-slate-500">Source : {person.sourceName || "à confirmer"}{person.confidence !== null ? ` · confiance ${Math.round(person.confidence * 100)} %` : ""}</p></div>; }
+function PersonEditor({ person, onChange }: { person: UniversalPerson; onChange: (patch: Partial<UniversalPerson>) => void }) {
+  const roleValue = person.roles.includes("seller") && person.roles.includes("buyer") ? "both" : person.roles.includes("buyer") ? "buyer" : "seller";
+  const updateAddress = (patch: Partial<UniversalPerson["personalAddress"]>) => onChange({ personalAddress: { ...person.personalAddress, ...patch } });
+  return <div className="rounded-2xl border border-slate-200 p-4 dark:border-slate-800">
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <Editable label="Prénom" value={person.firstName} onChange={(firstName) => onChange({ firstName })} />
+      <Editable label="Nom" value={person.lastName} onChange={(lastName) => onChange({ lastName })} />
+      <Editable label="Courriel" value={person.email} onChange={(email) => onChange({ email })} />
+      <Editable label="Téléphone" value={person.phone} onChange={(phone) => onChange({ phone })} />
+      <Editable label="Date de naissance" value={person.birthDate} onChange={(birthDate) => onChange({ birthDate })} />
+      <Editable label="Langue" value={person.language} onChange={(language) => onChange({ language })} />
+      <Editable label="Adresse personnelle" value={person.personalAddress.line || person.mailingAddress} onChange={(line) => onChange({ mailingAddress: line, personalAddress: { ...person.personalAddress, line } })} wide />
+      <Editable label="Ville" value={person.personalAddress.city} onChange={(city) => updateAddress({ city })} />
+      <Editable label="Code postal" value={person.personalAddress.postalCode} onChange={(postalCode) => updateAddress({ postalCode })} />
+      <Editable label="Province" value={person.personalAddress.province} onChange={(province) => updateAddress({ province })} />
+      <Editable label="Pays" value={person.personalAddress.country} onChange={(country) => updateAddress({ country })} />
+      <FieldLabel label="Rôle"><select value={roleValue} onChange={(event) => onChange({ roles: event.target.value === "both" ? ["seller", "buyer"] : [event.target.value as "seller" | "buyer"] })} className={inputClass}><option value="seller">Vendeur</option><option value="buyer">Acheteur</option><option value="both">Acheteur + vendeur</option></select></FieldLabel>
+    </div>
+    <p className="mt-3 text-xs text-slate-500">Source : {person.sourceName || "à confirmer"}{person.confidence !== null ? ` · confiance ${Math.round(person.confidence * 100)} %` : ""}</p>
+  </div>;
+}
 function Editable({ label, value, onChange, wide }: { label: string; value: string; onChange: (value: string) => void; wide?: boolean }) { return <FieldLabel label={label} wide={wide}><input value={value} onChange={(event) => onChange(event.target.value)} className={inputClass} /></FieldLabel>; }
 function FieldLabel({ label, children, wide }: { label: string; children: React.ReactNode; wide?: boolean }) { return <label className={`block ${wide ? "sm:col-span-2" : ""}`}><span className="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-300">{label}</span>{children}</label>; }
 function ReadOnly({ label, value }: { label: string; value: string }) { return <div className="rounded-xl bg-slate-50 p-3 dark:bg-slate-950"><p className="text-xs font-semibold text-slate-500">{label}</p><p className="mt-1 text-sm font-medium">{value.replace(/_/g, " ")}</p></div>; }

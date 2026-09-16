@@ -36,7 +36,7 @@ export async function loadContinuousMergeContext(supabase: Supabase, userId: str
   if (firstError) throw firstError;
   const clientIds = [...new Set([clientCase.primary_client_id, ...(relations.data || []).map((item) => item.client_id)].filter(Boolean))] as string[];
   const clientsResult = clientIds.length
-    ? await supabase.from("clients").select("id,first_name,last_name,email,phone,mailing_address,birth_date,language,communication_preference").eq("user_id", userId).in("id", clientIds)
+    ? await supabase.from("clients").select("id,first_name,last_name,email,phone,mailing_address,city,postal_code,birth_date,language,communication_preference").eq("user_id", userId).in("id", clientIds)
     : { data: [], error: null };
   if (clientsResult.error) throw clientsResult.error;
 
@@ -55,6 +55,7 @@ export async function loadContinuousMergeContext(supabase: Supabase, userId: str
     clients: (clientsResult.data || []).map((client) => ({
       id: client.id, firstName: client.first_name || "", lastName: client.last_name || "",
       email: client.email || "", phone: client.phone || "", mailingAddress: client.mailing_address || "",
+      city: client.city || "", postalCode: client.postal_code || "",
       birthDate: client.birth_date || "", language: client.language || "", communicationPreference: client.communication_preference || "",
     })),
     property: property || null,
@@ -193,10 +194,17 @@ async function applyCanonicalValue(supabase: Supabase, userId: string, context: 
       }
       return;
     }
-    const column = ({ firstName: "first_name", lastName: "last_name", birthDate: "birth_date", dateOfBirth: "birth_date", language: "language", communicationPreference: "communication_preference" } as Record<string, string>)[proposal.field];
+    const column = ({ firstName: "first_name", lastName: "last_name", city: "city", postalCode: "postal_code", birthDate: "birth_date", dateOfBirth: "birth_date", language: "language", communicationPreference: "communication_preference" } as Record<string, string>)[proposal.field];
     if (column && action === "replace") {
-      const { error } = await supabase.from("clients").update({ [column]: proposal.incomingValue, updated_at: new Date().toISOString() }).eq("id", proposal.entityId).eq("user_id", userId);
+      const updatedAt = new Date().toISOString();
+      const { error } = await supabase.from("clients").update({ [column]: proposal.incomingValue, updated_at: updatedAt }).eq("id", proposal.entityId).eq("user_id", userId);
       if (error) throw error;
+      if (proposal.field === "city" || proposal.field === "postalCode") {
+        const addressColumn = proposal.field === "city" ? "city" : "postal_code";
+        const { error: addressError } = await supabase.from("client_addresses").update({ [addressColumn]: proposal.incomingValue, updated_at: updatedAt })
+          .eq("user_id", userId).eq("client_id", proposal.entityId).eq("case_id", context.id).eq("is_primary", true);
+        if (addressError) throw addressError;
+      }
     }
     return;
   }
