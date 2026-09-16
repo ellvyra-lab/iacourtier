@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { formatBrokerProfileForPrompt, normalizeBrokerProfile } from "@/lib/broker-profile";
 import { parseJsonObject } from "@/lib/mandate-document-extraction";
 import { generateWithOpenAI, getOpenAIErrorPayload } from "@/lib/openai";
+import { buildPropertyMarketingKit, type PropertyMarketingStyle } from "@/lib/property-marketing";
 import {
   LISTING_FACT_DEFINITIONS,
   SELLER_AUTOMATION_TEMPLATES,
@@ -18,8 +19,9 @@ type RouteContext = { params: Promise<{ id: string }> };
 export async function POST(request: Request, { params }: RouteContext) {
   try {
     const { id } = await params;
-    const body = await request.json().catch(() => ({})) as { brokerProfile?: unknown };
+    const body = await request.json().catch(() => ({})) as { brokerProfile?: unknown; style?: PropertyMarketingStyle; adjustment?: string };
     const brokerProfile = normalizeBrokerProfile(body.brokerProfile);
+    const style = marketingStyle(body.style, body.adjustment);
     const supabase = await createSupabaseServerClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ error: "Vous devez être connecté." }, { status: 401 });
@@ -90,6 +92,26 @@ Structure JSON obligatoire :
     const parsed = normalizeGeneratedContent(parseJsonObject(aiText));
     const brokerLabel = brokerProfile.fullName || "Votre courtier";
     const scrubbed = normalizeGeneratedContent(JSON.parse(JSON.stringify(parsed).replace(/Sonia de IACourtier/gi, brokerLabel).replace(/IACourtier/gi, "")));
+    const property = Array.isArray(listing.property) ? listing.property[0] : listing.property;
+    const safeKit = buildPropertyMarketingKit({
+      property: {
+        address: String(property?.address || ""),
+        city: String(property?.city || ""),
+        postalCode: String(property?.postal_code || ""),
+        propertyType: String(property?.property_type || ""),
+      },
+      facts: confirmedFacts.map((fact) => ({ field: fact.fact_key, label: fact.label, value: fact.value, status: fact.status })),
+      validationPoints: reviewItems,
+      style,
+    });
+    scrubbed.listing.publicDescription = safeKit.listing.publicDescription;
+    scrubbed.listing.shortDescription = safeKit.listing.shortDescription;
+    scrubbed.listing.addendum = safeKit.listing.addendum;
+    scrubbed.listing.highlights = safeKit.listing.highlights;
+    scrubbed.listing.characteristics = safeKit.listing.characteristics;
+    scrubbed.marketing = safeKit.marketing;
+    if (body.adjustment === "shorter") shortenMarketing(scrubbed);
+
     const automaticValidationPoints = [
       ...(factsResult.data || []).filter((fact) => fact.status === "to_confirm").map((fact) => `${fact.label}: ${fact.value || "à confirmer"}`),
       ...LISTING_FACT_DEFINITIONS.filter((definition) => !confirmedKeys.has(definition.key)).map((definition) => `${definition.label}: information non confirmée`),
@@ -132,4 +154,22 @@ Structure JSON obligatoire :
 
 function unique(items: string[]) {
   return [...new Set(items.map((item) => item.trim()).filter(Boolean))];
+}
+
+function marketingStyle(style?: PropertyMarketingStyle, adjustment?: string): PropertyMarketingStyle {
+  if (style) return style;
+  if (adjustment === "warmer") return "warm";
+  if (adjustment === "seller") return "dynamic";
+  if (adjustment === "premium") return "premium";
+  if (adjustment === "shorter") return "direct";
+  return "professional";
+}
+
+function shortenMarketing(content: ReturnType<typeof normalizeGeneratedContent>) {
+  const shorten = (value: string, max: number) => value.length > max ? `${value.slice(0, max - 1).trim()}…` : value;
+  content.listing.publicDescription = shorten(content.listing.publicDescription, 500);
+  content.listing.shortDescription = shorten(content.listing.shortDescription, 180);
+  content.marketing.facebook = shorten(content.marketing.facebook, 650);
+  content.marketing.instagram = shorten(content.marketing.instagram, 500);
+  content.marketing.sms = shorten(content.marketing.sms, 155);
 }

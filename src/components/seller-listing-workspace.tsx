@@ -6,6 +6,7 @@ import Link from "next/link";
 import { ArrowDown, ArrowUp, Check, FileText, ImagePlus, Loader2, Megaphone, Save, Sparkles, Star, UploadCloud, Users } from "lucide-react";
 
 import { loadBrokerProfile } from "@/lib/broker-profile";
+import type { PropertyMarketingStyle } from "@/lib/property-marketing";
 import { PHOTO_CATEGORIES, type ListingGeneratedContent, type ListingFactStatus } from "@/lib/seller-listings";
 import { useDashboardAuth } from "@/components/auth/DashboardAuthProvider";
 import { ClientQuickPanel, type QuickClient } from "@/components/client-quick-panel";
@@ -45,6 +46,7 @@ export function SellerListingWorkspace({ id }: { id: string }) {
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [marketingStyle, setMarketingStyle] = useState<PropertyMarketingStyle>("professional");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -107,14 +109,14 @@ export function SellerListingWorkspace({ id }: { id: string }) {
     }
   }
 
-  async function prepareListing() {
-    setBusy("prepare");
+  async function prepareListing(adjustment = "default", style: PropertyMarketingStyle = marketingStyle) {
+    setBusy(`prepare-${adjustment}`);
     setError("");
     try {
       const response = await authenticatedFetch(`/api/seller-listings/${id}/prepare`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ brokerProfile: loadBrokerProfile() }),
+        body: JSON.stringify({ brokerProfile: loadBrokerProfile(), style, adjustment }),
       });
       const payload = await response.json() as { error?: string };
       if (!response.ok) throw new Error(payload.error || "La préparation a échoué.");
@@ -195,13 +197,28 @@ export function SellerListingWorkspace({ id }: { id: string }) {
 
     <section id="inscription" className="scroll-mt-6 space-y-5">
       <SectionHeading eyebrow="Inscription" title="Description, addenda et checklists" />
-      <div className="rounded-2xl border border-teal-200 bg-teal-50/70 p-5 dark:border-teal-900 dark:bg-teal-950/20"><div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between"><div><p className="font-semibold">Préparer à partir des faits confirmés</p><p className="mt-1 text-sm text-slate-600 dark:text-slate-300">L’addenda exclut automatiquement tout élément non confirmé. Le résultat est sauvegardé, jamais publié automatiquement.</p></div><button type="button" onClick={prepareListing} disabled={!data.readyToPrepare || busy === "prepare"} className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-teal-700 px-5 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50">{busy === "prepare" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}Préparer mon inscription</button></div>{!data.readyToPrepare ? <p className="mt-3 text-sm font-medium text-amber-800 dark:text-amber-200">Confirme d’abord : {data.missingQuestions.filter((item) => item.required).map((item) => item.label).join(", ")}.</p> : null}</div>
+      <div className="rounded-2xl border border-teal-200 bg-teal-50/70 p-5 dark:border-teal-900 dark:bg-teal-950/20"><div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between"><div><p className="font-semibold">Préparer à partir des faits confirmés</p><p className="mt-1 text-sm text-slate-600 dark:text-slate-300">L’addenda exclut automatiquement tout élément non confirmé. Le résultat est sauvegardé, jamais publié automatiquement.</p></div><button type="button" onClick={() => void prepareListing()} disabled={!data.readyToPrepare || busy.startsWith("prepare-")} className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-teal-700 px-5 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50">{busy.startsWith("prepare-") ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}Préparer mon inscription</button></div>{!data.readyToPrepare ? <p className="mt-3 text-sm font-medium text-amber-800 dark:text-amber-200">Confirme d’abord : {data.missingQuestions.filter((item) => item.required).map((item) => item.label).join(", ")}.</p> : null}</div>
       {hasContent ? <div className="grid gap-4"><ContentCard title="Description publique" text={content.listing.publicDescription} /><ContentCard title="Version courte" text={content.listing.shortDescription} /><ContentCard title="Addenda descriptif" text={content.listing.addendum} warning="Validation du courtier requise avant toute utilisation juridique ou contractuelle." /><TwoLists leftTitle="Faits saillants" left={content.listing.highlights} rightTitle="Caractéristiques principales" right={content.listing.characteristics} /><ContentCard title="Résumé vendeur" text={content.listing.sellerSummary} /><TwoLists leftTitle="Points à valider avant publication" left={content.listing.validationPoints} rightTitle="Checklist du dossier" right={content.listing.dossierChecklist} /><ListCard title="Checklist de mise en marché" items={content.listing.marketingChecklist} /></div> : <Empty text="Clique « Préparer mon inscription » lorsque les informations essentielles sont confirmées." />}
     </section>
 
     <section id="marketing" className="scroll-mt-6 space-y-5">
       <SectionHeading eyebrow="Marketing" title="Contenus basés sur cette propriété" />
-      {hasContent ? <div className="grid gap-4 lg:grid-cols-2"><ContentCard title="Facebook" text={content.marketing.facebook} /><ContentCard title="Instagram" text={content.marketing.instagram} /><ArrayCard title="Story Facebook" items={content.marketing.facebookStory} /><ArrayCard title="Story Instagram" items={content.marketing.instagramStory} /><ContentCard title="Bientôt sur le marché" text={content.marketing.comingSoon} /><ContentCard title="Nouvelle inscription" text={content.marketing.newListing} /><ContentCard title="Visite libre" text={content.marketing.openHouse} /><ArrayCard title="Carrousel" items={content.marketing.carousel.map((item) => `${item.title}\n${item.text}`)} /><ContentCard title="Script Reel" text={content.marketing.reelScript} /><ContentCard title="Vidéo de présentation" text={content.marketing.presentationVideoScript} /><ContentCard title="Vidéo courte" text={content.marketing.shortVideoScript} /><ContentCard title="Courriel aux acheteurs potentiels" text={content.marketing.buyerEmail} /><ContentCard title="Courriel aux courtiers" text={content.marketing.brokerEmail} /><ContentCard title="SMS de nouvelle inscription" text={content.marketing.sms} /></div> : <Empty text="Le plan marketing apparaîtra avec l’inscription préparée." />}
+      <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+          <label className="text-sm font-semibold">Style de rédaction
+            <select value={marketingStyle} onChange={(event) => setMarketingStyle(event.target.value as PropertyMarketingStyle)} className="mt-1 block min-h-10 rounded-xl border border-slate-200 bg-white px-3 dark:border-slate-700 dark:bg-slate-950">
+              <option value="professional">Professionnel</option><option value="warm">Chaleureux</option><option value="dynamic">Vendeur</option><option value="premium">Haut de gamme</option><option value="direct">Direct</option>
+            </select>
+          </label>
+          <div className="flex flex-wrap gap-2">
+            {[
+              ["default", "Régénérer"], ["professional", "Plus professionnel"], ["warmer", "Plus chaleureux"],
+              ["shorter", "Plus court"], ["seller", "Plus vendeur"], ["premium", "Plus haut de gamme"], ["angle", "Autre angle"],
+            ].map(([adjustment, label]) => <button key={adjustment} type="button" onClick={() => void prepareListing(adjustment)} disabled={!data.readyToPrepare || busy.startsWith("prepare-")} className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold hover:border-teal-500 disabled:opacity-50 dark:border-slate-700">{busy === `prepare-${adjustment}` ? "Génération…" : label}</button>)}
+          </div>
+        </div>
+      </div>
+      {hasContent ? <><span className="inline-flex rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-amber-900">BROUILLON · validation requise</span><div className="grid gap-4 lg:grid-cols-2"><ContentCard title="Facebook" text={content.marketing.facebook} /><ContentCard title="Instagram" text={content.marketing.instagram} /><ArrayCard title="Story Facebook" items={content.marketing.facebookStory} /><ArrayCard title="Story Instagram" items={content.marketing.instagramStory} /><ContentCard title="Bientôt sur le marché" text={content.marketing.comingSoon} /><ContentCard title="Nouvelle inscription" text={content.marketing.newListing} /><ContentCard title="Visite libre" text={content.marketing.openHouse} /><ContentCard title="Baisse de prix" text={content.marketing.priceReduction} /><ContentCard title="Promesse acceptée" text={content.marketing.acceptedOffer} /><ContentCard title="Vendu" text={content.marketing.sold} /><ContentCard title="Retour sur le marché" text={content.marketing.backOnMarket} /><ContentCard title="Propriété vedette" text={content.marketing.featured} /><ArrayCard title="Carrousel" items={content.marketing.carousel.map((item) => `${item.title}\n${item.text}`)} /><ContentCard title="Script Reel" text={content.marketing.reelScript} /><ContentCard title="Vidéo de présentation" text={content.marketing.presentationVideoScript} /><ContentCard title="Vidéo courte" text={content.marketing.shortVideoScript} /><ContentCard title="Courriel aux acheteurs potentiels" text={content.marketing.buyerEmail} /><ContentCard title="Courriel aux courtiers" text={content.marketing.brokerEmail} /><ContentCard title="SMS de nouvelle inscription" text={content.marketing.sms} /></div></> : <Empty text="Le plan marketing apparaîtra avec l’inscription préparée." />}
       <Alert tone="amber" text="Tous ces contenus sont des brouillons internes. Aucun courriel, SMS ou média social n’est envoyé ou publié par ce dossier." />
     </section>
 

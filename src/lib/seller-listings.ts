@@ -48,6 +48,11 @@ export type ListingGeneratedContent = {
     comingSoon: string;
     newListing: string;
     openHouse: string;
+    priceReduction: string;
+    acceptedOffer: string;
+    sold: string;
+    backOnMarket: string;
+    featured: string;
     reelScript: string;
     presentationVideoScript: string;
     shortVideoScript: string;
@@ -78,6 +83,11 @@ export const EMPTY_GENERATED_CONTENT: ListingGeneratedContent = {
     comingSoon: "",
     newListing: "",
     openHouse: "",
+    priceReduction: "",
+    acceptedOffer: "",
+    sold: "",
+    backOnMarket: "",
+    featured: "",
     reelScript: "",
     presentationVideoScript: "",
     shortVideoScript: "",
@@ -251,6 +261,11 @@ export function normalizeGeneratedContent(value: unknown): ListingGeneratedConte
       comingSoon: text(marketing, "comingSoon"),
       newListing: text(marketing, "newListing"),
       openHouse: text(marketing, "openHouse"),
+      priceReduction: text(marketing, "priceReduction"),
+      acceptedOffer: text(marketing, "acceptedOffer"),
+      sold: text(marketing, "sold"),
+      backOnMarket: text(marketing, "backOnMarket"),
+      featured: text(marketing, "featured"),
       reelScript: text(marketing, "reelScript"),
       presentationVideoScript: text(marketing, "presentationVideoScript"),
       shortVideoScript: text(marketing, "shortVideoScript"),
