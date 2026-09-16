@@ -1330,7 +1330,7 @@ function ReachabilityPanel({ prospect, onUpdate, onClose }: { prospect: Prospect
       <div className="mt-5 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
         <button type="button" onClick={() => openSearch("google", "Google — nom et adresse", searchOptions[1].url)} className="rounded-lg bg-slate-950 px-4 py-3 text-sm font-bold text-white hover:bg-slate-800 dark:bg-white dark:text-slate-950">Google</button>
         <button type="button" onClick={() => openSearch("facebook", "Recherche directe Facebook", `https://www.facebook.com/search/top?q=${encodeURIComponent(`${contactName} ${prospect.city}`.trim())}`)} className="rounded-lg bg-blue-600 px-4 py-3 text-sm font-bold text-white hover:bg-blue-700">Facebook</button>
-        <button type="button" onClick={() => openSearch("google_maps", "Google Maps — adresse", mapsUrl)} className="rounded-lg bg-emerald-600 px-4 py-3 text-sm font-bold text-white hover:bg-emerald-700">Google / Maps</button>
+        <button type="button" onClick={() => openSearch("google_maps", "Google Maps — adresse", mapsUrl)} className="rounded-lg bg-emerald-600 px-4 py-3 text-sm font-bold text-white hover:bg-emerald-700">📍 Voir l’adresse<span className="sr-only"> avec Google / Maps</span></button>
         <button type="button" onClick={() => openSearch("web_ai", "Web/IA — recherche exacte", searchOptions[4].url)} className="rounded-lg bg-violet-600 px-4 py-3 text-sm font-bold text-white hover:bg-violet-700">Web / IA</button>
       </div>
 

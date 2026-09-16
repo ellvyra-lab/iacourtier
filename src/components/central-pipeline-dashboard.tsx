@@ -74,17 +74,31 @@ export function CentralPipelineDashboard() {
   const critical = (payload?.cases || []).filter((item) => item.priority_level === "critical" || (item.alerts || []).some((alert) => alert.level === "critical")).length;
 
   async function patchCase(item: PipelineCase, body: Record<string, unknown>) {
+    const previous = payload;
     setSaving(item.id); setError("");
+    setPayload((current) => current ? {
+      ...current,
+      cases: current.cases.map((candidate) => candidate.id !== item.id ? candidate : {
+        ...candidate,
+        ...(body.target === "case" && typeof body.pipelineStage === "string" ? { current_stage: body.pipelineStage, pipeline_stage: body.pipelineStage } : {}),
+        ...(body.target === "mode" && typeof body.pipelineMode === "string" ? { pipeline_mode: body.pipelineMode as CrmPipelineMode } : {}),
+      }),
+    } : current);
     try {
       const response = await authenticatedFetch(`/api/client-cases/${item.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const result = await response.json() as { error?: string };
       if (!response.ok) throw new Error(result.error || "La modification n’a pas pu être enregistrée.");
       await load();
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "La modification n’a pas pu être enregistrée."); }
+    } catch (reason) {
+      setPayload(previous);
+      setError(reason instanceof Error ? reason.message : "La modification n’a pas pu être enregistrée.");
+    }
     finally { setSaving(""); }
   }
 
   function changeStage(item: PipelineCase, target: string) {
+    const current = canonicalCrmStage(item.pipeline_type || item.case_type, item.current_stage || item.pipeline_stage);
+    if (current === target) return;
     const itemStages = crmPipelineStages(item.pipeline_type || item.case_type);
     const previous = itemStages.findIndex((stage) => stage.id === canonicalCrmStage(item.pipeline_type || item.case_type, item.current_stage || item.pipeline_stage));
     const next = itemStages.findIndex((stage) => stage.id === target);
@@ -110,14 +124,14 @@ export function CentralPipelineDashboard() {
 
     <nav className="flex flex-wrap gap-2" aria-label="Type de parcours"><FamilyButton active={family === "seller"} onClick={() => setFamily("seller")}>Vendeurs ({counts.seller})</FamilyButton><FamilyButton active={family === "buyer"} onClick={() => setFamily("buyer")}>Acheteurs ({counts.buyer})</FamilyButton><FamilyButton active={family === "post_transaction"} onClick={() => setFamily("post_transaction")}>Après-vente ({counts.post_transaction})</FamilyButton></nav>
 
-    {!familyCases.length ? <Empty family={family} /> : view === "kanban" ? <div className="overflow-x-auto pb-3"><div className="flex min-w-max gap-4">{stages.map((stage) => { const items = familyCases.filter((item) => canonicalCrmStage(item.pipeline_type || item.case_type, item.current_stage || item.pipeline_stage) === stage.id); return <section key={stage.id} className="w-80 shrink-0 rounded-2xl bg-slate-100/80 p-3 dark:bg-slate-900/70"><header className="mb-3 flex items-start justify-between gap-2"><div><p className="text-xs font-bold uppercase tracking-wide text-slate-500">Étape {stages.findIndex((item) => item.id === stage.id) + 1}</p><h2 className="mt-1 text-sm font-semibold">{stage.label}</h2></div><span className="rounded-full bg-white px-2 py-1 text-xs font-bold dark:bg-slate-800">{items.length}</span></header><div className="space-y-3">{items.map((item) => <PipelineCard key={item.id} item={item} stages={stages} saving={saving === item.id} onStage={changeStage} onPatch={patchCase} />)}{!items.length ? <p className="rounded-xl border border-dashed border-slate-300 p-4 text-center text-xs text-slate-400 dark:border-slate-700">Aucun dossier</p> : null}</div></section>; })}</div></div> : <div className="space-y-3">{orderedCases.map((item) => <PipelineCard key={item.id} item={item} stages={stages} saving={saving === item.id} onStage={changeStage} onPatch={patchCase} wide priority={view === "priority"} />)}</div>}
+    {!familyCases.length ? <Empty family={family} /> : view === "kanban" ? <div className="overflow-x-auto pb-3"><div className="flex min-w-max gap-4">{stages.map((stage) => { const items = familyCases.filter((item) => canonicalCrmStage(item.pipeline_type || item.case_type, item.current_stage || item.pipeline_stage) === stage.id); return <section key={stage.id} onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }} onDrop={(event) => { event.preventDefault(); const droppedId = event.dataTransfer.getData("text/plain"); const dropped = familyCases.find((candidate) => candidate.id === droppedId); if (dropped) changeStage(dropped, stage.id); }} className="w-80 shrink-0 rounded-2xl bg-slate-100/80 p-3 transition-colors hover:bg-teal-50/70 dark:bg-slate-900/70 dark:hover:bg-teal-950/20"><header className="mb-3 flex items-start justify-between gap-2"><div><p className="text-xs font-bold uppercase tracking-wide text-slate-500">Étape {stages.findIndex((item) => item.id === stage.id) + 1}</p><h2 className="mt-1 text-sm font-semibold">{stage.label}</h2></div><span className="rounded-full bg-white px-2 py-1 text-xs font-bold dark:bg-slate-800">{items.length}</span></header><div className="space-y-3">{items.map((item) => <PipelineCard key={item.id} item={item} stages={stages} saving={saving === item.id} onStage={changeStage} onPatch={patchCase} />)}{!items.length ? <p className="rounded-xl border border-dashed border-slate-300 p-4 text-center text-xs text-slate-400 dark:border-slate-700">Aucun dossier</p> : null}</div></section>; })}</div></div> : <div className="space-y-3">{orderedCases.map((item) => <PipelineCard key={item.id} item={item} stages={stages} saving={saving === item.id} onStage={changeStage} onPatch={patchCase} wide priority={view === "priority"} />)}</div>}
   </div>;
 }
 
 function PipelineCard({ item, stages, saving, onStage, onPatch, wide = false, priority = false }: { item: PipelineCase; stages: CrmStageDefinition[]; saving: boolean; onStage: (item: PipelineCase, stage: string) => void; onPatch: (item: PipelineCase, body: Record<string, unknown>) => Promise<void>; wide?: boolean; priority?: boolean }) {
   const client = item.clients?.[0]; const property = Array.isArray(item.property) ? item.property[0] : item.property; const current = canonicalCrmStage(item.pipeline_type || item.case_type, item.current_stage || item.pipeline_stage);
   const alerts = item.alerts || []; const critical = alerts.filter((alert) => alert.level === "critical");
-  return <article className={`rounded-2xl border bg-white p-4 shadow-sm dark:bg-slate-950 ${critical.length ? "border-red-300 dark:border-red-900" : "border-slate-200 dark:border-slate-800"} ${wide ? "lg:grid lg:grid-cols-[1.2fr_.8fr_.7fr] lg:gap-5" : ""}`}>
+  return <article draggable={!saving} onDragStart={(event) => { event.dataTransfer.setData("text/plain", item.id); event.dataTransfer.effectAllowed = "move"; }} className={`cursor-grab rounded-2xl border bg-white p-4 shadow-sm active:cursor-grabbing dark:bg-slate-950 ${critical.length ? "border-red-300 dark:border-red-900" : "border-slate-200 dark:border-slate-800"} ${wide ? "lg:grid lg:grid-cols-[1.2fr_.8fr_.7fr] lg:gap-5" : ""}`}>
     <div className="min-w-0"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="text-xs font-bold uppercase tracking-wide text-teal-700">{caseType(item.case_type)} · {priorityLabel(item.priority_level)}</p><Link href={`/tableau-de-bord/dossiers/${item.id}`} className="mt-1 block truncate font-semibold hover:text-teal-700">{item.title}</Link></div><span className="shrink-0 rounded-full bg-slate-100 px-2 py-1 text-xs font-bold dark:bg-slate-800">{item.priority_score || 0}</span></div>
       {client ? <div className="mt-3"><ClientQuickPanel client={client} caseId={item.id} caseLabel={item.title} returnHref="/tableau-de-bord/pipeline" returnLabel="Pipeline" compact /></div> : <p className="mt-3 text-sm font-semibold text-red-700">Client à relier</p>}
       {property?.address ? <p className="mt-2 text-xs text-slate-500">{property.address}{property.city ? `, ${property.city}` : ""}</p> : null}

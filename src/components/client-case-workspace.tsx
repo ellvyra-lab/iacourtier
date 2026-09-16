@@ -56,24 +56,45 @@ export function ClientCaseWorkspace({ caseId, importCompleted = false, addDocume
   useEffect(() => { void load(); }, [load]);
 
   async function update(target: "task" | "automation", id: string, nextStatus: string) {
+    const previous = data;
     setSavingId(id);
+    setData((current) => current ? {
+      ...current,
+      [target === "task" ? "tasks" : "automations"]: (target === "task" ? current.tasks : current.automations)
+        .map((item) => item.id === id ? { ...item, status: nextStatus } : item),
+    } : current);
     try {
       const response = await authenticatedFetch(`/api/client-cases/${caseId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ target, id, status: nextStatus }) });
       const payload = await response.json() as { error?: string };
       if (!response.ok) throw new Error(payload.error || "Modification impossible.");
       await load();
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "Modification impossible."); }
+    } catch (reason) {
+      setData(previous);
+      setError(reason instanceof Error ? reason.message : "Modification impossible.");
+    }
     finally { setSavingId(""); }
   }
 
   async function updateCase(body: Record<string, unknown>) {
+    const previous = data;
     setSavingId("case");
+    setData((current) => current ? {
+      ...current,
+      case: {
+        ...current.case,
+        ...(body.target === "case" && typeof body.pipelineStage === "string" ? { current_stage: body.pipelineStage, pipeline_stage: body.pipelineStage } : {}),
+        ...(body.target === "mode" && typeof body.pipelineMode === "string" ? { pipeline_mode: body.pipelineMode } : {}),
+      },
+    } : current);
     try {
       const response = await authenticatedFetch(`/api/client-cases/${caseId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const payload = await response.json() as { error?: string };
       if (!response.ok) throw new Error(payload.error || "Modification impossible.");
       await load();
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "Modification impossible."); }
+    } catch (reason) {
+      setData(previous);
+      setError(reason instanceof Error ? reason.message : "Modification impossible.");
+    }
     finally { setSavingId(""); }
   }
 
@@ -95,6 +116,14 @@ export function ClientCaseWorkspace({ caseId, importCompleted = false, addDocume
   const currentStage = canonicalCrmStage(pipelineType, item.current_stage || item.pipeline_stage);
   const pipelineStages = crmPipelineStages(pipelineType);
   const currentStageIndex = pipelineStages.findIndex((stage) => stage.id === currentStage);
+  const propertyRecord = property(item.property);
+  const roleRows = data.caseRoles.map((role) => {
+    const client = data.clients.find((candidate) => candidate.id === role.client_id);
+    return `${client ? clientName(client) : "Client"} · ${label(role.role || role.client_role || "client")}`;
+  });
+  const nextDeadline = [...data.conditions, ...data.tasks]
+    .filter((entry) => entry.status !== "completed" && entry.status !== "cancelled" && entry.due_at)
+    .sort((a, b) => String(a.due_at).localeCompare(String(b.due_at)))[0];
 
   return <div className="space-y-6">
     <nav className="flex flex-wrap items-center gap-2 text-sm text-slate-500"><Link href="/tableau-de-bord/clients" className="hover:text-teal-700">Clients & dossiers</Link><span>›</span>{primary ? <Link href={`/tableau-de-bord/clients/${primary.id}?from=${encodeURIComponent(`/tableau-de-bord/dossiers/${caseId}`)}&fromLabel=${encodeURIComponent(item.title)}`} className="hover:text-teal-700">{clientName(primary)}</Link> : <span>Client</span>}<span>›</span><span>{item.title}</span></nav>
@@ -104,6 +133,13 @@ export function ClientCaseWorkspace({ caseId, importCompleted = false, addDocume
       <div className="mt-6 h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800"><div className="h-full rounded-full bg-teal-600" style={{ width: `${item.pipeline_progress ?? item.progress ?? 0}%` }} /></div><div className="mt-2 flex justify-between text-xs text-slate-500"><span>{label(item.status)}</span><span>{item.pipeline_progress ?? item.progress ?? 0}% du pipeline</span></div>
     </header>
     <SessionStatusNotice />{error ? <p className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</p> : null}
+
+    <section aria-label="Cockpit du dossier" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <CockpitDatum label="Personnes et rôles" value={roleRows.length ? roleRows.join(" · ") : primary ? clientName(primary) : "Client à relier"} />
+      <CockpitDatum label="Propriété" value={propertyRecord?.address ? `${propertyRecord.address}${propertyRecord.city ? `, ${propertyRecord.city}` : ""}` : "Propriété à relier"} />
+      <CockpitDatum label="Prochaine échéance" value={nextDeadline?.due_at ? `${nextDeadline.title || nextDeadline.name || "Échéance"} · ${date(nextDeadline.due_at)}` : "Aucune échéance immédiate"} />
+      <CockpitDatum label="Alertes actives" value={(item.alerts || []).length ? `${(item.alerts || []).length} alerte(s) à traiter` : "Aucune alerte active"} />
+    </section>
 
     {(item.alerts || []).length ? <section className="grid gap-3 md:grid-cols-2">{item.alerts.map((alert: Record<string, any>) => <div key={alert.code} className={`flex gap-3 rounded-2xl border p-4 ${alert.level === "critical" ? "border-red-200 bg-red-50 text-red-950 dark:border-red-900 dark:bg-red-950/30 dark:text-red-100" : "border-amber-200 bg-amber-50 text-amber-950 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100"}`}><AlertTriangle className="h-5 w-5 shrink-0" /><div><strong>{alert.title}</strong><p className="mt-1 text-sm">{alert.detail}</p></div></div>)}</section> : null}
 
@@ -136,6 +172,7 @@ export function ClientCaseWorkspace({ caseId, importCompleted = false, addDocume
 }
 
 function Panel({ title, empty, children }: { title: string; empty: string; children: React.ReactNode }) { const count = Array.isArray(children) ? children.filter(Boolean).length : children ? 1 : 0; return <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900"><h2 className="text-lg font-semibold">{title}</h2><div className="mt-4 space-y-3">{count ? children : <p className="text-sm text-slate-500">{empty}</p>}</div></section>; }
+function CockpitDatum({ label: title, value }: { label: string; value: string }) { return <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900"><p className="text-xs font-bold uppercase tracking-wide text-slate-500">{title}</p><p className="mt-2 text-sm font-semibold leading-6">{value}</p></div>; }
 function Metric({ title, value }: { title: string; value: number | string }) { return <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900"><p className="text-sm text-slate-500">{title}</p><p className="mt-2 text-2xl font-semibold">{value}</p></div>; }
 function Datum({ label: key, value }: { label: string; value: string }) { return <div><p className="text-xs text-slate-500">{key}</p><p className="font-semibold">{value}</p></div>; }
 function property(value: any) { return Array.isArray(value) ? value[0] : value; }
