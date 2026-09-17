@@ -24,14 +24,14 @@ type ClientCase = {
   property?: { address?: string; city?: string; property_type?: string } | Array<{ address?: string; city?: string; property_type?: string }>;
 };
 type Client = QuickClient & { name: string; roles: string[]; client_status?: string; cases: ClientCase[] };
-type Filter = "all" | "prospect" | "buyer" | "seller" | "buy_sell" | "transaction" | "after-sale" | "former";
+export type ClientFilter = "all" | "prospect" | "buyer" | "seller" | "buy_sell" | "transaction" | "after-sale" | "former";
 
-const filters: Array<[Filter,string]> = [["all","Tous"],["prospect","Prospects"],["buyer","Acheteurs"],["seller","Vendeurs"],["buy_sell","Acheteurs + vendeurs"],["transaction","Transactions"],["after-sale","Après-vente"],["former","Anciens clients"]];
+const filters: Array<[ClientFilter,string]> = [["all","Tous"],["prospect","Prospects"],["buyer","Acheteurs"],["seller","Vendeurs"],["buy_sell","Acheteurs + vendeurs"],["transaction","Transactions"],["after-sale","Après-vente"],["former","Anciens clients"]];
 
-export function ClientsCasesDashboard() {
+export function ClientsCasesDashboard({ initialFilter = "all" }: { initialFilter?: ClientFilter }) {
   const { status: authStatus, authenticatedFetch } = useDashboardAuth();
   const [clients, setClients] = useState<Client[]>([]);
-  const [filter, setFilter] = useState<Filter>("all");
+  const [filter, setFilter] = useState<ClientFilter>(initialFilter);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
