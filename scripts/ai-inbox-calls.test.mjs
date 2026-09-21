@@ -76,13 +76,14 @@ test("appels — journalise le départ et transforme le résultat en actions CRM
 });
 
 test("interface — capture globale, page appels et bouton central sont branchés", () => {
-  const capture = read("src/components/universal-quick-capture.tsx");
+  const capture = read("src/components/coach-conversation.tsx");
+  assert.match(read("src/components/universal-quick-capture.tsx"), /CoachLauncher/);
   assert.match(read("src/app/tableau-de-bord/layout.tsx"), /<UniversalQuickCapture floating/);
   assert.match(read("src/components/guided-home-dashboard.tsx"), /<UniversalQuickCapture/);
   assert.match(capture, /Dire à IACourtier/i);
   assert.match(capture, /bg-red-600/);
   assert.match(capture, /autoStart/);
-  assert.match(capture, /Captures récentes/);
+  assert.match(capture, /api\/coach\/conversation/);
   assert.match(read("src/components/client-quick-panel.tsx"), /<CrmCallButton/);
   assert.match(read("src/components/client-360-workspace.tsx"), /<CrmCallButton/);
   assert.match(read("src/app/tableau-de-bord/appels/page.tsx"), /CallsToMakeDashboard/);

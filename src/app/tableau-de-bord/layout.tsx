@@ -4,6 +4,7 @@ import { DashboardTopbar } from "@/components/dashboard/DashboardTopbar";
 import { DashboardMobileNav } from "@/components/dashboard/DashboardMobileNav";
 import { DashboardAuthGate, DashboardAuthProvider } from "@/components/auth/DashboardAuthProvider";
 import { UniversalQuickCapture } from "@/components/universal-quick-capture";
+import { CoachConversationProvider } from "@/components/coach-conversation";
 
 export const metadata: Metadata = {
   title: "Tableau de bord",
@@ -18,6 +19,7 @@ export default function DashboardLayout({
   return (
     <DashboardAuthProvider>
       <DashboardAuthGate>
+        <CoachConversationProvider>
         <div className="flex min-h-screen bg-surface">
           <DashboardSidebar />
           <div className="flex min-w-0 flex-1 flex-col">
@@ -27,6 +29,7 @@ export default function DashboardLayout({
           </div>
           <UniversalQuickCapture floating />
         </div>
+        </CoachConversationProvider>
       </DashboardAuthGate>
     </DashboardAuthProvider>
   );

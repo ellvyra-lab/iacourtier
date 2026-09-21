@@ -1,5 +1,5 @@
-import { GuidedHomeDashboard } from "@/components/guided-home-dashboard";
+import { CoachConversation } from "@/components/coach-conversation";
 
 export default function DashboardOverviewPage() {
-  return <GuidedHomeDashboard />;
+  return <CoachConversation />;
 }

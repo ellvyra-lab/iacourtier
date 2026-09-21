@@ -14,7 +14,8 @@
     "test:quick-access": "node --test scripts/client-quick-access.test.mjs",
     "test:inbox-calls": "node --test scripts/ai-inbox-calls.test.mjs",
     "test:pdf": "node scripts/test-real-pdf.mjs",
-    "test:ticket58": "node --test scripts/ticket-058.test.mjs"
+    "test:ticket58": "node --test scripts/ticket-058.test.mjs",
+    "test:coach": "node --test scripts/coach-conversation.test.mjs"
   },
   "dependencies": {
     "@napi-rs/canvas": "0.1.80",

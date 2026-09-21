@@ -52,6 +52,7 @@ export function ClientsCasesDashboard({ initialFilter = "all" }: { initialFilter
   }, [authStatus, authenticatedFetch, query]);
 
   useEffect(() => { const timeout = window.setTimeout(load, 220); return () => window.clearTimeout(timeout); }, [load]);
+  useEffect(() => { const refresh = () => { void load(); }; window.addEventListener("crm-updated", refresh); return () => window.removeEventListener("crm-updated", refresh); }, [load]);
 
   const visible = useMemo(() => clients.filter((client) => {
     if (filter === "all") return true;

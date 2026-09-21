@@ -19,7 +19,7 @@ export type QuickCaptureResult = {
   updated: string[];
 };
 
-export async function processQuickCapture(supabase: Supabase, userId: string, input: { captureId: string; selectedClientId?: string | null }): Promise<QuickCaptureResult> {
+export async function processQuickCapture(supabase: Supabase, userId: string, input: { captureId: string; selectedClientId?: string | null; selectedCaseId?: string | null; explicitTasksOnly?: boolean }): Promise<QuickCaptureResult> {
   const { data: capture, error: captureError } = await supabase.from("inbox_captures").select("*").eq("id", input.captureId).eq("user_id", userId).maybeSingle();
   if (captureError) throw captureError;
   if (!capture) throw new Error("Capture introuvable.");
@@ -41,7 +41,6 @@ export async function processQuickCapture(supabase: Supabase, userId: string, in
       last_name: analysis.person.lastName || "",
       email: analysis.person.email || null,
       phone: analysis.person.phone || null,
-      city: analysis.property.city || analysis.buyerCriteria.sectors[0] || null,
       roles,
       tags: roleTags(roles),
       source: `Capture IA · ${capture.source_type}`,
@@ -55,7 +54,6 @@ export async function processQuickCapture(supabase: Supabase, userId: string, in
     if (!client.email && analysis.person.email) updates.email = analysis.person.email;
     if (!client.phone && analysis.person.phone) updates.phone = analysis.person.phone;
     if (!client.last_name && analysis.person.lastName) updates.last_name = analysis.person.lastName;
-    if (!client.city && (analysis.property.city || analysis.buyerCriteria.sectors[0])) updates.city = analysis.property.city || analysis.buyerCriteria.sectors[0];
     const { data, error } = await supabase.from("clients").update(updates).eq("id", client.id).eq("user_id", userId).select("*").single();
     if (error || !data) throw error || new Error("Mise à jour du client impossible.");
     client = data;
@@ -63,7 +61,7 @@ export async function processQuickCapture(supabase: Supabase, userId: string, in
   if (analysis.person.phone) await persistPhone(supabase, userId, client.id, analysis.person.phone);
 
   let propertyId = await resolveProperty(supabase, userId, client.id, analysis);
-  let contextCase = await findContextCase(supabase, userId, client.id, propertyId, analysis.caseType);
+  let contextCase = await findContextCase(supabase, userId, client.id, propertyId, analysis.caseType, input.selectedCaseId);
   if (!propertyId && contextCase?.property_id) propertyId = contextCase.property_id;
   const effectiveType = ((contextCase?.case_type && analysis.caseType === "prospect") ? contextCase.case_type : analysis.caseType) as InboxCaseType;
   const clientName = `${client.first_name || ""} ${client.last_name || ""}`.trim();
@@ -80,9 +78,9 @@ export async function processQuickCapture(supabase: Supabase, userId: string, in
     primaryClientId: client.id,
     propertyId,
     caseType: effectiveType as CentralCaseType,
-    title: caseTitle(effectiveType, analysis, clientName),
-    status: "active",
-    pipelineStage: initialStage(effectiveType, analysis),
+    title: contextCase?.title || caseTitle(effectiveType, analysis, clientName),
+    status: contextCase?.status || "active",
+    pipelineStage: contextCase?.current_stage || contextCase?.pipeline_stage || initialStage(effectiveType, analysis),
     source: `voice_capture:${capture.id}`,
     nextAction,
     buyerCaseId,
@@ -90,7 +88,7 @@ export async function processQuickCapture(supabase: Supabase, userId: string, in
     centralCaseId: contextCase?.id || null,
   });
   await persistCaseFacts(supabase, userId, caseId, capture, analysis);
-  const tasks = usefulTasks(analysis, clientName, Boolean(client.phone || analysis.person.phone), Boolean(client.email || analysis.person.email));
+  const tasks = input.explicitTasksOnly ? analysis.tasks : usefulTasks(analysis, clientName, Boolean(client.phone || analysis.person.phone), Boolean(client.email || analysis.person.email));
   if (tasks.length) {
     const { error } = await supabase.from("tasks").upsert(tasks.map((task) => ({
       user_id: userId,
@@ -144,6 +142,7 @@ async function findCertainClient(supabase: Supabase, userId: string, analysis: I
   const exact = (data || []).filter((item) => (email && String(item.email || "").toLowerCase() === email) || (phone && normalizePhone(item.phone) === phone));
   if (exact.length === 1) return exact[0];
   const names = (data || []).filter((item) => analysis.person.firstName && fold(item.first_name) === fold(analysis.person.firstName) && (!analysis.person.lastName || fold(item.last_name) === fold(analysis.person.lastName)));
+  if (exact.length > 1 || names.length > 1) throw new Error("Plusieurs clients correspondent. Choisis la bonne personne avant de continuer.");
   return names.length === 1 ? names[0] : null;
 }
 
@@ -165,21 +164,25 @@ async function resolveProperty(supabase: Supabase, userId: string, clientId: str
   return data.id as string;
 }
 
-async function findContextCase(supabase: Supabase, userId: string, clientId: string, propertyId: string | null, type: InboxCaseType) {
-  let query = supabase.from("client_cases").select("id,case_type,property_id,status").eq("user_id", userId).eq("primary_client_id", clientId).eq("status", "active");
+async function findContextCase(supabase: Supabase, userId: string, clientId: string, propertyId: string | null, type: InboxCaseType, selectedCaseId?: string | null) {
+  let query = supabase.from("client_cases").select("*").eq("user_id", userId).eq("primary_client_id", clientId).eq("status", "active");
+  if (selectedCaseId) query = query.eq("id", selectedCaseId);
   if (propertyId) query = query.eq("property_id", propertyId);
   else if (type !== "prospect") query = query.eq("case_type", type);
   const { data, error } = await query.order("updated_at", { ascending: false }).limit(2);
   if (error) throw error;
+  if (data && data.length > 1) throw new Error("Plusieurs dossiers correspondent. Choisis le bon dossier avant de continuer.");
+  if (selectedCaseId && !data?.length) throw new Error("Le dossier choisi ne correspond pas au projet.");
   return data?.length === 1 ? data[0] : null;
 }
 
 async function upsertBuyerCase(supabase: Supabase, userId: string, clientId: string, centralCaseId: string | null, analysis: InboxAnalysis) {
   let query = supabase.from("buyer_cases").select("*").eq("user_id", userId).eq("contact_id", clientId).neq("status", "completed");
   if (centralCaseId) query = query.eq("client_case_id", centralCaseId);
+  else query = query.is("client_case_id", null);
   const { data: existing, error } = await query.order("updated_at", { ascending: false }).limit(1).maybeSingle();
   if (error) throw error;
-  const patch: Record<string, unknown> = { status: analysis.financing.prequalified ? "financing" : "qualification", pipeline_stage: analysis.financing.prequalified ? "financing" : "qualification", validation_required: false, source: "voice_capture", updated_at: new Date().toISOString() };
+  const patch: Record<string, unknown> = { validation_required: false, updated_at: new Date().toISOString(), ...(!existing ? { status: "qualification", pipeline_stage: "qualification", source: "voice_capture" } : {}) };
   if (analysis.buyerCriteria.budgetMax) patch.budget = String(analysis.buyerCriteria.budgetMax);
   if (analysis.buyerCriteria.sectors.length) patch.sectors = analysis.buyerCriteria.sectors;
   if (analysis.property.propertyType) patch.property_type = analysis.property.propertyType;

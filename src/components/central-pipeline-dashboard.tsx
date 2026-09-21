@@ -65,7 +65,7 @@ export function CentralPipelineDashboard() {
     finally { setLoading(false); }
   }, [authenticatedFetch, status]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { void load(); const refresh = () => { void load(); }; window.addEventListener("crm-updated", refresh); return () => window.removeEventListener("crm-updated", refresh); }, [load]);
 
   const familyCases = useMemo(() => (payload?.cases || []).filter((item) => pipelineFamily(item) === family), [family, payload]);
   const orderedCases = useMemo(() => [...familyCases].sort((a, b) => (b.priority_score || 0) - (a.priority_score || 0)), [familyCases]);

@@ -7,7 +7,7 @@ import { BarChart3, CalendarDays, ListTodo, UsersRound } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const items = [
-  { href: "/tableau-de-bord", label: "Aujourd’hui", icon: CalendarDays },
+  { href: "/tableau-de-bord", label: "Coach IA", icon: CalendarDays },
   { href: "/tableau-de-bord/actions", label: "Tâches", icon: ListTodo },
   { href: "/tableau-de-bord/pipeline", label: "Pipeline", icon: BarChart3 },
   { href: "/tableau-de-bord/clients", label: "Clients", icon: UsersRound },

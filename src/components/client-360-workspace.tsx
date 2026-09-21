@@ -45,7 +45,7 @@ export function Client360Workspace({ clientId, returnHref, returnLabel }: { clie
     finally { setLoading(false); }
   }, [authenticatedFetch, clientId, status]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { void load(); const refresh = () => { void load(); }; window.addEventListener("crm-updated", refresh); return () => window.removeEventListener("crm-updated", refresh); }, [load]);
 
   const taskGroups = useMemo(() => groupTasks(data?.tasks || []), [data?.tasks]);
   if (loading || !data) return <div className="flex min-h-96 items-center justify-center">{error ? <p className="text-red-700">{error}</p> : <Loader2 className="h-8 w-8 animate-spin text-teal-700" />}</div>;

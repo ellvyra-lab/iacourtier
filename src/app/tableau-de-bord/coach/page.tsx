@@ -1,5 +1,5 @@
-import { redirect } from "next/navigation";
+import { CoachConversation } from "@/components/coach-conversation";
 
 export default function CoachPage() {
-  redirect("/tableau-de-bord");
+  return <CoachConversation />;
 }

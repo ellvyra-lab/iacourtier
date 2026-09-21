@@ -1,3 +1,4 @@
+import { changeCrmTask } from "@/lib/server/coach-crm-actions";
 import { NextResponse } from "next/server";
 
 import { recalculateCaseOperatingState, transitionCentralCaseStage, updateCentralCasePipelineMode } from "@/lib/server/crm-operating-system";
@@ -127,14 +128,8 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     } else if (body.target === "mode" && body.pipelineMode) {
       await updateCentralCasePipelineMode(supabase, { userId: user.id, caseId, mode: body.pipelineMode });
     } else if (body.target === "task" && body.id && body.status) {
-      const now = new Date().toISOString();
-      const { data: task, error } = await supabase.from("tasks").update({ status: body.status, completed_at: body.status === "completed" ? now : null, updated_at: now }).eq("id", body.id).eq("case_id", caseId).eq("user_id", user.id).select("legacy_source,legacy_id").maybeSingle();
-      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-      if (task?.legacy_source && task.legacy_id) {
-        const table = task.legacy_source === "buyer_case_tasks" ? "buyer_case_tasks" : task.legacy_source === "seller_listing_tasks" ? "seller_listing_tasks" : null;
-        if (table) await supabase.from(table).update({ status: body.status, updated_at: new Date().toISOString() }).eq("id", task.legacy_id).eq("user_id", user.id);
-      }
-      await recalculateCaseOperatingState(supabase, user.id, caseId);
+      if (!["pending", "completed"].includes(body.status)) return NextResponse.json({ error: "Statut invalide." }, { status: 400 });
+      await changeCrmTask(supabase, user.id, { id: body.id, caseId, status: body.status as "pending" | "completed" });
     } else if (body.target === "automation" && body.id && body.status) {
       const { data: automation, error } = await supabase.from("automations").update({ status: body.status, updated_at: new Date().toISOString() }).eq("id", body.id).eq("case_id", caseId).eq("user_id", user.id).select("legacy_source,legacy_id").maybeSingle();
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
