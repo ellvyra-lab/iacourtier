@@ -114,6 +114,15 @@ test('même moteur: courriel → réponse → Envoie → tâche à midi',async()
   r=await send('Fais une tâche pour midi',{tool:'create_task',title:'Envoyer certificat de localisation',dateExpression:'aujourd’hui midi'});assert.equal(r.changed,true,r.text);
   const task=db.tables.tasks.find(t=>t.title==='Envoyer certificat de localisation');assert.equal(task.case_id,caseId);assert.ok(task.due_at);assert.equal(new Intl.DateTimeFormat('fr-CA',{timeZone:'America/Toronto',hour:'2-digit',hourCycle:'h23'}).format(new Date(task.due_at)), '12 h');
 });
+test('déplacement sans jour conserve la date du rendez-vous, pas celle de la recherche',async()=>{
+  const {scope,accountId}=fixture(),refId=randomUUID();
+  db.tables.connected_references.push({id:refId,user_id:'owner',account_id:accountId,kind:'event',remote_id:'event',client_id:null,case_id:null,property_id:null});
+  scope.context.current_event_id=refId;scope.context.current_slot={start:'2026-09-22T04:00:00Z',end:'2026-09-29T04:00:00Z'};
+  fixtureProviders.calendar.getEvent=async()=>({id:'event',title:'Visite',start:'2026-09-24T18:00:00Z',end:'2026-09-24T19:30:00Z',location:'91 Régent',version:'etag1',busy:true});
+  const preview=await connected.connectedCoachHandlers.update_calendar_event(scope,{tool:'update_calendar_event',dateExpression:'à 15 h'});
+  const action=db.tables.connected_actions.find(a=>a.id===preview.approval.id);
+  assert.equal(action.payload.start,'2026-09-24T19:00:00.000Z');assert.equal(action.payload.end,'2026-09-24T20:30:00.000Z');
+});
 test('dernière réponse sortante et newsletter exclues des demandes à répondre',async()=>{
   const {scope,email}=fixture();fixtureProviders.email.getThread=async()=>[{...email,sent:true}];
   let result=await connected.findEmailsNeedingReply(scope);assert.equal(result.items.length,0);

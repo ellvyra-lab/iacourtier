@@ -5,7 +5,7 @@ import { analyzeInboxText } from "@/lib/server/ai-inbox";
 import { processQuickCapture } from "@/lib/server/process-quick-capture";
 import { recalculateCaseOperatingState, transitionCentralCaseStage } from "@/lib/server/crm-operating-system";
 import { changeBuyerCriteria, changeCrmTask } from "@/lib/server/coach-crm-actions";
-import { dateWindow, localDay } from "@/lib/connections/dates";
+import { dateWindow, displayDate, localDay } from "@/lib/connections/dates";
 import type { createSupabaseServerClient } from "@/lib/supabase/server";
 
 type Supabase = Awaited<ReturnType<typeof createSupabaseServerClient>>;
@@ -223,7 +223,7 @@ export const coachHandlers: Partial<Record<CoachTool, Handler>> = {
       tasks.push(duplicate || await audit(s, i.tool, "task", null, null, () => changeCrmTask(s.db, s.userId, { caseId: c?.id, clientId: s.context.current_client_id, title, dueOn, dueAt:timed?.start, source: `coach_ai:${s.messageId}` })));
     }
     if (tasks.length === 1) s.context.current_task_id = tasks[0].id;
-    return { ...reply(s, `Fait. ${tasks.length} tâche(s) enregistrée(s)${dueOn ? ` pour le ${dueOn}` : ""}${c ? ` dans ${label(c)}` : ""}.`, tasks.map(row => card("task", row, String(row.due_on || "Sans échéance")))), changed: true };
+    return { ...reply(s, `Fait. ${tasks.length} tâche(s) enregistrée(s)${dueOn ? ` pour le ${timed ? displayDate(timed.start) : dueOn}` : ""}${c ? ` dans ${label(c)}` : ""}.`, tasks.map(row => card("task", row, row.due_at ? displayDate(String(row.due_at)) : String(row.due_on || "Sans échéance")))), changed: true };
   },
   update_task: async (s, i) => {
     const row = await resolveTask(s, i);

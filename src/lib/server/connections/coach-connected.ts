@@ -339,7 +339,7 @@ async function calendar(s: CoachScope,i: CoachIntent) {
     event = await p.calendar.getEvent(ref.remote_id);
     if (!event.version) throw new Error("La version de ce rendez-vous n’a pas pu être vérifiée. Ouvre-le dans ton agenda avant de le modifier.");
   }
-  const window = i.tool === "delete_calendar_event" ? { start:event!.start,end:event!.end } : dateWindow(i.dateExpression || "",new Date(),true,s.context.current_slot || (event ? { start:event.start,end:event.end } : null));
+  const window = i.tool === "delete_calendar_event" ? { start:event!.start,end:event!.end } : dateWindow(i.dateExpression || "",new Date(),true,event ? { start:event.start,end:event.end } : s.context.current_slot);
   if (event && i.tool === "update_calendar_event") window.end = new Date(Date.parse(window.start)+Date.parse(event.end)-Date.parse(event.start)).toISOString();
   if (i.tool !== "delete_calendar_event") {
     const conflict = await p.calendar.checkAvailability(window.start,window.end,event?.id);
