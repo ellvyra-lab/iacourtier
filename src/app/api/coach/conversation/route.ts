@@ -16,6 +16,7 @@ export async function GET(request: Request) {
   return Response.json({ messages: (data || []).reverse() });
 }
 export async function POST(request: Request) {
+  if (request.headers.get("origin") !== new URL(request.url).origin) return Response.json({ error:"Origine invalide." },{ status:403 });
   try {
     const db = await createSupabaseServerClient();
     const { data: { user } } = await db.auth.getUser();
@@ -26,7 +27,7 @@ export async function POST(request: Request) {
       if (error) return Response.json({ error: "Le Coach n’est pas prêt : applique la migration de conversation Supabase." }, { status: 503 });
       return Response.json(data);
     }
-    const result = await processCoachMessage(db, user.id, { conversationId: body.conversationId, messageId: body.messageId, text: body.text, choiceId: body.choiceId, taskId: body.taskId });
+    const result = await processCoachMessage(db, user.id, { conversationId: body.conversationId, messageId: body.messageId, text: body.text, choiceId: body.choiceId, taskId: body.taskId, action:body.action,referenceId:body.referenceId });
     return Response.json(result);
   } catch (error) { return Response.json({ error: error instanceof Error ? error.message : "Le Coach est momentanément indisponible." }, { status: 400 }); }
 }

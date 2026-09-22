@@ -57,11 +57,13 @@ export async function generateWithOpenAI({
   userPrompt,
   maxTokens = 900,
   temperature = 0.7,
+  jsonMode = false,
 }: {
   systemPrompt: string;
   userPrompt: string;
   maxTokens?: number;
   temperature?: number;
+  jsonMode?: boolean;
 }): Promise<string> {
   const apiKey = readOpenAIKey();
   const model = readOpenAIModel();
@@ -78,6 +80,7 @@ export async function generateWithOpenAI({
         model,
         temperature,
         max_tokens: maxTokens,
+        ...(jsonMode ? { response_format: { type: "json_object" } } : {}),
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },

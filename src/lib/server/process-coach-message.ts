@@ -2,11 +2,13 @@ import { understandCoachMessage } from "@/lib/server/coach-intent";
 import { emptyCoachContext, foldCoach, parseCoachIntent, type CoachContext, type CoachIntent, type CoachReply } from "@/lib/coach/conversation";
 import { CoachChoice, coachHandlers, coachRows, type CoachScope } from "@/lib/server/coach-tools";
 import type { createSupabaseServerClient } from "@/lib/supabase/server";
+import type { CoachActionRequest } from "@/lib/coach/conversation";
+import { connectedCoachHandlers, focusReference, handleConnectedAction, readConnectedEvent } from "@/lib/server/connections/coach-connected";
 
 type Supabase = Awaited<ReturnType<typeof createSupabaseServerClient>>;
 type Pending = { intent: CoachIntent; text: string; kind: string; options: { id: string; label: string }[]; selections?: Record<string,string> };
 export function coachUuid(value: unknown): value is string { return typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value); }
-export async function processCoachMessage(db: Supabase, userId: string, input: { conversationId: string; messageId: string; text: string; choiceId?: string; taskId?: string }) {
+export async function processCoachMessage(db: Supabase, userId: string, input: { conversationId: string; messageId: string; text: string; choiceId?: string; taskId?: string; action?: CoachActionRequest; referenceId?: string }) {
   if (!coachUuid(input.conversationId) || !coachUuid(input.messageId) || typeof input.text !== "string" || !input.text.trim() || input.text.length > 12000 || (input.choiceId !== undefined && !coachUuid(input.choiceId))) throw new Error("Message invalide.");
   const lock = crypto.randomUUID();
   const { data: acquired, error: lockError } = await db.rpc("claim_coach_lock", { lock_token: lock });
@@ -28,12 +30,20 @@ export async function processCoachMessage(db: Supabase, userId: string, input: {
     if (messageError) throw messageError;
     let intent: CoachIntent | undefined;
     let pending: Pending | null = null;
-    let response: CoachReply;
+    let response: CoachReply = { text:"Action non exécutée.",cards:[],context:scope.context };
     try {
       const previous = conversation.pending as Pending | null;
       const selected = previous?.options.find(option => input.choiceId ? option.id === input.choiceId : foldCoach(option.label) === foldCoach(scope.text));
       if (input.choiceId && !selected) throw new Error("Ce choix ne correspond pas à la question en cours.");
-      if (input.taskId) {
+      if (input.action) {
+        if (!coachUuid(input.action.id)) throw new Error("Aperçu invalide.");
+        response = await handleConnectedAction(scope,input.action);
+      } else if (input.referenceId) {
+        if (!coachUuid(input.referenceId)) throw new Error("Référence invalide.");
+        const ref = await focusReference(scope,input.referenceId);
+        if (ref.kind === "email") intent = { tool:"get_email" };
+        else response = await readConnectedEvent(scope,ref.id);
+      } else if (input.taskId) {
         if (!coachUuid(input.taskId)) throw new Error("Tâche invalide.");
         const task = (await coachRows(scope, "tasks", "id", input.taskId))[0];
         if (!task) throw new Error("Tâche inaccessible.");
@@ -49,7 +59,13 @@ export async function processCoachMessage(db: Supabase, userId: string, input: {
         if (historyError) throw historyError;
         intent = await understandCoachMessage(scope.context, history || [], scope.text);
       }
-      response = await coachHandlers[intent.tool](scope, intent);
+      if (intent) {
+        if (intent.tool !== "send_email") scope.context.current_action_id = null;
+        const handlers = { ...coachHandlers,...connectedCoachHandlers };
+        const handler = handlers[intent.tool];
+        if (!handler) throw new Error("Outil indisponible.");
+        response = await handler(scope, intent);
+      }
     } catch (error) {
       if (error instanceof CoachChoice && intent) {
         pending = { intent, text: scope.text, kind: error.kind, options: error.options, selections: scope.selections };

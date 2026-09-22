@@ -2,7 +2,7 @@ import type { createSupabaseServerClient } from "@/lib/supabase/server";
 import { recalculateCaseOperatingState } from "@/lib/server/crm-operating-system";
 
 type Supabase = Awaited<ReturnType<typeof createSupabaseServerClient>>;
-export async function changeCrmTask(db: Supabase, userId: string, input: { id?: string; clientId?: string | null; caseId?: string | null; propertyId?: string | null; title?: string; dueOn?: string | null; status?: "pending" | "completed"; source?: string }) {
+export async function changeCrmTask(db: Supabase, userId: string, input: { id?: string; clientId?: string | null; caseId?: string | null; propertyId?: string | null; title?: string; dueOn?: string | null; dueAt?: string; status?: "pending" | "completed"; source?: string }) {
   if (input.id) {
     const { data, error } = await db.from("tasks").select("case_id").eq("id", input.id).eq("user_id", userId).single();
     if (error || !data || (input.caseId && data.case_id !== input.caseId)) throw new Error("Cette tâche n’est pas accessible dans ce dossier.");
@@ -17,7 +17,8 @@ export async function changeCrmTask(db: Supabase, userId: string, input: { id?: 
     const { data, error } = await db.from("clients").select("id").eq("id", input.clientId).eq("user_id", userId).single();
     if (error || !data) throw new Error("Ce client n’est pas accessible.");
   }
-  const patch = { updated_at: new Date().toISOString(), ...(input.title !== undefined ? { title: input.title.trim() } : {}), ...(input.dueOn !== undefined ? { due_on: input.dueOn, due_at: null } : {}), ...(input.status ? { status: input.status, completed_at: input.status === "completed" ? new Date().toISOString() : null } : {}) };
+  if (input.dueAt && !Number.isFinite(Date.parse(input.dueAt))) throw new Error("Heure de tâche invalide.");
+  const patch = { updated_at: new Date().toISOString(), ...(input.title !== undefined ? { title: input.title.trim() } : {}), ...(input.dueOn !== undefined ? { due_on: input.dueOn, due_at: input.dueAt || null } : {}), ...(input.status ? { status: input.status, completed_at: input.status === "completed" ? new Date().toISOString() : null } : {}) };
   const query = input.id ? db.from("tasks").update(patch).eq("id", input.id).eq("user_id", userId) : db.from("tasks").insert({ ...patch, user_id: userId, client_id: input.clientId || null, case_id: input.caseId || null, property_id: input.propertyId || null, title: input.title, category: "manual", status: "pending", validation_required: false, source: input.source || "manual" });
   const { data, error } = await query.select("*").single();
   if (error || !data) throw error || new Error("La tâche n’a pas été enregistrée.");
@@ -26,6 +27,10 @@ export async function changeCrmTask(db: Supabase, userId: string, input: { id?: 
     if (syncError) throw syncError;
   }
   if (data.case_id) await recalculateCaseOperatingState(db, userId, data.case_id);
+  if (!input.id && input.source?.startsWith("coach_ai:")) {
+    const event = await db.from("activity_events").upsert({ user_id:userId,client_id:data.client_id,case_id:data.case_id,event_type:"task",title:`Tâche créée : ${data.title}`,details:data.due_at || data.due_on || "Sans échéance",legacy_source:"coach_task",legacy_id:data.id },{ onConflict:"user_id,legacy_source,legacy_id" });
+    if (event.error) throw new Error("La tâche est créée, mais sa timeline n’a pas pu être enregistrée. Vérifie le dossier avant de recommencer.");
+  }
   return data;
 }
 
