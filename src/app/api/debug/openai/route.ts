@@ -1,18 +1,21 @@
 import { generateWithOpenAI, getOpenAIErrorPayload } from "@/lib/openai";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 
 export async function GET() {
+  if (process.env.NODE_ENV === "production") return new Response(null, { status: 404 });
+  const db = await createSupabaseServerClient();
+  const { data: { user } } = await db.auth.getUser();
+  if (!user) return Response.json({ error: "Authentification requise." }, { status: 401 });
   const result: {
     hasKey: boolean;
-    model: string | null;
     status: "ok" | "error";
     message?: string;
     diagnostic?: string;
     test?: string;
   } = {
     hasKey: false,
-    model: null,
     status: "error",
   };
 
@@ -26,9 +29,6 @@ export async function GET() {
     return Response.json(result, { status: 500 });
   }
 
-  // Get model
-  const model = process.env.OPENAI_MODEL?.trim() || "gpt-4o-mini";
-  result.model = model;
 
   try {
     // Test API call
@@ -51,7 +51,7 @@ export async function GET() {
       return Response.json(result, { status: openAIError.status });
     }
 
-    result.message = error instanceof Error ? error.message : "Unknown error";
+    result.message = "Le diagnostic OpenAI a échoué.";
     return Response.json(result, { status: 503 });
   }
 }

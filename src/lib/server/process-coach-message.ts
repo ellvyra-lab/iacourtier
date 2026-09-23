@@ -1,4 +1,6 @@
 import { understandCoachMessage } from "@/lib/server/coach-intent";
+import { coachStorageError } from "@/lib/server/coach-storage-error";
+import { getOpenAIErrorPayload } from "@/lib/openai";
 import { emptyCoachContext, foldCoach, parseCoachIntent, type CoachContext, type CoachIntent, type CoachReply } from "@/lib/coach/conversation";
 import { CoachChoice, coachHandlers, coachRows, type CoachScope } from "@/lib/server/coach-tools";
 import type { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -12,7 +14,7 @@ export async function processCoachMessage(db: Supabase, userId: string, input: {
   if (!coachUuid(input.conversationId) || !coachUuid(input.messageId) || typeof input.text !== "string" || !input.text.trim() || input.text.length > 12000 || (input.choiceId !== undefined && !coachUuid(input.choiceId))) throw new Error("Message invalide.");
   const lock = crypto.randomUUID();
   const { data: acquired, error: lockError } = await db.rpc("claim_coach_lock", { lock_token: lock });
-  if (lockError) throw new Error("Le Coach n’est pas prêt : la migration de conversation doit être appliquée.");
+  if (lockError) throw coachStorageError(lockError, "verrouiller la conversation");
   if (!acquired) throw new Error("Une demande est déjà en traitement. Attends sa réponse avant de continuer.");
   try {
     const { data: existing, error: existingError } = await db.from("coach_messages").select("reply,status,conversation_id").eq("id", input.messageId).eq("user_id", userId).maybeSingle();
@@ -30,6 +32,7 @@ export async function processCoachMessage(db: Supabase, userId: string, input: {
     if (messageError) throw messageError;
     let intent: CoachIntent | undefined;
     let pending: Pending | null = null;
+    let failed = false;
     let response: CoachReply = { text:"Action non exécutée.",cards:[],context:scope.context };
     try {
       const previous = conversation.pending as Pending | null;
@@ -71,12 +74,14 @@ export async function processCoachMessage(db: Supabase, userId: string, input: {
         pending = { intent, text: scope.text, kind: error.kind, options: error.options, selections: scope.selections };
         response = { text: error.message, choices: error.options, cards: [], context: scope.context };
       } else {
-        response = { text: error instanceof Error ? error.message : "Je n’ai pas pu terminer cette demande. Vérifie le CRM avant de recommencer.", cards: [], context: scope.context };
+        failed = true;
+        const aiError = getOpenAIErrorPayload(error);
+        response = { text: aiError ? aiError.body.error : error instanceof Error ? error.message : "Je n’ai pas pu terminer cette demande. Vérifie le CRM avant de recommencer.", cards: [], context: scope.context };
       }
     }
     const { error: contextError } = await db.from("coach_conversations").update({ context: scope.context, pending, updated_at: new Date().toISOString() }).eq("id", input.conversationId).eq("user_id", userId);
     if (contextError) throw new Error("Le traitement a terminé, mais le contexte n’a pas pu être sauvegardé. Vérifie le CRM avant de recommencer.");
-    const { error: replyError } = await db.from("coach_messages").update({ reply: response, status: "completed" }).eq("id", input.messageId).eq("user_id", userId);
+    const { error: replyError } = await db.from("coach_messages").update({ reply: response, status: failed ? "failed" : "completed" }).eq("id", input.messageId).eq("user_id", userId);
     if (replyError) throw new Error("La réponse n’a pas pu être enregistrée. Vérifie le CRM avant de recommencer.");
     return response;
   } finally { await db.rpc("release_coach_lock", { lock_token: lock }); }

@@ -1,4 +1,5 @@
 -- Conversation metadata only. Business entities remain in the central CRM.
+begin;
 create table if not exists public.coach_conversations (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -43,6 +44,25 @@ alter table public.coach_conversations enable row level security;
 alter table public.coach_messages enable row level security;
 alter table public.coach_action_audit enable row level security;
 alter table public.coach_processing_locks enable row level security;
+-- Explicit privileges: do not depend on the project's default table grants.
+grant usage on schema public to authenticated;
+revoke all on public.coach_conversations, public.coach_messages, public.coach_action_audit, public.coach_processing_locks from public, anon, authenticated;
+grant select, insert, update, delete on public.coach_conversations, public.coach_messages to authenticated;
+grant select, insert, update on public.coach_action_audit to authenticated;
+grant all on public.coach_conversations, public.coach_messages, public.coach_action_audit, public.coach_processing_locks to service_role;
+create index if not exists coach_conversations_owner_updated on public.coach_conversations(user_id,updated_at desc);
+create index if not exists coach_messages_owner_history on public.coach_messages(user_id,conversation_id,created_at desc);
+create index if not exists coach_action_audit_owner on public.coach_action_audit(user_id,conversation_id);
+-- Reapplying this same migration must also repair privileges and policies.
+drop policy if exists coach_conversations_owner on public.coach_conversations;
+drop policy if exists coach_messages_owner on public.coach_messages;
+drop policy if exists coach_audit_owner on public.coach_action_audit;
+drop policy if exists coach_conversations_owner_guard on public.coach_conversations;
+drop policy if exists coach_messages_owner_guard on public.coach_messages;
+drop policy if exists coach_audit_owner_guard on public.coach_action_audit;
+create policy coach_conversations_owner_guard on public.coach_conversations as restrictive for all to authenticated using(user_id=auth.uid()) with check(user_id=auth.uid());
+create policy coach_messages_owner_guard on public.coach_messages as restrictive for all to authenticated using(user_id=auth.uid()) with check(user_id=auth.uid());
+create policy coach_audit_owner_guard on public.coach_action_audit as restrictive for all to authenticated using(user_id=auth.uid()) with check(user_id=auth.uid());
 create policy coach_conversations_owner on public.coach_conversations for all to authenticated using(user_id=auth.uid()) with check(user_id=auth.uid());
 create policy coach_messages_owner on public.coach_messages for all to authenticated using(user_id=auth.uid()) with check(user_id=auth.uid());
 create policy coach_audit_owner on public.coach_action_audit for all to authenticated using(user_id=auth.uid()) with check(user_id=auth.uid());
@@ -65,3 +85,5 @@ revoke all on function public.claim_coach_lock(uuid) from public,anon;
 revoke all on function public.release_coach_lock(uuid) from public,anon;
 grant execute on function public.claim_coach_lock(uuid) to authenticated;
 grant execute on function public.release_coach_lock(uuid) to authenticated;
+notify pgrst, 'reload schema';
+commit;

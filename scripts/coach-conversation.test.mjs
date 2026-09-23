@@ -9,7 +9,7 @@ let modelReplies = [];
 const cache = new Map();
 function load(name) {
   if (name === "@/lib/server/connections/coach-connected") return { connectedCoachHandlers:{} };
-  if (name === "@/lib/openai") return { generateWithOpenAI: async () => { const next = modelReplies.shift(); if (next instanceof Error) throw next; if (!next) throw Error("Unexpected model request"); return typeof next === "string" ? next : JSON.stringify(next); } };
+  if (name === "@/lib/openai") return { getOpenAIErrorPayload: () => null, generateWithOpenAI: async () => { const next = modelReplies.shift(); if (next instanceof Error) throw next; if (!next) throw Error("Unexpected model request"); return typeof next === "string" ? next : JSON.stringify(next); } };
   if (name === "@/app/api/clients/[id]/route") return { PATCH: async (request, context) => { const { id } = await context.params; const body = await request.json(); const row = db.tables.clients.find(row => row.id === id && row.user_id === "owner"); Object.assign(row, body.values); return Response.json({ client: row }); } };
   if (name === "@/app/api/properties/[id]/route") return { PATCH: async () => Response.json({ error: "Not used in this test" }, {status:400}) };
   if (cache.has(name)) return cache.get(name);
@@ -142,6 +142,7 @@ test("audit avant/après, erreur IA sans succès inventé, outil arbitraire refu
   await message(conversationId,"Change téléphone Jacques",{tool:"update_client",query:"Jacques",values:{phone:"514-555-1234"}});
   const audit=db.tables.coach_action_audit[0];assert.equal(audit.source,"coach_ai");assert.equal(audit.status,"completed");assert.ok(audit.message_id);assert.equal(audit.after_value.client.phone,"514-555-1234");
   const response=await message(conversationId,"Fais une action",new Error("IA indisponible"));assert.equal(response.changed,undefined);assert.match(response.text,/indisponible/);
+  assert.equal(db.tables.coach_messages.at(-1).status,"failed");
   assert.throws(()=>parseCoachIntent({tool:"drop_table",user_id:"other"}));
 });
 test("dates Toronto et dates invalides",()=>{

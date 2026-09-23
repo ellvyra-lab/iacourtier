@@ -56,7 +56,7 @@ test('chiffrement: propriétaire et intégrité authentifiés',()=>{
 
 let db,model=[],fixtureProviders,sendCalls=0,eventCalls=0,sendError=false,conflicts=[];
 const load=loader({
-  '@/lib/openai':{generateWithOpenAI:async()=>{const next=model.shift();if(!next)throw Error('Unexpected model call');return typeof next==='string'?next:JSON.stringify(next);}},
+  '@/lib/openai':{getOpenAIErrorPayload:()=>null,generateWithOpenAI:async()=>{const next=model.shift();if(!next)throw Error('Unexpected model call');return typeof next==='string'?next:JSON.stringify(next);}},
   '@/lib/server/connections/accounts':{connectionStore:()=>db,listAccounts:async owner=>(db.tables.connected_accounts||[]).filter(a=>a.user_id===owner),connectionAudit:async()=>{}},
   '@/lib/server/connections/providers':{mailbox,connectedProviders:async(owner,id)=>{if(!db.tables.connected_accounts.some(a=>a.user_id===owner&&a.id===id))throw Error('Compte inaccessible');return fixtureProviders;}},
   '@/app/api/clients/[id]/route':{PATCH:async()=>Response.json({})},'@/app/api/properties/[id]/route':{PATCH:async()=>Response.json({})},

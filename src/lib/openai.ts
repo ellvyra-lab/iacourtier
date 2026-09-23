@@ -1,4 +1,5 @@
 // Server-only wrapper around the OpenAI Chat Completions API.
+import "server-only";
 // Client components must call an API route instead of importing this file.
 
 export type OpenAIDiagnostic =
