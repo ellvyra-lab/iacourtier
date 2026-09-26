@@ -5,6 +5,8 @@ import { useMemo, useRef, useState, type ChangeEvent } from "react";
 import { AlertTriangle, ArrowRight, Camera, CheckCircle2, FileSearch, FileText, Images, Loader2, Search, Sparkles, UploadCloud, UserRound, X } from "lucide-react";
 
 import { useDashboardAuth } from "@/components/auth/DashboardAuthProvider";
+import { ImportedRelationshipSuggestions } from "@/components/imported-relationship-suggestions";
+import type { RelationshipSuggestion } from "@/lib/client-relationships";
 import {
   automaticIngestionBlockers,
   buildAutomaticPersonDecisions,
@@ -16,6 +18,7 @@ import {
 } from "@/lib/universal-import";
 
 type ConfirmResult = {
+  relationshipSuggestions?:RelationshipSuggestion[];
   ok: boolean;
   listingId: string | null;
   buyerCaseId: string | null;
@@ -180,6 +183,7 @@ export function UniversalDocumentImporter({ caseId, caseTitle }: { caseId?: stri
       <CheckCircle2 className="h-10 w-10 text-emerald-700" />
       <h1 className="mt-4 text-2xl font-semibold">{caseId ? "Dossier enrichi et enregistré" : "Import confirmé et enregistré"}</h1>
       <p className="mt-3 text-sm leading-6 text-slate-700 dark:text-slate-200">{result.summary}</p>
+      <ImportedRelationshipSuggestions suggestions={result.relationshipSuggestions||[]} />
       <div className="mt-5 grid gap-3 rounded-2xl bg-white p-4 text-sm dark:bg-slate-950 sm:grid-cols-3">
         <Stat label="Fichiers" value={String(result.uploadedFiles)} />
         <Stat label="Clients créés" value={String(result.createdContacts.length)} />

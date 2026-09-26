@@ -1,6 +1,7 @@
 import { understandCoachMessage } from "@/lib/server/coach-intent";
 import { coachStorageError } from "@/lib/server/coach-storage-error";
 import { getOpenAIErrorPayload } from "@/lib/openai";
+import { relationshipCoachHandlers } from "@/lib/server/coach-relationships";
 import { emptyCoachContext, foldCoach, parseCoachIntent, type CoachContext, type CoachIntent, type CoachReply } from "@/lib/coach/conversation";
 import { CoachChoice, coachHandlers, coachRows, type CoachScope } from "@/lib/server/coach-tools";
 import type { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -64,7 +65,7 @@ export async function processCoachMessage(db: Supabase, userId: string, input: {
       }
       if (intent) {
         if (intent.tool !== "send_email") scope.context.current_action_id = null;
-        const handlers = { ...coachHandlers,...connectedCoachHandlers };
+        const handlers = { ...coachHandlers,...connectedCoachHandlers,...relationshipCoachHandlers };
         const handler = handlers[intent.tool];
         if (!handler) throw new Error("Outil indisponible.");
         response = await handler(scope, intent);

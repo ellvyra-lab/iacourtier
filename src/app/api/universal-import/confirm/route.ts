@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { distinctNamedPeople, isCombinedPersonName, type RelationshipSuggestion } from "@/lib/client-relationships";
 
 import { BUYER_AUTOMATION_TEMPLATES, BUYER_TASK_TEMPLATES } from "@/lib/buyer-cases";
 import { scoreCentralClientMatch } from "@/lib/crm-operating-system";
@@ -116,6 +117,7 @@ export async function POST(request: Request) {
 
       const roles = crmRoles(person, analysis.projectType);
       if (contact) {
+        if(distinctNamedPeople(person,{firstName:contact.first_name,lastName:contact.last_name}) || [...contactIds.values()].includes(contact.id))return await conflictWithCleanup(supabase,uploadedPaths,"Deux personnes distinctes ne peuvent pas utiliser la même fiche. Vérifie les choix de contacts.");
         const updates: Record<string, unknown> = { roles: [...new Set([...(contact.roles || []), ...roles])], updated_at: new Date().toISOString() };
         if (!contact.email && person.email) updates.email = person.email;
         if (!contact.phone && person.phone) updates.phone = person.phone;
@@ -362,7 +364,13 @@ export async function POST(request: Request) {
     });
 
     const primaryHref = `/tableau-de-bord/dossiers/${centralCaseId}`;
+    const relationshipSuggestions:RelationshipSuggestion[]=(analysis.relationships||[]).flatMap(r=>{
+      const first=analysis.people.find(p=>normalizeUniversalValue(personName(p))===normalizeUniversalValue(r.person1)),second=analysis.people.find(p=>normalizeUniversalValue(personName(p))===normalizeUniversalValue(r.person2));
+      const clientId=first&&contactIds.get(first.id),relatedClientId=second&&contactIds.get(second.id);
+      return clientId&&relatedClientId&&clientId!==relatedClientId?[{...r,clientId,relatedClientId}]:[];
+    });
     return NextResponse.json({
+      relationshipSuggestions,
       ok: true, listingId, buyerCaseId, centralCaseId, primaryHref, createdContacts, reusedContacts, reusedProperty,
       reusedListing, reusedBuyerCase, uploadedFiles: stored.length, partnersLinked,
       mode, ingestionPipeline: AUTOMATIC_INGESTION_PIPELINE, reviewItems: reviewItems.length + mergeResult.queued, draftsPrepared,
@@ -450,6 +458,7 @@ async function ensureAutomaticReviewTasks(
 function validateConfirmation(analysis: UniversalAnalysis, files: File[], enrichingExistingCase = false) {
   if (analysis.projectType === "unknown") return "Le type de projet doit être confirmé : vendeur, acheteur, achat + vente, prospect ou autre.";
   if (!analysis.people.length) return "Ajoute ou confirme au moins une personne réelle avant de créer le dossier.";
+  if(analysis.people.some(p=>isCombinedPersonName(personName(p))))return "Chaque contact doit représenter une seule personne. Sépare les noms du couple avant de confirmer.";
   if (analysis.people.some((person) => !person.firstName && !person.lastName)) return "Chaque personne doit avoir un nom avant la confirmation.";
   if (!enrichingExistingCase && (analysis.projectType === "seller" || analysis.projectType === "buy_sell") && (!analysis.property.address || !analysis.property.city)) return "L’adresse et la ville sont requises pour le dossier vendeur.";
   if (!files.length || files.length > MAX_FILES) return `Entre 1 et ${MAX_FILES} fichiers analysés sont requis.`;
@@ -461,6 +470,7 @@ function validateConfirmation(analysis: UniversalAnalysis, files: File[], enrich
 }
 
 function isDuplicate(person: UniversalPerson, contact: ContactRow) {
+  if(distinctNamedPeople(person,{firstName:contact.first_name,lastName:contact.last_name}))return false;
   return scoreCentralClientMatch(
     { firstName: person.firstName, lastName: person.lastName, email: person.email, phone: person.phone, address: person.mailingAddress },
     { firstName: contact.first_name, lastName: contact.last_name, email: contact.email, phone: contact.phone, address: contact.mailing_address },

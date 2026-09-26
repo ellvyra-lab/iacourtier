@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ArrowRight, FileSpreadsheet, Home, KeyRound, Loader2, Search, UserRound } from "lucide-react";
 import { SessionStatusNotice, useDashboardAuth } from "@/components/auth/DashboardAuthProvider";
 import { ClientQuickPanel, type QuickClient } from "@/components/client-quick-panel";
+import type { RelationshipView } from "@/lib/client-relationships";
 
 type ClientCase = {
   id: string;
@@ -23,7 +24,7 @@ type ClientCase = {
   updated_at?: string;
   property?: { address?: string; city?: string; property_type?: string } | Array<{ address?: string; city?: string; property_type?: string }>;
 };
-type Client = QuickClient & { name: string; roles: string[]; client_status?: string; cases: ClientCase[] };
+type Client = QuickClient & { name: string; roles: string[]; client_status?: string; cases: ClientCase[]; relationships?:RelationshipView[] };
 export type ClientFilter = "all" | "prospect" | "buyer" | "seller" | "buy_sell" | "transaction" | "after-sale" | "former";
 
 const filters: Array<[ClientFilter,string]> = [["all","Tous"],["prospect","Prospects"],["buyer","Acheteurs"],["seller","Vendeurs"],["buy_sell","Acheteurs + vendeurs"],["transaction","Transactions"],["after-sale","Après-vente"],["former","Anciens clients"]];
@@ -76,6 +77,7 @@ export function ClientsCasesDashboard({ initialFilter = "all" }: { initialFilter
 
 function ClientCard({ client, onUpdated }: { client: Client; onUpdated: () => void }) {
   return <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900"><div className="flex min-w-0 gap-3"><span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-teal-50 text-teal-700 dark:bg-teal-950"><UserRound className="h-5 w-5" /></span><div className="min-w-0 flex-1"><ClientQuickPanel compact client={client} caseId={client.cases[0]?.id || null} caseLabel={client.cases[0]?.title} returnHref="/tableau-de-bord/clients" returnLabel="à Clients & dossiers" onUpdated={onUpdated} /><div className="mt-2 flex flex-wrap gap-1">{client.roles.map((role) => <span key={role} className="rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold capitalize dark:bg-slate-800">{role === "seller" ? "Vendeur" : role === "buyer" ? "Acheteur" : role === "buy_sell" ? "Acheteur + vendeur" : role}</span>)}{(client.tags || []).slice(0, 5).map((tag) => <span key={tag} className="rounded-full bg-teal-50 px-2 py-1 text-xs text-teal-800 dark:bg-teal-950 dark:text-teal-100">{tag}</span>)}</div></div></div>
+    {client.relationships?.map(r=><p key={r.id} className="mt-3 text-sm">{r.type==="spouse"?"❤️ ":""}{r.label} : <Link className="text-teal-700 underline" href={`/tableau-de-bord/clients/${r.contact.id}`}>{r.contact.first_name} {r.contact.last_name}</Link></p>)}
     <div className="mt-5 space-y-2 border-l-2 border-slate-200 pl-4 dark:border-slate-700">{client.cases.length ? client.cases.map((item) => <CaseRow key={item.id} item={item} />) : <p className="text-sm text-slate-500">Prospect · Aucun dossier actif</p>}</div></article>;
 }
 

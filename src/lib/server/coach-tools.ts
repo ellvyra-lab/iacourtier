@@ -10,9 +10,9 @@ import type { createSupabaseServerClient } from "@/lib/supabase/server";
 
 type Supabase = Awaited<ReturnType<typeof createSupabaseServerClient>>;
 type Row = Record<string, unknown> & { id: string };
-export type CoachScope = { db: Supabase; userId: string; conversationId: string; messageId: string; text: string; context: CoachContext; selected?: { kind: string; id: string }; selections?: Record<string,string> };
+export type CoachScope = { db: Supabase; userId: string; conversationId: string; messageId: string; text: string; context: CoachContext; selected?: { kind: string; id: string }; selections?: Record<string,string>; emailRecipients?:string[]; emailRecipientClientIds?:string[] };
 export class CoachChoice extends Error {
-  constructor(public kind: string, public options: { id: string; label: string }[]) { super(kind === "client" ? "J’ai trouvé plusieurs personnes. Laquelle ?" : kind === "task" ? "De quelle tâche s’agit-il ?" : kind === "account" ? "Quel compte veux-tu utiliser ?" : kind === "email" ? "Quel courriel veux-tu utiliser ?" : kind === "event" ? "Quel rendez-vous veux-tu utiliser ?" : kind === "property" ? "Quelle propriété veux-tu utiliser ?" : "Quel dossier veux-tu utiliser ?"); }
+  constructor(public kind: string, public options: { id: string; label: string }[]) { super(kind.startsWith("relationship_") ? "Plusieurs contacts correspondent à cette relation. Lequel ?" : kind === "client" ? "J’ai trouvé plusieurs personnes. Laquelle ?" : kind === "task" ? "De quelle tâche s’agit-il ?" : kind === "account" ? "Quel compte veux-tu utiliser ?" : kind === "email" ? "Quel courriel veux-tu utiliser ?" : kind === "event" ? "Quel rendez-vous veux-tu utiliser ?" : kind === "property" ? "Quelle propriété veux-tu utiliser ?" : "Quel dossier veux-tu utiliser ?"); }
 }
 export async function coachRows(s: CoachScope, table: "clients" | "client_cases" | "client_case_clients" | "tasks" | "documents" | "properties" | "buyer_cases", field?: string, value?: string): Promise<Row[]> {
   // Read the complete scoped set in pages: never infer "no match" from a truncated search.
@@ -53,7 +53,7 @@ async function requireClient(s: CoachScope, i: CoachIntent) {
   if (!client) throw new Error(i.query ? `Je ne trouve pas « ${i.query} » dans tes clients.` : "De quel client s’agit-il ?");
   return client;
 }
-async function requireCase(s: CoachScope, i: CoachIntent) {
+export async function requireCase(s: CoachScope, i: CoachIntent) {
   if (i.query) await requireClient(s, i);
   let cases = await coachRows(s, "client_cases");
   if (s.context.current_client_id) {
@@ -68,7 +68,7 @@ async function requireCase(s: CoachScope, i: CoachIntent) {
   if (!s.context.current_client_id && typeof found.primary_client_id === "string") s.context.current_client_id = found.primary_client_id;
   return found;
 }
-async function audit<T>(s: CoachScope, action: string, entityType: string, entityId: string | null, before: unknown, run: () => Promise<T>): Promise<T> {
+export async function audit<T>(s: CoachScope, action: string, entityType: string, entityId: string | null, before: unknown, run: () => Promise<T>): Promise<T> {
   const { data: record, error } = await s.db.from("coach_action_audit").insert({ user_id: s.userId, conversation_id: s.conversationId, message_id: s.messageId, action, entity_type: entityType, entity_id: entityId, before_value: before, source: "coach_ai" }).select("id").single();
   if (error || !record) throw new Error("Le journal d’audit est indisponible. L’action n’a pas été lancée.");
   try {

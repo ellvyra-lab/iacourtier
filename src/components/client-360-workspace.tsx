@@ -9,6 +9,7 @@ import { ClientQuickPanel, type QuickClient } from "@/components/client-quick-pa
 import { PropertyQuickCard } from "@/components/property-quick-card";
 import { CrmCallButton } from "@/components/crm-call-button";
 import { formatPhone } from "@/lib/crm-phone";
+import { ClientRelationships } from "@/components/client-relationships";
 
 type Payload = {
   client: QuickClient & Record<string, any>;
@@ -74,6 +75,7 @@ export function Client360Workspace({ clientId, returnHref, returnLabel }: { clie
       {data.cases.map((item) => <Link key={item.id} href={`/tableau-de-bord/dossiers/${item.id}`} className="flex items-center justify-between rounded-2xl border border-slate-200 p-4 transition hover:border-teal-500 dark:border-slate-800"><span><strong className="block">{item.title}</strong><span className="mt-1 block text-sm text-slate-500">{caseType(item.case_type)} · {label(item.current_stage || item.pipeline_stage)} · pipeline {item.pipeline_progress ?? item.progress}% · complet {item.completion_score ?? 0}% · santé {item.health_score ?? 100}%</span>{item.next_action ? <span className="mt-2 block text-sm font-medium text-teal-700">Prochaine action : {item.next_action}</span> : null}{item.next_action_reason ? <span className="mt-1 block text-xs text-slate-500">{item.next_action_reason}</span> : null}</span><ArrowRight className="h-5 w-5 text-slate-400" /></Link>)}
     </Section>
 
+    <ClientRelationships clientId={clientId} cases={data.cases as Array<{id:string;title:string}>} />
     <div className="grid gap-6 xl:grid-cols-2">
       <Section title="Tâches" empty="Aucune tâche ouverte.">
         <TaskGroup title="En retard" items={taskGroups.overdue} tone="red" /><TaskGroup title="Aujourd’hui" items={taskGroups.today} tone="teal" /><TaskGroup title="À venir" items={taskGroups.upcoming} tone="slate" />

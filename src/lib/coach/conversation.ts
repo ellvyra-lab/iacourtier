@@ -1,5 +1,6 @@
 export type CoachContext = {
   current_client_id: string | null;
+  current_relationship_client_ids?: string[] | null;
   current_case_id: string | null;
   current_property_id: string | null;
   current_document_id: string | null;
@@ -18,6 +19,11 @@ export type CoachActionRequest = { id: string; mode: "confirm" | "cancel" | "edi
 export type CoachReply = { text: string; cards: CoachCard[]; context: CoachContext; choices?: { id: string; label: string }[]; navigate?: string; draft?: { recipient: string; subject: string; message: string }; approval?: { id: string; label: string; kind: string }; changed?: boolean };
 export type CoachMessage = { id: string; text: string; reply: CoachReply | null };
 export const coachTools = {
+  link_clients: "Relier deux contacts existants sans les fusionner. values={person1,person2,relationshipType}. person1 est le parent si type=parent. Noms explicites, aucun ID.",
+  get_related_client: "Trouver la conjointe/le conjoint ou autre lien du client query (ou courant), values.relationshipType=spouse par défaut.",
+  add_related_to_case: "Ajouter le contact relié au dossier du client query. caseType=buyer|seller si précisé. values.relationshipType=spouse par défaut. Jamais tous les dossiers.",
+  get_couple_cases: "Dossiers auxquels les deux personnes participent réellement, pour query ou le couple courant. Ne pas inclure les dossiers individuels.",
+  draft_relationship_email: "Préparer un courriel pour query ET sa conjointe/son conjoint, en utilisant les deux adresses CRM. capture=instruction. Confirmation d’envoi requise.",
   search_clients: "Chercher une personne, ou les acheteurs/vendeurs (role).",
   search_crm: "Chercher un dossier par son adresse ou titre, ou les dossiers urgents/manquants (filter).",
   get_client: "Lire ou ouvrir le client courant.",

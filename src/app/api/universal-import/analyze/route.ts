@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { distinctNamedPeople } from "@/lib/client-relationships";
 
 import { parseJsonObject } from "@/lib/mandate-document-extraction";
 import { buildContinuousMergePreview } from "@/lib/continuous-merge";
@@ -153,6 +154,7 @@ function validateFiles(files: File[]) {
 }
 
 function duplicateForPerson(person: UniversalAnalysis["people"][number], contact: Record<string, unknown>): DuplicateMatch | null {
+  if(distinctNamedPeople(person,{firstName:String(contact.first_name||""),lastName:String(contact.last_name||"")}))return null;
   const result = scoreCentralClientMatch(
     { firstName: person.firstName, lastName: person.lastName, email: person.email, phone: person.phone, address: person.mailingAddress },
     { firstName: String(contact.first_name || ""), lastName: String(contact.last_name || ""), email: String(contact.email || ""), phone: String(contact.phone || ""), address: String(contact.mailing_address || "") },

@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 
 import { normalizeClientValue } from "@/lib/buyer-cases";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { allRelationships } from "@/lib/server/client-relationships";
+import { relationshipViews } from "@/lib/client-relationships";
 
 type ClientRow = {
   id: string;
@@ -59,6 +61,8 @@ export async function GET(request: Request) {
     const firstError = clientsResult.error || relationsResult.error || casesResult.error;
     if (firstError) return NextResponse.json({ error: firstError.message }, { status: 500 });
 
+    let relationshipWarning = "";
+    const personalRelationships = await allRelationships(supabase,user.id).catch(()=>{relationshipWarning="Les liens personnels sont indisponibles. Vérifie la migration des relations.";return [];});
     const cases = (casesResult.data || []) as CentralCaseRow[];
     const casesById = new Map(cases.map((item) => [item.id, item]));
     const casesByClient = new Map<string, CentralCaseRow[]>();
@@ -89,6 +93,7 @@ export async function GET(request: Request) {
         name: `${client.first_name} ${client.last_name}`.trim() || "Client à identifier",
         roles,
         cases: clientCases,
+        relationships: relationshipViews(client.id,personalRelationships,(clientsResult.data || []) as ClientRow[]),
       };
     });
 
@@ -110,7 +115,7 @@ export async function GET(request: Request) {
       }),
     ].filter(Boolean).join(" ")).includes(query)) : clients;
 
-    return NextResponse.json({ clients: filtered });
+    return NextResponse.json({ clients: filtered, ...(relationshipWarning?{warning:relationshipWarning}:{}) });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Impossible de charger les clients et dossiers." }, { status: 500 });
   }

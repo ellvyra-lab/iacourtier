@@ -9,6 +9,7 @@ const eid = encodeURIComponent;
 const textOnly = (value: string) => value.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "").replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, "").replace(/<[^>]*>/g, " ").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
 export function mailbox(value: string) { const found = value.match(/<([^<>]+)>/); const address = (found?.[1] || value).trim(); if (!/^[^\s@<>,;\r\n]+@[^\s@<>,;\r\n]+\.[^\s@<>,;\r\n]+$/.test(address)) throw new Error("L’adresse courriel doit être vérifiée avant envoi."); return address; }
 const limit = (n?: number) => Math.max(1, Math.min(30, n || 20));
+export const mailboxes = (to:string|string[]) => [...new Set((Array.isArray(to)?to:[to]).map(mailbox))];
 function googleParts(part: Json): Json[] { return [part, ...(part.parts || []).flatMap(googleParts)]; }
 function googleEmail(m: Json): Email {
   const h = (name: string) => String((m.payload?.headers || []).find((v: Json) => v.name.toLowerCase() === name.toLowerCase())?.value || "");
@@ -23,7 +24,7 @@ function microsoftEmail(m: Json): Email {
 }
 export function googleMime(input: OutgoingEmail) {
   const clean = (s: string) => s.replace(/[\r\n]/g, "");
-  const headers = [`To: ${mailbox(input.to)}`, `Subject: =?UTF-8?B?${Buffer.from(clean(input.subject)).toString("base64")}?=`, "MIME-Version: 1.0", 'Content-Type: text/plain; charset="UTF-8"', "Content-Transfer-Encoding: base64", `Message-ID: <${input.operationId}@iacourtier.ca>`];
+  const headers = [`To: ${mailboxes(input.to).join(", ")}`, `Subject: =?UTF-8?B?${Buffer.from(clean(input.subject)).toString("base64")}?=`, "MIME-Version: 1.0", 'Content-Type: text/plain; charset="UTF-8"', "Content-Transfer-Encoding: base64", `Message-ID: <${input.operationId}@iacourtier.ca>`];
   if (input.replyTo?.internetMessageId) headers.push(`In-Reply-To: ${clean(input.replyTo.internetMessageId)}`, `References: ${clean(`${input.replyTo.references || ""} ${input.replyTo.internetMessageId}`).trim()}`);
   return Buffer.from(`${headers.join("\r\n")}\r\n\r\n${Buffer.from(input.text).toString("base64").match(/.{1,76}/g)?.join("\r\n") || ""}`).toString("base64url");
 }
@@ -64,12 +65,12 @@ export class MicrosoftEmailProvider implements EmailProvider {
   }
   async createDraft(input: OutgoingEmail) {
     if (input.replyTo) return this.replyToMessage(input);
-    const data = await this.api("/v1.0/me/messages", { method: "POST", body: JSON.stringify({ subject: input.subject, body: { contentType: "Text", content: input.text }, toRecipients: [{ emailAddress: { address: mailbox(input.to) } }], internetMessageHeaders: [{ name: "x-iacourtier-operation", value: input.operationId }] }) }); return String(data.id);
+    const data = await this.api("/v1.0/me/messages", { method: "POST", body: JSON.stringify({ subject: input.subject, body: { contentType: "Text", content: input.text }, toRecipients: mailboxes(input.to).map(address=>({emailAddress:{address}})), internetMessageHeaders: [{ name: "x-iacourtier-operation", value: input.operationId }] }) }); return String(data.id);
   }
   async replyToMessage(input: OutgoingEmail) {
     if (!input.replyTo) throw new Error("Courriel d’origine requis.");
     const draft = await this.api(`/v1.0/me/messages/${eid(input.replyTo.id)}/createReply`, { method: "POST", body: "{}" });
-    await this.api(`/v1.0/me/messages/${eid(draft.id)}`, { method: "PATCH", body: JSON.stringify({ subject: input.subject, toRecipients: [{ emailAddress: { address: mailbox(input.to) } }], body: { contentType: "Text", content: input.text } }) });
+    await this.api(`/v1.0/me/messages/${eid(draft.id)}`, { method: "PATCH", body: JSON.stringify({ subject: input.subject, toRecipients: mailboxes(input.to).map(address=>({emailAddress:{address}})), body: { contentType: "Text", content: input.text } }) });
     return String(draft.id);
   }
   async sendMessage(id: string) { await this.api(`/v1.0/me/messages/${eid(id)}/send`, { method: "POST" }); return { id, accepted: true }; }

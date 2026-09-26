@@ -181,6 +181,7 @@ export type ContinuousMergePreview = {
 };
 
 export type UniversalAnalysis = {
+  relationships?: import("@/lib/client-relationships").ImportedRelationship[];
   projectType: UniversalProjectType;
   intentions: string[];
   people: UniversalPerson[];
@@ -298,7 +299,8 @@ Règles absolues :
 - N'invente rien. Une information absente reste vide.
 - Identifie dans people seulement les personnes réellement porteuses du projet. N'y place jamais un courtier, notaire, prêteur, inspecteur, témoin ou signataire technique.
 - Place les professionnels détectés séparément dans partners, avec leur rôle exact. Un courtier hypothécaire n'est jamais un client.
-- Garde chaque personne distincte. Ne fusionne que si le nom, courriel ou téléphone indique clairement la même personne.
+- Garde chaque personne distincte, même si elle partage adresse, téléphone ou courriel avec son conjoint. Jamais une fiche « Jacques et Marie-Claude ». Retourne deux éléments people avec leurs noms individuels. Ne déduis pas un mariage d’une adresse commune.
+- relationships propose uniquement les liens étayés par une mention du document : noms complets person1/person2 correspondant à people, type spouse ou co_owner, sourceName exact, evidence=extrait justificatif, confidence de 0 à 1. Sans preuve, tableau vide. Les liens proposés seront confirmés séparément.
 - Détermine vendeur, acheteur, achat + vente, prospect ou autre d'après le contenu et l'intention, pas seulement le nom du fichier.
 - Dans une préqualification, extrais séparément le prix d'achat maximal, la mise de fonds, le montant hypothécaire, le statut, les dates, le type de propriété et le mode d'occupation. Un montant admissible ne doit pas être confondu avec le prix d'achat maximal.
 - Une ambiguïté, un texte peu lisible ou une déduction doit être to_confirm, jamais confirmed.
@@ -315,6 +317,7 @@ Structure obligatoire :
   "projectType":"seller|buyer|buy_sell|prospect|other|unknown",
   "intentions":["veut vendre", "cherche une propriété", "demande une visite", "veut déposer une offre", "souhaite une évaluation", "besoin de préapprobation", "autre intention explicite"],
   "people":[{"firstName":"","lastName":"","email":"","phone":"","mailingAddress":"","birthDate":"YYYY-MM-DD ou vide","language":"","personalAddress":{"line":"","city":"","postalCode":"","province":"","country":""},"roles":["seller|buyer|owner"],"sourceName":"nom exact","confidence":0.95}],
+  "relationships":[{"person1":"nom complet","person2":"nom complet","type":"spouse|co_owner","sourceName":"nom exact","evidence":"mention du document","confidence":0.95}],
   "partners":[{"firstName":"","lastName":"","organization":"","email":"","phone":"","partnerType":"mortgage_broker|real_estate_broker|notary|inspector|lender|other","sourceName":"nom exact","confidence":0.95}],
   "property":{"address":"","city":"","postalCode":"","propertyType":"","lotNumber":""},
   "buyerCriteria":{"budget":"","preapprovalStatus":"missing|pending|approved|declined","downPayment":"","mortgageAmount":"","occupancyType":"","lender":"","preapprovalDate":"YYYY-MM-DD ou vide","expiryDate":"YYYY-MM-DD ou vide","sectors":[],"propertyType":"","bedrooms":"","importantNeeds":"","timeline":"","propertyToSell":null},
@@ -344,6 +347,7 @@ export function normalizeUniversalPartial(value: unknown, fallbackSources: Unive
     sources,
     facts,
     ambiguities: strings(root.ambiguities),
+    relationships: normalizeRelationships(root.relationships,people,sources),
   });
 }
 
@@ -371,6 +375,7 @@ export function mergeUniversalAnalyses(items: UniversalAnalysis[]): UniversalAna
     sources,
     facts,
     ambiguities: unique(items.flatMap((item) => item.ambiguities)),
+    relationships: normalizeRelationships(items.flatMap(item=>item.relationships||[]),people,sources),
   });
 }
 
@@ -428,7 +433,7 @@ export function inferDocumentType(name: string): UniversalDocumentType {
   return "Autre";
 }
 
-function completeAnalysis(input: Pick<UniversalAnalysis, "projectType" | "intentions" | "people" | "partners" | "property" | "buyerCriteria" | "sources" | "facts" | "ambiguities">): UniversalAnalysis {
+function completeAnalysis(input: Pick<UniversalAnalysis, "projectType" | "intentions" | "people" | "partners" | "property" | "buyerCriteria" | "sources" | "facts" | "ambiguities" | "relationships">): UniversalAnalysis {
   const pipeline = derivePipeline(input.projectType, input.sources, input.intentions);
   const personNames = input.people.map((person) => `${person.firstName} ${person.lastName}`.trim()).filter(Boolean);
   const destination = input.projectType === "buy_sell" ? "un dossier vendeur et un dossier acheteur" : input.projectType === "seller" ? "un dossier vendeur" : input.projectType === "buyer" ? "un dossier acheteur" : input.projectType === "prospect" ? "une fiche prospect" : input.projectType === "other" ? "une fiche client à classer" : "un projet à confirmer";
@@ -508,6 +513,15 @@ function normalizePartners(value: unknown): UniversalPartner[] {
   }).filter((partner) => partner.firstName || partner.lastName || partner.organization || partner.email || partner.phone);
 }
 
+function normalizeRelationships(value:unknown,people:UniversalPerson[],sources:UniversalSource[]):import("@/lib/client-relationships").ImportedRelationship[] {
+ if(!Array.isArray(value))return [];
+ const names=new Set(people.map(p=>normalizeUniversalValue(`${p.firstName} ${p.lastName}`)));
+ const seen=new Set<string>();
+ return value.flatMap(raw=>{const r=record(raw);const person1=text(r.person1),person2=text(r.person2),sourceName=text(r.sourceName),evidence=text(r.evidence);const score=confidence(r.confidence)||0;const type=r.type;
+ if((type!=="spouse"&&type!=="co_owner")||score<0.65||!evidence||!sources.some(s=>s.name===sourceName)||!names.has(normalizeUniversalValue(person1))||!names.has(normalizeUniversalValue(person2))||normalizeUniversalValue(person1)===normalizeUniversalValue(person2))return [];
+ const key=[normalizeUniversalValue(person1),normalizeUniversalValue(person2)].sort().join(":")+type;if(seen.has(key))return [];seen.add(key);
+ return [{person1,person2,type,confidence:score,sourceName,evidence:evidence.slice(0,1000)}];});
+}
 function normalizePeople(value: unknown): UniversalPerson[] {
   if (!Array.isArray(value)) return [];
   return value.map((raw, index) => {
@@ -646,7 +660,8 @@ function mergePeople(people: UniversalPerson[]) {
       const sameEmail = normalizeUniversalValue(person.email) && normalizeUniversalValue(person.email) === normalizeUniversalValue(existing.email);
       const samePhone = person.phone.replace(/\D/g, "") && person.phone.replace(/\D/g, "") === existing.phone.replace(/\D/g, "");
       const sameName = normalizeUniversalValue(`${person.firstName}${person.lastName}`) && normalizeUniversalValue(`${person.firstName}${person.lastName}`) === normalizeUniversalValue(`${existing.firstName}${existing.lastName}`);
-      return Boolean(sameEmail || samePhone || sameName);
+      const distinctNames=person.firstName&&person.lastName&&existing.firstName&&existing.lastName&&!sameName;
+      return !distinctNames && Boolean(sameEmail || samePhone || sameName);
     });
     if (!match) { output.push({ ...person, id: `person-${output.length + 1}` }); continue; }
     match.firstName ||= person.firstName; match.lastName ||= person.lastName; match.email ||= person.email; match.phone ||= person.phone;
