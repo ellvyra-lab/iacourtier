@@ -8,12 +8,14 @@ import { changeBuyerCriteria, changeCrmTask } from "@/lib/server/coach-crm-actio
 import { connectionAudit, connectionStore, listAccounts } from "./accounts";
 import { connectedProviders, mailbox } from "./providers";
 import { ownedContacts } from "@/lib/server/client-relationships";
+import { recordConnectionEvent, prepareReplyFollowup } from "./business-events";
+import { centrisProvider } from "./centris";
 
 type Reference = { id: string; account_id: string; remote_id: string; thread_id: string | null; kind: "email" | "event"; client_id: string | null; case_id: string | null; property_id: string | null; match_status: string };
 type Payload = { title?: string; subject?: string; message?: string; recipient?: string; recipients?:string[]; recipientClientIds?:string[]; sender?: string; remoteId?: string; threadId?: string; start?: string; end?: string; location?: string; version?: string; referenceId?: string; clientId?: string | null; caseId?: string | null; propertyId?: string | null; values?: Record<string,unknown> };
 type Action = { id: string; account_id: string; kind: string; payload: Payload; status: string; result?: Record<string,unknown> };
 const response = (s: CoachScope,text: string,cards: CoachCard[] = []): CoachReply => ({ text,cards,context: s.context });
-const connectionsCard: CoachCard = { kind: "case", id: "connections", title: "Connecter ou reconnecter un compte", href: "/tableau-de-bord/parametres/connexions" };
+const connectionsCard: CoachCard = { kind: "case", id: "connections", title: "Connecter ou reconnecter un compte", href: "/tableau-de-bord/reglages/connexions" };
 const crmCache = new WeakMap<CoachScope,Promise<{clients:Awaited<ReturnType<typeof coachRows>>;cases:Awaited<ReturnType<typeof coachRows>>;properties:Awaited<ReturnType<typeof coachRows>>;relations:Awaited<ReturnType<typeof coachRows>>}>>();
 function matchingData(s: CoachScope) {
   let data = crmCache.get(s);
@@ -45,7 +47,7 @@ async function linkEmail(s: CoachScope,email: Email,accountId: string): Promise<
   const db = connectionStore();
   const existing = await db.from("connected_references").select("*").eq("user_id",s.userId).eq("account_id",accountId).eq("kind","email").eq("remote_id",email.id).maybeSingle();
   if (existing.error) throw new Error("Impossible de relier le courriel au CRM.");
-  if (existing.data) return existing.data;
+  if (existing.data) { await recordReceivedEmail(s,email,existing.data); return existing.data; }
   const { clients,cases,properties,relations } = await matchingData(s);
   const addresses = [email.from,...email.to].map(a => { try { return mailbox(a).toLowerCase(); } catch { return ""; } });
   const matches = clients.filter(c => c.email && addresses.includes(String(c.email).trim().toLowerCase()));
@@ -68,7 +70,19 @@ async function linkEmail(s: CoachScope,email: Email,accountId: string): Promise<
   const c = mismatch ? null : candidate;
   const row = { user_id:s.userId,account_id:accountId,kind:"email",remote_id:email.id,thread_id:email.threadId,client_id:client?.id || c?.primary_client_id || null,case_id:c?.id || null,property_id:property?.id || c?.property_id || null,match_status:client || property || c ? "matched" : "unverified" };
   const saved = await db.from("connected_references").upsert(row,{ onConflict:"account_id,kind,remote_id" }).select("*").single();
-  if (saved.error || !saved.data) throw new Error("La référence du courriel n’a pas été enregistrée."); return saved.data;
+  if (saved.error || !saved.data) throw new Error("La référence du courriel n’a pas été enregistrée.");
+  await recordReceivedEmail(s,email,saved.data);
+  return saved.data;
+}
+async function recordReceivedEmail(s:CoachScope,email:Email,ref:Reference) {
+  if(email.sent)return;
+  await recordConnectionEvent(s,ref,"email_received");
+  if(await knownSender(s,email,ref))await recordConnectionEvent(s,ref,"email_received_from_client");
+}
+async function knownSender(s:CoachScope,email:Email,ref:Reference) {
+  if(!ref.client_id)return false;
+  const {clients}=await matchingData(s);
+  try{return clients.some(c=>c.id===ref.client_id && String(c.email||"").trim().toLowerCase()===mailbox(email.from).toLowerCase());}catch{return false;}
 }
 async function eventReference(s: CoachScope,event: CalendarEvent,accountId: string,payload?: Payload): Promise<Reference> {
   const db = connectionStore();
@@ -188,6 +202,7 @@ export async function handleConnectedAction(s: CoachScope,input: CoachActionRequ
     await timeline(s,sentRef.data,`Réponse via Coach IA — ${payload.subject}${result.accepted ? " (envoi accepté)" : ""}`);
   } else if (a.kind === "event_create" || a.kind === "event_update") {
     const ref = await eventReference(s,result as CalendarEvent,a.account_id,payload); s.context.current_event_id = ref.id;
+    await recordConnectionEvent(s,ref,a.kind === "event_create" ? "calendar_event_created" : "calendar_event_updated",a.id);
     await timeline(s,ref,title);
   }
   return { ...response(s,title),changed:true };
@@ -244,6 +259,10 @@ export async function findEmailsNeedingReply(s: CoachScope,since?: string) {
           if (["urgent","reply"].includes(assessment.importance)) {
             const alert = await connectionStore().from("connected_alerts").upsert({ user_id:s.userId,account_id:account.id,thread_id:threadId,reference_id:ref.id,severity:assessment.importance,title:assessment.reason,status:"open",updated_at:new Date().toISOString() },{ onConflict:"account_id,thread_id" });
             if (alert.error) throw new Error("L’alerte de ce fil n’a pas été enregistrée.");
+            if(!latest.sent && !latest.automated) {
+              await recordConnectionEvent(s,ref,"email_reply_needed");
+              if(await knownSender(s,latest,ref))await prepareReplyFollowup(s,ref);
+            }
           }
           if (receivedReply || crmUpdate) updates.push({ email:latest,ref,assessment,receivedReply });
           if (["urgent","reply","followup"].includes(assessment.importance)) items.push({ email:latest,ref,assessment });
@@ -411,9 +430,10 @@ async function searchEverywhere(s: CoachScope,i: CoachIntent) {
   return response(s,text,cards);
 }
 export const connectedCoachHandlers = {
+  get_centris_status:async (s:CoachScope) => {const status=await centrisProvider(s.userId).getConnectionStatus();return response(s,`${status.label}. ${status.message}`,[connectionsCard]);},
   search_emails:searchEmails,get_recent_emails:searchEmails,get_unread_emails:searchEmails,
   get_email:readEmail,get_email_thread:readEmail,
-  get_email_attachments:async (s: CoachScope,i: CoachIntent) => { const { p,email } = await currentEmail(s,i), attachments = await p.email.getAttachments(email.id); return response(s,attachments.length ? attachments.map(a => `${a.name} (${Math.ceil(a.size/1024)} Ko)`).join("\n") : "Aucune pièce jointe."); },
+  get_email_attachments:async (s: CoachScope,i: CoachIntent) => { const { p,r,email } = await currentEmail(s,i), attachments = await p.email.getAttachments(email.id); return response(s,attachments.length ? "Pièces jointes du courriel. Au-delà de 3 Mo, ouvre le fichier dans ta messagerie." : "Aucune pièce jointe.",attachments.map(a=>({kind:"document",id:`${r.id}:${a.id}`,title:a.name,detail:`${Math.ceil(a.size/1024)} Ko`,href:p.email.readAttachment && a.size<=3*1024*1024?`/api/connections/attachments?${new URLSearchParams({reference:r.id,attachment:a.id})}`:email.url||connectionsCard.href,download:Boolean(p.email.readAttachment && a.size<=3*1024*1024)}))); },
   draft_email:draftEmail,reply_email:draftEmail,
   send_email:async (s: CoachScope) => {
     if (!/^(?:oui\s+)?(?:envoie|envoyer|confirme|confirmer)(?:\s+(?:le|la|oui|maintenant))?[.!\s]*$/i.test(s.text.trim()) || !s.context.current_action_id) throw new Error("Prépare un aperçu puis confirme son contenu avec le bouton ou « Envoie ».");

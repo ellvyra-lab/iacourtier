@@ -15,6 +15,7 @@ export interface EmailProvider {
   sendMessage(draftId: string): Promise<{ id: string; threadId?: string; accepted: boolean }>;
   replyToMessage(input: OutgoingEmail): Promise<string>;
   getAttachments(id: string): Promise<Attachment[]>;
+  readAttachment?(messageId: string, attachmentId: string): Promise<{ name: string; data: Uint8Array }>;
 }
 export interface CalendarProvider {
   listEvents(start: string, end: string): Promise<CalendarEvent[]>;

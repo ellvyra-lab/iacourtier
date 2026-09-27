@@ -1,5 +1,6 @@
 -- Tokens, OAuth attempts and executable previews are service-role only.
 -- The browser may never forge an approved action by writing its JSON payload.
+begin;
 create table public.connected_accounts (
  id uuid primary key default gen_random_uuid(),
  user_id uuid not null references auth.users(id) on delete cascade,
@@ -69,3 +70,5 @@ end $$;
 create index connected_actions_owner on public.connected_actions(user_id,conversation_id,created_at desc);
 create index connection_audit_owner on public.connection_audit(user_id,created_at desc);
 alter table public.tasks add column if not exists followup_condition jsonb;
+notify pgrst,'reload schema';
+commit;

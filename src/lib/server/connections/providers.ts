@@ -42,6 +42,18 @@ export class GoogleEmailProvider implements EmailProvider {
   async replyToMessage(input: OutgoingEmail) { if (!input.replyTo) throw new Error("Courriel d’origine requis."); return this.createDraft(input); }
   async sendMessage(draftId: string) { const data = await this.api("/gmail/v1/users/me/drafts/send", { method: "POST", body: JSON.stringify({ id: draftId }) }); if (!data.id) throw new Error("L’envoi n’a pas été confirmé par Google."); return { id: String(data.id), threadId: String(data.threadId), accepted: false }; }
   async getAttachments(id: string): Promise<Attachment[]> { const data = await this.api(`/gmail/v1/users/me/messages/${eid(id)}?format=full`); return googleParts(data.payload || {}).filter(p => p.filename).map(p => ({ id: p.body?.attachmentId || p.partId, name: p.filename, size: p.body?.size || 0, contentType: p.mimeType })); }
+  async readAttachment(messageId: string, attachmentId: string) {
+    const message = await this.api(`/gmail/v1/users/me/messages/${eid(messageId)}?format=full`);
+    const part = googleParts(message.payload || {}).find(p => p.filename && (p.body?.attachmentId || p.partId) === attachmentId);
+    if (!part) throw new Error("Pièce jointe introuvable dans ce courriel.");
+    const max = 3 * 1024 * 1024;
+    if (Number(part.body?.size) > max) throw new Error("Cette pièce jointe dépasse 3 Mo. Ouvre-la directement dans Gmail.");
+    const body = part.body?.attachmentId ? await this.api(`/gmail/v1/users/me/messages/${eid(messageId)}/attachments/${eid(attachmentId)}`) : part.body;
+    if (typeof body?.data !== "string") throw new Error("Contenu de la pièce jointe indisponible.");
+    const data = Buffer.from(body.data, "base64url");
+    if(data.length > max) throw new Error("Cette pièce jointe dépasse 3 Mo. Ouvre-la directement dans Gmail.");
+    return { name: String(part.filename), data: new Uint8Array(data) };
+  }
 }
 const msSelect = "id,conversationId,subject,from,replyTo,toRecipients,body,receivedDateTime,sentDateTime,isRead,isDraft,internetMessageId,internetMessageHeaders,webLink";
 export class MicrosoftEmailProvider implements EmailProvider {

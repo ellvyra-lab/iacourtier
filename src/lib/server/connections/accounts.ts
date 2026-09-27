@@ -24,6 +24,7 @@ export function decryptTokens(value: string, owner: string): Tokens {
   return JSON.parse(Buffer.concat([cipher.update(Buffer.concat([data, final])), cipher.final()]).toString("utf8"));
 }
 type Tokens = { access_token: string; refresh_token: string; expires_at: number };
+class OAuthAuthorizationError extends Error {}
 export function providerName(value: string): Provider {
   if (value !== "google" && value !== "microsoft") throw new Error("Fournisseur inconnu."); return value;
 }
@@ -66,7 +67,10 @@ async function exchange(provider: Provider, fields: Record<string,string>) {
   let response: Response;
   try { response = await fetch(c.token, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ client_id: c.clientId!, client_secret: c.clientSecret!, ...fields }), signal: AbortSignal.timeout(20000), cache: "no-store" }); }
   catch { throw new Error("Le fournisseur ne répond pas. Réessaie la connexion plus tard."); }
-  if (!response.ok) throw new Error("Ton compte doit être reconnecté : l’autorisation a expiré ou a été refusée.");
+  if (!response.ok) {
+    if (response.status === 400 || response.status === 401) throw new OAuthAuthorizationError("Ton compte doit être reconnecté : l’autorisation a expiré ou a été refusée.");
+    throw new Error("Le fournisseur est temporairement indisponible. Réessaie plus tard.");
+  }
   const token = await response.json();
   if (!token.access_token) throw new Error("Autorisation incomplète. Reconnecte ton compte.");
   return token;
@@ -108,7 +112,7 @@ export async function accountToken(userId: string, accountId: string) {
       token = { access_token: next.access_token, refresh_token: next.refresh_token || token.refresh_token, expires_at: Date.now() + Number(next.expires_in || 3600) * 1000 };
       const saved = await db.from("connected_accounts").update({ encrypted_tokens: encryptTokens(token, aad), updated_at: new Date().toISOString() }).eq("id", accountId).eq("user_id", userId);
       if (saved.error) throw new Error("Impossible de conserver l’autorisation renouvelée.");
-    } catch (error) { await db.from("connected_accounts").update({ status: "reconnect" }).eq("id", accountId).eq("user_id", userId); throw error; }
+    } catch (error) { if(error instanceof OAuthAuthorizationError)await db.from("connected_accounts").update({ status: "reconnect" }).eq("id", accountId).eq("user_id", userId); throw error; }
   }
   return { account: account as ConnectedAccount, accessToken: token.access_token };
 }

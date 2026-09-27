@@ -14,11 +14,12 @@ export type CoachContext = {
   current_action_id?: string | null;
 };
 export const emptyCoachContext = (): CoachContext => ({ current_client_id: null, current_case_id: null, current_property_id: null, current_document_id: null, current_task_id: null, current_pipeline_stage: null });
-export type CoachCard = { kind: "client" | "case" | "property" | "task" | "document" | "email" | "event"; id: string; title: string; detail?: string; href: string; phone?: string };
+export type CoachCard = { kind: "client" | "case" | "property" | "task" | "document" | "email" | "event"; id: string; title: string; detail?: string; href: string; phone?: string; download?: boolean };
 export type CoachActionRequest = { id: string; mode: "confirm" | "cancel" | "edit"; subject?: string; message?: string };
 export type CoachReply = { text: string; cards: CoachCard[]; context: CoachContext; choices?: { id: string; label: string }[]; navigate?: string; draft?: { recipient: string; subject: string; message: string }; approval?: { id: string; label: string; kind: string }; changed?: boolean };
 export type CoachMessage = { id: string; text: string; reply: CoachReply | null };
 export const coachTools = {
+  get_centris_status: "Vérifier l’état réel de l’intégration Centris; aucune recherche ou transmission sans accès officiel autorisé.",
   link_clients: "Relier deux contacts existants sans les fusionner. values={person1,person2,relationshipType}. person1 est le parent si type=parent. Noms explicites, aucun ID.",
   get_related_client: "Trouver la conjointe/le conjoint ou autre lien du client query (ou courant), values.relationshipType=spouse par défaut.",
   add_related_to_case: "Ajouter le contact relié au dossier du client query. caseType=buyer|seller si précisé. values.relationshipType=spouse par défaut. Jamais tous les dossiers.",
@@ -50,7 +51,7 @@ export const coachTools = {
   get_email_thread: "Résumer le fil courant, ou ce qu’il dit/veut. query si nouvelle recherche.",
   get_unread_emails: "Lister courriels non lus.",
   get_recent_emails: "Courriels récents.",
-  get_email_attachments: "Lister les pièces jointes du courriel courant.",
+  get_email_attachments: "Lister et ouvrir les pièces jointes du courriel courant; téléchargement Gmail sécurisé côté serveur.",
   reply_email: "Préparer une réponse au courriel courant. capture=instruction utilisateur. Jamais envoyer directement.",
   send_email: "Confirmer l’aperçu courant uniquement lorsque le message dit explicitement Envoie/Confirme.",
   find_emails_needing_reply: "Analyser les fils récents et demandes sans réponse.",

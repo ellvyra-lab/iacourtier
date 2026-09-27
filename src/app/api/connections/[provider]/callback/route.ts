@@ -6,7 +6,7 @@ export async function GET(request: Request, { params }: { params: { provider: st
   const url = new URL(request.url);
   try {
     const provider = providerName(params.provider), config = oauthConfig(provider);
-    const destination = new URL("/tableau-de-bord/parametres/connexions", config.origin);
+    const destination = new URL("/tableau-de-bord/reglages/connexions", config.origin);
     try {
       const db = await createSupabaseServerClient(); const { data: { user } } = await db.auth.getUser();
       if (!user) throw new Error("Ta session a expiré. Connecte-toi puis recommence la connexion du compte.");
