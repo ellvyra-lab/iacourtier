@@ -48,7 +48,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
       supabase.from("client_cases").select("*,property:properties(id,address,city,postal_code,property_type,lot_number)").eq("user_id", user.id).in("id", queryIds).order("updated_at", { ascending: false }),
       supabase.from("client_properties").select("relationship,case_id,property:properties(id,address,city,postal_code,property_type,lot_number)").eq("user_id", user.id).eq("client_id", id),
       supabase.from("documents").select("*").eq("user_id", user.id).in("case_id", queryIds).order("created_at", { ascending: false }),
-      supabase.from("tasks").select("*").eq("user_id", user.id).in("case_id", queryIds).order("due_at", { ascending: true, nullsFirst: false }),
+      supabase.from("tasks").select("*").eq("user_id", user.id).or(`client_id.eq.${id},case_id.in.(${queryIds.join(",")})`).order("due_on", { ascending: true, nullsFirst: false }).order("due_at", { ascending: true, nullsFirst: false }),
       supabase.from("automations").select("*").eq("user_id", user.id).in("case_id", queryIds).order("updated_at", { ascending: false }),
       supabase.from("communications").select("*").eq("user_id", user.id).or(`client_id.eq.${id},case_id.in.(${queryIds.join(",")})`).order("occurred_at", { ascending: false }),
       supabase.from("appointments").select("*").eq("user_id", user.id).or(`client_id.eq.${id},case_id.in.(${queryIds.join(",")})`).order("starts_at", { ascending: true }),

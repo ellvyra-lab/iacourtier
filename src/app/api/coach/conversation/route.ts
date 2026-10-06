@@ -31,7 +31,7 @@ export async function POST(request: Request) {
       if (error) return Response.json({ error: coachStorageError(error, "créer la conversation").message }, { status: 503 });
       return Response.json(data);
     }
-    const result = await processCoachMessage(db, user.id, { conversationId: body.conversationId, messageId: body.messageId, text: body.text, choiceId: body.choiceId, taskId: body.taskId, action:body.action,referenceId:body.referenceId });
+    const result = await processCoachMessage(db, user.id, { timeZone: typeof body.timeZone === "string" ? body.timeZone : undefined, conversationId: body.conversationId, messageId: body.messageId, text: body.text, choiceId: body.choiceId, taskId: body.taskId, action:body.action,referenceId:body.referenceId });
     return Response.json(result);
   } catch (error) { return Response.json({ error: error instanceof Error ? error.message : "Le Coach est momentanément indisponible." }, { status: 400 }); }
 }

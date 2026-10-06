@@ -10,7 +10,7 @@ import type { createSupabaseServerClient } from "@/lib/supabase/server";
 
 type Supabase = Awaited<ReturnType<typeof createSupabaseServerClient>>;
 type Row = Record<string, unknown> & { id: string };
-export type CoachScope = { db: Supabase; userId: string; conversationId: string; messageId: string; text: string; context: CoachContext; selected?: { kind: string; id: string }; selections?: Record<string,string>; emailRecipients?:string[]; emailRecipientClientIds?:string[] };
+export type CoachScope = { timeZone?: string; db: Supabase; userId: string; conversationId: string; messageId: string; text: string; context: CoachContext; selected?: { kind: string; id: string }; selections?: Record<string,string>; emailRecipients?:string[]; emailRecipientClientIds?:string[] };
 export class CoachChoice extends Error {
   constructor(public kind: string, public options: { id: string; label: string }[]) { super(kind.startsWith("relationship_") ? "Plusieurs contacts correspondent à cette relation. Lequel ?" : kind === "client" ? "J’ai trouvé plusieurs personnes. Laquelle ?" : kind === "task" ? "De quelle tâche s’agit-il ?" : kind === "account" ? "Quel compte veux-tu utiliser ?" : kind === "email" ? "Quel courriel veux-tu utiliser ?" : kind === "event" ? "Quel rendez-vous veux-tu utiliser ?" : kind === "property" ? "Quelle propriété veux-tu utiliser ?" : "Quel dossier veux-tu utiliser ?"); }
 }
@@ -107,16 +107,17 @@ async function resolveTask(s: CoachScope, i: CoachIntent) {
   s.context.current_task_id = row.id;
   return row;
 }
-export function coachToday(now = new Date()) { return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Toronto", year: "numeric", month: "2-digit", day: "2-digit" }).format(now); }
-export function coachDate(expression?: string, now = new Date()): string | null {
+export function coachToday(now = new Date(), timeZone = "America/Toronto") { return new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(now); }
+export function coachDate(expression?: string, now = new Date(), timeZone = "America/Toronto"): string | null {
   if (!expression) return null;
   if (/^\d{4}-\d{2}-\d{2}$/.test(expression)) { const date = new Date(`${expression}T12:00:00Z`); if (!Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === expression) return expression; throw new Error("Cette date est invalide."); }
   const text = foldCoach(expression);
-  const date = new Date(`${coachToday(now)}T12:00:00Z`);
+  const date = new Date(`${coachToday(now, timeZone)}T12:00:00Z`);
   const weekday = ["dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi"].findIndex(day => text.includes(day));
   if (text.includes("demain")) date.setUTCDate(date.getUTCDate() + 1);
-  else if (weekday >= 0) date.setUTCDate(date.getUTCDate() + ((weekday - date.getUTCDay() + 7) % 7 || 7));
-  else if (!text.includes("aujourd hui")) throw new Error("Quelle date veux-tu utiliser pour cette tâche ?");
+  else if (weekday >= 0) date.setUTCDate(date.getUTCDate() + ((weekday - date.getUTCDay() + 7) % 7 || (text.includes("prochain") ? 7 : 0)));
+  else if (text.includes("cette semaine")) date.setUTCDate(date.getUTCDate() + ((5 - date.getUTCDay() + 7) % 7));
+  else if (!/aujourd hui|cet apres midi|ce matin|ce soir/.test(text)) throw new Error("Quelle date veux-tu utiliser pour cette tâche ?");
   return date.toISOString().slice(0, 10);
 }
 async function createCapture(s: CoachScope, i: CoachIntent) {
@@ -208,11 +209,21 @@ export const coachHandlers: Partial<Record<CoachTool, Handler>> = {
   },
   update_case: async (s, i) => { const c = await requireCase(s, { ...i, caseType: "buyer" }); const before = (await coachRows(s, "buyer_cases", "client_case_id", c.id))[0]; const result = await audit(s, i.tool, "case", c.id, before, () => changeBuyerCriteria(s.db, s.userId, c.id, i.values || {})); return { ...reply(s, `Fait. Critères enregistrés.\nBudget : ${result.after.budget || "non renseigné"}\nSecteurs : ${(result.after.sectors || []).join(", ")}\n${result.after.important_needs || ""}`, [card("case", c)]), changed: true }; },
   create_task: async (s, i) => {
-    if (i.query) await requireClient(s, i);
+    if (!i.query && i.values?.personal === true) s.context = emptyCoachContext();
+    if (i.query) {
+      const client = await resolveCoachClient(s, i.query);
+      if (!client && s.selected?.kind !== "task_without_client") {
+        const question = new CoachChoice("task_without_client", [{ id: crypto.randomUUID(), label: "Créer la tâche sans client" }]);
+        question.message = `Je ne trouve pas « ${i.query} » dans ton CRM. Veux-tu que je crée quand même la tâche sans l’associer à un client ?`;
+        throw question;
+      }
+    }
     let c: Row | null = null;
-    if (s.context.current_client_id || s.context.current_case_id) c = await requireCase(s, { ...i, query: undefined });
-    const timed = i.dateExpression && /\b\d{1,2}\s*(?:h|:)|midi|minuit/.test(i.dateExpression) ? dateWindow(i.dateExpression) : null;
-    const dueOn = timed ? localDay(new Date(timed.start)) : coachDate(i.dateExpression);
+    // A client is not a case. Only attach an already selected case; never require
+    // choosing a case just to create a reminder for a person.
+    if (s.context.current_case_id || i.filter === "missing") c = await requireCase(s, { ...i, query: undefined });
+    const timed = i.dateExpression && /\b\d{1,2}\s*(?:h|:)|midi|minuit/.test(i.dateExpression) && !/apr[eè]s[- ]midi/i.test(i.dateExpression) ? dateWindow(i.dateExpression) : null;
+    const dueOn = timed ? localDay(new Date(timed.start)) : coachDate(i.dateExpression, new Date(), s.timeZone);
     let titles = i.title ? [i.title] : [];
     if (i.filter === "missing" && c) titles = (await recalculateCaseOperatingState(s.db, s.userId, c.id)).missingItems.map(item => `Obtenir : ${item}`);
     if (!titles.length) throw new Error("Que dois-tu faire dans cette tâche ?");
@@ -223,7 +234,7 @@ export const coachHandlers: Partial<Record<CoachTool, Handler>> = {
       tasks.push(duplicate || await audit(s, i.tool, "task", null, null, () => changeCrmTask(s.db, s.userId, { caseId: c?.id, clientId: s.context.current_client_id, title, dueOn, dueAt:timed?.start, source: `coach_ai:${s.messageId}` })));
     }
     if (tasks.length === 1) s.context.current_task_id = tasks[0].id;
-    return { ...reply(s, `Fait. ${tasks.length} tâche(s) enregistrée(s)${dueOn ? ` pour le ${timed ? displayDate(timed.start) : dueOn}` : ""}${c ? ` dans ${label(c)}` : ""}.`, tasks.map(row => card("task", row, row.due_at ? displayDate(String(row.due_at)) : String(row.due_on || "Sans échéance")))), changed: true };
+    return { ...reply(s, `Fait. ${tasks.length} tâche(s) enregistrée(s)${dueOn ? ` pour le ${timed ? displayDate(timed.start) : dueOn}` : ""}${c ? ` dans ${label(c)}` : ""}.\n${tasks.map(task => String(task.title)).join("\n")}`, tasks.map(row => card("task", row, row.due_at ? displayDate(String(row.due_at)) : String(row.due_on || "Sans échéance")))), changed: true };
   },
   update_task: async (s, i) => {
     const row = await resolveTask(s, i);

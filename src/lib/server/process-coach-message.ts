@@ -11,7 +11,7 @@ import { connectedCoachHandlers, focusReference, handleConnectedAction, readConn
 type Supabase = Awaited<ReturnType<typeof createSupabaseServerClient>>;
 type Pending = { intent: CoachIntent; text: string; kind: string; options: { id: string; label: string }[]; selections?: Record<string,string> };
 export function coachUuid(value: unknown): value is string { return typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value); }
-export async function processCoachMessage(db: Supabase, userId: string, input: { conversationId: string; messageId: string; text: string; choiceId?: string; taskId?: string; action?: CoachActionRequest; referenceId?: string }) {
+export async function processCoachMessage(db: Supabase, userId: string, input: { timeZone?: string; conversationId: string; messageId: string; text: string; choiceId?: string; taskId?: string; action?: CoachActionRequest; referenceId?: string }) {
   if (!coachUuid(input.conversationId) || !coachUuid(input.messageId) || typeof input.text !== "string" || !input.text.trim() || input.text.length > 12000 || (input.choiceId !== undefined && !coachUuid(input.choiceId))) throw new Error("Message invalide.");
   const lock = crypto.randomUUID();
   const { data: acquired, error: lockError } = await db.rpc("claim_coach_lock", { lock_token: lock });
@@ -28,7 +28,9 @@ export async function processCoachMessage(db: Supabase, userId: string, input: {
     const { data: conversation, error } = await db.from("coach_conversations").select("*").eq("id", input.conversationId).eq("user_id", userId).single();
     if (error || !conversation) throw new Error("Conversation introuvable. Ouvre une nouvelle conversation.");
     const context = { ...emptyCoachContext(), ...conversation.context } as CoachContext;
-    const scope: CoachScope = { db, userId, conversationId: input.conversationId, messageId: input.messageId, text: input.text.trim(), context };
+    const timeZone = input.timeZone || "America/Toronto";
+    try { new Intl.DateTimeFormat("en", { timeZone }).format(); } catch { throw new Error("Fuseau horaire invalide."); }
+    const scope: CoachScope = { timeZone, db, userId, conversationId: input.conversationId, messageId: input.messageId, text: input.text.trim(), context };
     const { error: messageError } = await db.from("coach_messages").insert({ id: input.messageId, user_id: userId, conversation_id: input.conversationId, text: scope.text });
     if (messageError) throw messageError;
     let intent: CoachIntent | undefined;
@@ -61,14 +63,16 @@ export async function processCoachMessage(db: Supabase, userId: string, input: {
       } else {
         const { data: history, error: historyError } = await db.from("coach_messages").select("text,reply").eq("conversation_id", input.conversationId).eq("user_id", userId).eq("status", "completed").order("created_at", { ascending: false }).limit(8);
         if (historyError) throw historyError;
-        intent = await understandCoachMessage(scope.context, history || [], scope.text);
+        intent = await understandCoachMessage(scope.context, history || [], scope.text, scope.timeZone);
       }
       if (intent) {
         if (intent.tool !== "send_email") scope.context.current_action_id = null;
         const handlers = { ...coachHandlers,...connectedCoachHandlers,...relationshipCoachHandlers };
         const handler = handlers[intent.tool];
         if (!handler) throw new Error("Outil indisponible.");
+        console.info("[coach.tool.start]", { tool: intent.tool, hasClientReference: Boolean(intent.query), hasTitle: Boolean(intent.title), hasDate: Boolean(intent.dateExpression) });
         response = await handler(scope, intent);
+        console.info("[coach.tool.result]", { tool: intent.tool, changed: Boolean(response.changed), cardCount: response.cards.length });
       }
     } catch (error) {
       if (error instanceof CoachChoice && intent) {
@@ -77,7 +81,9 @@ export async function processCoachMessage(db: Supabase, userId: string, input: {
       } else {
         failed = true;
         const aiError = getOpenAIErrorPayload(error);
-        response = { text: aiError ? aiError.body.error : error instanceof Error ? error.message : "Je n’ai pas pu terminer cette demande. Vérifie le CRM avant de recommencer.", cards: [], context: scope.context };
+        const code = error && typeof error === "object" && "code" in error ? String(error.code).slice(0, 32) : undefined;
+        console.error("[coach.tool.failed]", { tool: intent?.tool || "intent", code, type: error instanceof Error ? error.name : "database" });
+        response = { text: aiError ? aiError.body.error : error instanceof SyntaxError ? "Je n’ai pas compris quelle tâche créer. Peux-tu reformuler ?" : error instanceof Error ? error.message : intent?.tool === "create_task" ? "Je n’ai pas réussi à enregistrer la tâche. Réessaie dans quelques instants." : "Je n’ai pas réussi à terminer cette action. Réessaie dans quelques instants.", cards: [], context: scope.context };
       }
     }
     const { error: contextError } = await db.from("coach_conversations").update({ context: scope.context, pending, updated_at: new Date().toISOString() }).eq("id", input.conversationId).eq("user_id", userId);

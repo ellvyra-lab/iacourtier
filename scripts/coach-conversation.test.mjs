@@ -127,14 +127,13 @@ test("nouveau client efface dossier/tâche/doc; compte étranger invisible",asyn
   assert.equal(answer.cards.length,0);assert.equal(answer.context.current_client_id,null);
 });
 
-test("plusieurs dossiers : aucune tâche avant choix, dossier choisi conservé",async()=>{
+test("plusieurs dossiers : un rappel client ne force pas de choix de dossier",async()=>{
   const {conversationId,clientId}=fixture();
   db.tables.client_cases.push({...db.tables.client_cases[0],id:randomUUID(),title:"Deuxième vente"});
   await message(conversationId,"Jacques",{tool:"search_clients",query:"Jacques"});
   const answer=await message(conversationId,"Crée mon rappel",{tool:"create_task",title:"Suivi",dateExpression:"mardi"});
-  assert.equal(answer.choices.length,2);assert.equal((db.tables.tasks||[]).length,0);
-  const result=await message(conversationId,answer.choices[1].label,null,{choiceId:answer.choices[1].id});
-  assert.equal(result.changed,true,result.text);assert.equal(db.tables.tasks.find(row=>row.title==="Suivi").case_id,answer.choices[1].id);assert.equal(result.context.current_client_id,clientId);
+  assert.equal(answer.changed,true);assert.equal(db.tables.tasks.length,1);
+  assert.equal(db.tables.tasks[0].case_id,null);
 });
 
 test("audit avant/après, erreur IA sans succès inventé, outil arbitraire refusé",async()=>{
@@ -151,7 +150,7 @@ test("dates Toronto et dates invalides",()=>{
   assert.throws(()=>coachDate("2026-02-30"));
 });
 
-test("choix successifs client puis dossier conservent toutes les résolutions",async()=>{
+test("choix client conserve la résolution sans exiger un dossier",async()=>{
   const {conversationId}=fixture();
   const people=[randomUUID(),randomUUID()];
   db.tables.clients.push(...people.map(id=>({id,user_id:"owner",first_name:"Marc",last_name:"Tremblay"})));
@@ -159,9 +158,8 @@ test("choix successifs client puis dossier conservent toutes les résolutions",a
   let answer=await message(conversationId,"Ajoute un rappel pour Marc Tremblay mardi.",{tool:"create_task",query:"Marc Tremblay",title:"Appeler Marc",dateExpression:"mardi"});
   assert.equal(answer.choices.length,2);
   answer=await message(conversationId,"Marc choisi",null,{choiceId:people[1]});
-  assert.equal(answer.choices.length,2);const caseId=answer.choices[1].id;
-  answer=await message(conversationId,"Vente B",null,{choiceId:caseId});
-  assert.equal(answer.changed,true,answer.text);assert.equal(db.tables.tasks.find(row=>row.title==="Appeler Marc").case_id,caseId);
+  assert.equal(answer.changed,true,answer.text);assert.equal(db.tables.tasks.find(row=>row.title==="Appeler Marc").case_id,null);
+  assert.equal(db.tables.tasks.find(row=>row.title==="Appeler Marc").client_id,people[1]);
 });
 test("ID de carte étranger et choix forgé refusés sans écriture métier",async()=>{
   const {conversationId}=fixture();const taskId=randomUUID();db.tables.tasks=[{id:taskId,user_id:"other",title:"Privé",status:"pending"}];

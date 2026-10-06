@@ -2,12 +2,23 @@ import Link from "next/link";
 import { ArrowRight, Sparkles } from "lucide-react";
 
 import { getBusinessActions } from "@/lib/business-actions";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { CoachTaskActions } from "@/components/coach-conversation";
+import { redirect } from "next/navigation";
 
-export default function BusinessActionsPage() {
+export default async function BusinessActionsPage() {
   const actions = getBusinessActions();
+  const db = await createSupabaseServerClient();
+  const { data: { user } } = await db.auth.getUser();
+  if (!user) redirect("/connexion");
+  const { data: tasks, error } = await db.from("tasks").select("id,title,due_on,status").eq("user_id", user.id).eq("status", "pending").order("due_on", { ascending: true, nullsFirst: false });
 
   return (
     <div className="space-y-8">
+      <section className="space-y-3 rounded-2xl border border-subtle bg-surface p-6">
+        <h1 className="text-2xl font-semibold">Ma journée · Tâches</h1>
+        {error ? <p role="alert">Impossible de charger les tâches. Réessaie dans quelques instants.</p> : !tasks?.length ? <p>Aucune tâche à faire.</p> : tasks.map(task => <div key={task.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-subtle p-3"><div><Link className="font-semibold text-blue-700" href={`/tableau-de-bord/taches/${task.id}`}>{task.title}</Link><p className="text-sm text-muted">{task.due_on || "Sans échéance"}</p></div><CoachTaskActions id={task.id} title={task.title} completed={false} /></div>)}
+      </section>
       <section className="rounded-2xl border border-subtle bg-surface-soft p-6">
         <p className="text-sm font-semibold text-electric-500">Missions du jour</p>
         <h1 className="mt-2 text-3xl font-semibold tracking-tight">Qu’est-ce qu’on avance maintenant ?</h1>

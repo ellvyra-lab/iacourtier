@@ -21,7 +21,11 @@ export async function changeCrmTask(db: Supabase, userId: string, input: { id?: 
   const patch = { updated_at: new Date().toISOString(), ...(input.title !== undefined ? { title: input.title.trim() } : {}), ...(input.dueOn !== undefined ? { due_on: input.dueOn, due_at: input.dueAt || null } : {}), ...(input.status ? { status: input.status, completed_at: input.status === "completed" ? new Date().toISOString() : null } : {}) };
   const query = input.id ? db.from("tasks").update(patch).eq("id", input.id).eq("user_id", userId) : db.from("tasks").insert({ ...patch, user_id: userId, client_id: input.clientId || null, case_id: input.caseId || null, property_id: input.propertyId || null, title: input.title, category: "manual", status: "pending", validation_required: false, source: input.source || "manual" });
   const { data, error } = await query.select("*").single();
-  if (error || !data) throw error || new Error("La tâche n’a pas été enregistrée.");
+  if (error || !data) {
+    // Do not log the SQL detail: PostgreSQL may include the full sensitive row.
+    console.error("[coach.task.write]", { operation: input.id ? "update" : "insert", code: error?.code || "missing_result", hasClient: Boolean(input.clientId), hasCase: Boolean(input.caseId), hasProperty: Boolean(input.propertyId) });
+    throw new Error("Je n’ai pas réussi à enregistrer la tâche. Réessaie dans quelques instants.");
+  }
   if (data.legacy_id && ["buyer_case_tasks", "seller_listing_tasks"].includes(data.legacy_source)) {
     const { error: syncError } = await db.from(data.legacy_source).update({ ...(input.status ? { status: input.status } : {}), ...(input.title ? { title: input.title } : {}), updated_at: patch.updated_at }).eq("id", data.legacy_id).eq("user_id", userId);
     if (syncError) throw syncError;

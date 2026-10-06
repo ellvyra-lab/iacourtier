@@ -67,7 +67,7 @@ export function CoachConversationProvider({ children }: { children: ReactNode })
     try {
       const conversationId = idRef.current || await createConversation();
       setMessages(previous => [...previous, { id: messageId, text, reply: null }]);
-      const response = await authenticatedFetch("/api/coach/conversation", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ conversationId, messageId, text, choiceId, taskId, action, referenceId }) });
+      const response = await authenticatedFetch("/api/coach/conversation", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, conversationId, messageId, text, choiceId, taskId, action, referenceId }) });
       const body = await response.json();
       if (owner !== userRef.current) return;
       if (!response.ok) throw new Error(body.error || "La demande n’a pas pu être terminée.");

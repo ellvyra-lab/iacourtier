@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { CoachTaskActions } from "@/components/coach-conversation";
+import { TaskEditor } from "@/components/task-editor";
 
 export default async function TaskPage({ params }: { params: { id: string } }) {
   const db = await createSupabaseServerClient();
@@ -15,6 +16,7 @@ export default async function TaskPage({ params }: { params: { id: string } }) {
     <p className="whitespace-pre-wrap">{task.description}</p><p>Échéance : {task.due_at ? new Date(task.due_at).toLocaleString("fr-CA", { timeZone: "America/Toronto" }) : task.due_on || "non précisée"}</p>
     <p>Statut : {task.status === "completed" ? "Terminée" : task.status === "cancelled" ? "Annulée" : "À faire"}</p>
     <CoachTaskActions id={task.id} title={task.title} completed={task.status === "completed"} />
+    <TaskEditor id={task.id} title={task.title} dueOn={task.due_on} />
     <div className="flex flex-wrap gap-4">{task.case_id ? <Link className="text-blue-700 underline" href={`/tableau-de-bord/dossiers/${task.case_id}`}>Ouvrir le dossier</Link> : null}{task.client_id ? <Link className="text-blue-700 underline" href={`/tableau-de-bord/clients/${task.client_id}`}>Ouvrir le client</Link> : null}</div>
   </article>;
 }
