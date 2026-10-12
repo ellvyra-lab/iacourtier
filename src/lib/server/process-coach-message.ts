@@ -7,9 +7,10 @@ import { CoachChoice, coachHandlers, coachRows, type CoachScope } from "@/lib/se
 import type { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { CoachActionRequest } from "@/lib/coach/conversation";
 import { connectedCoachHandlers, focusReference, handleConnectedAction, readConnectedEvent } from "@/lib/server/connections/coach-connected";
+import { CoachClarification, freezeCoachDate, isCoachCancellation, resumeCoachPending, type PendingCoachAction } from "@/lib/server/coach-pending";
 
 type Supabase = Awaited<ReturnType<typeof createSupabaseServerClient>>;
-type Pending = { intent: CoachIntent; text: string; kind: string; options: { id: string; label: string }[]; selections?: Record<string,string> };
+type Pending = PendingCoachAction;
 export function coachUuid(value: unknown): value is string { return typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value); }
 export async function processCoachMessage(db: Supabase, userId: string, input: { timeZone?: string; conversationId: string; messageId: string; text: string; choiceId?: string; taskId?: string; action?: CoachActionRequest; referenceId?: string }) {
   if (!coachUuid(input.conversationId) || !coachUuid(input.messageId) || typeof input.text !== "string" || !input.text.trim() || input.text.length > 12000 || (input.choiceId !== undefined && !coachUuid(input.choiceId))) throw new Error("Message invalide.");
@@ -39,9 +40,18 @@ export async function processCoachMessage(db: Supabase, userId: string, input: {
     let response: CoachReply = { text:"Action non exécutée.",cards:[],context:scope.context };
     try {
       const previous = conversation.pending as Pending | null;
-      const selected = previous?.options.find(option => input.choiceId ? option.id === input.choiceId : foldCoach(option.label) === foldCoach(scope.text));
+      const selected = previous?.options?.find(option => input.choiceId ? option.id === input.choiceId : foldCoach(option.label) === foldCoach(scope.text));
+      const resumed = previous ? resumeCoachPending(previous, scope.text) : null;
       if (input.choiceId && !selected) throw new Error("Ce choix ne correspond pas à la question en cours.");
-      if (input.action) {
+      if (isCoachCancellation(scope.text) && (previous || scope.context.current_action_id)) {
+        if (scope.context.current_action_id) response = await handleConnectedAction(scope, { id: scope.context.current_action_id, mode: "cancel" });
+        else response = { text: "Action en attente annulée. Aucun événement créé.", cards: [], context: scope.context };
+      } else if (resumed && previous && !input.action && !input.taskId && !input.referenceId) {
+        intent = parseCoachIntent(resumed);
+        scope.text = previous.text;
+        scope.selections = previous.selections;
+        scope.timeZone = previous.timeZone || scope.timeZone;
+      } else if (input.action) {
         if (!coachUuid(input.action.id)) throw new Error("Aperçu invalide.");
         response = await handleConnectedAction(scope,input.action);
       } else if (input.referenceId) {
@@ -57,6 +67,7 @@ export async function processCoachMessage(db: Supabase, userId: string, input: {
         intent = { tool: "complete_task" };
       } else if (selected && previous) {
         intent = parseCoachIntent(previous.intent);
+        scope.timeZone = previous.timeZone || scope.timeZone;
         scope.text = previous.text;
         scope.selected = { kind: previous.kind, id: selected.id };
         scope.selections = { ...previous.selections, [previous.kind]: selected.id };
@@ -66,17 +77,24 @@ export async function processCoachMessage(db: Supabase, userId: string, input: {
         intent = await understandCoachMessage(scope.context, history || [], scope.text, scope.timeZone);
       }
       if (intent) {
+        intent = freezeCoachDate(intent, scope.timeZone);
+        if (!resumed && !selected && scope.context.current_action_id && intent.tool !== "send_email") await handleConnectedAction(scope, { id: scope.context.current_action_id, mode: "cancel" });
         if (intent.tool !== "send_email") scope.context.current_action_id = null;
         const handlers = { ...coachHandlers,...connectedCoachHandlers,...relationshipCoachHandlers };
         const handler = handlers[intent.tool];
         if (!handler) throw new Error("Outil indisponible.");
         console.info("[coach.tool.start]", { tool: intent.tool, hasClientReference: Boolean(intent.query), hasTitle: Boolean(intent.title), hasDate: Boolean(intent.dateExpression) });
         response = await handler(scope, intent);
+        if (response.approval && ["create_calendar_event", "update_calendar_event"].includes(intent.tool)) pending = { intent, text: scope.text, kind: "time", options: [], mode: "clarification", selections: scope.selections, timeZone: scope.timeZone, createdAt: new Date().toISOString() };
         console.info("[coach.tool.result]", { tool: intent.tool, changed: Boolean(response.changed), cardCount: response.cards.length });
       }
     } catch (error) {
-      if (error instanceof CoachChoice && intent) {
-        pending = { intent, text: scope.text, kind: error.kind, options: error.options, selections: scope.selections };
+      if (error instanceof CoachClarification && (intent || conversation.pending)) {
+        const previous = conversation.pending as Pending | null;
+        pending = { intent: intent || previous!.intent, text: intent ? scope.text : previous!.text, kind: error.kind, options: [], mode: "clarification", selections: scope.selections || previous?.selections, timeZone: scope.timeZone, createdAt: new Date().toISOString() };
+        response = { text: error.message, cards: [], context: scope.context };
+      } else if (error instanceof CoachChoice && intent) {
+        pending = { intent, text: scope.text, kind: error.kind, options: error.options, selections: scope.selections, timeZone: scope.timeZone };
         response = { text: error.message, choices: error.options, cards: [], context: scope.context };
       } else {
         failed = true;
@@ -84,6 +102,10 @@ export async function processCoachMessage(db: Supabase, userId: string, input: {
         const code = error && typeof error === "object" && "code" in error ? String(error.code).slice(0, 32) : undefined;
         console.error("[coach.tool.failed]", { tool: intent?.tool || "intent", code, type: error instanceof Error ? error.name : "database" });
         response = { text: aiError ? aiError.body.error : error instanceof SyntaxError ? "Je n’ai pas compris quelle tâche créer. Peux-tu reformuler ?" : error instanceof Error ? error.message : intent?.tool === "create_task" ? "Je n’ai pas réussi à enregistrer la tâche. Réessaie dans quelques instants." : "Je n’ai pas réussi à terminer cette action. Réessaie dans quelques instants.", cards: [], context: scope.context };
+        if (intent?.tool === "create_calendar_event" && !input.action) {
+          pending = { intent, text: scope.text, kind: "calendar_connection", options: [], mode: "clarification", selections: scope.selections, timeZone: scope.timeZone };
+          response.text += " La demande est conservée. Corrige le problème puis écris « reprends ». Aucun événement n’a été créé par cette demande.";
+        }
       }
     }
     const { error: contextError } = await db.from("coach_conversations").update({ context: scope.context, pending, updated_at: new Date().toISOString() }).eq("id", input.conversationId).eq("user_id", userId);

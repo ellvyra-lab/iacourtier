@@ -64,6 +64,7 @@ const load=loader({
 const connected=load('@/lib/server/connections/coach-connected');
 const {processCoachMessage}=load('@/lib/server/process-coach-message');
 const {emptyCoachContext}=load('@/lib/coach/conversation');
+const {localDay}=primitives('@/lib/connections/dates');
 function fixture(){
   const accountId=randomUUID(),conversationId=randomUUID(),refId=randomUUID(),clientId=randomUUID(),caseId=randomUUID();
   const email={id:'incoming',threadId:'thread',subject:'Certificat 91 Régent',from:'jacques@example.test',replyTo:'jacques@example.test',to:['me@example.test'],text:'Pouvez-vous envoyer le certificat ?',receivedAt:new Date().toISOString(),sent:false,unread:true,automated:false};
@@ -131,4 +132,61 @@ test('dernière réponse sortante et newsletter exclues des demandes à répondr
 test('message courant ne peut confirmer implicitement un envoi',async()=>{
   const {scope}=fixture();model.push('Réponse');await connected.connectedCoachHandlers.reply_email(scope,{tool:'reply_email'});
   scope.text='Envoie un autre courriel à une autre personne';await assert.rejects(connected.connectedCoachHandlers.send_email(scope),/aperçu/);assert.equal(sendCalls,0);
+});
+
+test('055A : demain → heure, refresh, correction et confirmation unique conservent titre et date',async()=>{
+  const {conversationId}=fixture();
+  const title='Vérifier le rendez-vous avec la maman de Francis';
+  model.push({tool:'create_calendar_event',title,dateExpression:'demain'});
+  const send=(text,extra={})=>processCoachMessage(db,'owner',{conversationId,messageId:randomUUID(),text,...extra});
+  let reply=await send('Ajoute demain un rappel pour vérifier le rendez-vous avec la maman de Francis');
+  assert.match(reply.text,/quelle heure/); assert.equal(eventCalls,0);
+  const saved=structuredClone(db.tables.coach_conversations[0].pending);
+  const day=saved.intent.dateExpression;
+  assert.match(day,/^\d{4}-\d{2}-\d{2}$/); assert.equal(saved.intent.title,title);
+  // A new message reloads pending from the database, exactly as after refresh.
+  reply=await send('11 h'); assert.ok(reply.approval,reply.text);
+  assert.equal(db.tables.connected_actions.at(-1).payload.title,title);
+  assert.equal(localDay(new Date(db.tables.connected_actions.at(-1).payload.start)),day);
+  assert.equal(db.tables.connected_actions.at(-1).payload.clientId,null);
+  const oldPreview=reply.approval.id;
+  reply=await send('plutôt 14 h'); assert.ok(reply.approval,reply.text);
+  assert.notEqual(reply.approval.id,oldPreview);
+  assert.equal(db.tables.connected_actions.find(a=>a.id===oldPreview).status,'cancelled');
+  assert.equal(eventCalls,0);
+  const input={conversationId,messageId:randomUUID(),text:'Confirmer',action:{id:reply.approval.id,mode:'confirm'}};
+  await processCoachMessage(db,'owner',input); await processCoachMessage(db,'owner',input);
+  assert.equal(eventCalls,1);
+  assert.equal(db.tables.coach_conversations[0].pending,null);
+});
+test('055A : calendrier absent conserve l’action ; annuler la supprime sans écrire',async()=>{
+  const {conversationId}=fixture();db.tables.connected_accounts=[];
+  model.push({tool:'create_calendar_event',title:'Vérifier le rendez-vous',dateExpression:'demain'});
+  const send=text=>processCoachMessage(db,'owner',{conversationId,messageId:randomUUID(),text});
+  await send('Ajoute demain un rappel pour vérifier le rendez-vous');
+  const reply=await send('11 h');assert.match(reply.text,/aucun calendrier/);
+  assert.equal(db.tables.coach_conversations[0].pending.intent.title,'Vérifier le rendez-vous');
+  await send('annule');assert.equal(db.tables.coach_conversations[0].pending,null);assert.equal(eventCalls,0);
+});
+test('055A : changement de sujet efface le pending ; autre conversation ne reprend pas',async()=>{
+  const {conversationId}=fixture();
+  model.push({tool:'create_calendar_event',title:'Rappel initial',dateExpression:'demain'});
+  await processCoachMessage(db,'owner',{conversationId,messageId:randomUUID(),text:'Ajoute un rappel demain'});
+  const otherConversation=randomUUID();
+  db.tables.coach_conversations.push({id:otherConversation,user_id:'owner',context:emptyCoachContext(),pending:null});
+  model.push({tool:'unavailable',explanation:'Aucune action en attente'});
+  const otherReply=await processCoachMessage(db,'owner',{conversationId:otherConversation,messageId:randomUUID(),text:'11 h'});
+  assert.equal(otherReply.text,'Aucune action en attente');assert.ok(db.tables.coach_conversations[0].pending);
+  await assert.rejects(processCoachMessage(db,'other',{conversationId,messageId:randomUUID(),text:'11 h'}),/Conversation introuvable/);
+  model.push({tool:'unavailable',explanation:'Nouvelle question'});
+  const reply=await processCoachMessage(db,'owner',{conversationId,messageId:randomUUID(),text:'Comment préparer une visite ?'});
+  assert.equal(reply.text,'Nouvelle question');assert.equal(db.tables.coach_conversations[0].pending,null);assert.equal(eventCalls,0);
+});
+test('055A : dates figées et fuseaux distincts',()=>{
+  const {freezeCoachDate,resumeCoachPending}=primitives('@/lib/server/coach-pending');
+  const intent=freezeCoachDate({tool:'create_calendar_event',title:'Rappel',dateExpression:'demain'},'Europe/Paris',new Date('2026-10-12T23:30:00Z'));
+  assert.equal(intent.dateExpression,'2026-10-14');
+  assert.throws(()=>resumeCoachPending({intent,text:'original',kind:'time',options:[],mode:'clarification',timeZone:'Europe/Paris'},'99 h'),/invalide/);
+  const completed=resumeCoachPending({intent,text:'original',kind:'time',options:[],mode:'clarification',timeZone:'Europe/Paris'},'11 h');
+  assert.equal(dateWindow(completed.dateExpression,new Date(),true,null,'Europe/Paris').start,'2026-10-14T09:00:00.000Z');
 });

@@ -10,9 +10,10 @@ import { connectedProviders, mailbox } from "./providers";
 import { ownedContacts } from "@/lib/server/client-relationships";
 import { recordConnectionEvent, prepareReplyFollowup } from "./business-events";
 import { centrisProvider } from "./centris";
+import { CoachClarification } from "@/lib/server/coach-pending";
 
 type Reference = { id: string; account_id: string; remote_id: string; thread_id: string | null; kind: "email" | "event"; client_id: string | null; case_id: string | null; property_id: string | null; match_status: string };
-type Payload = { title?: string; subject?: string; message?: string; recipient?: string; recipients?:string[]; recipientClientIds?:string[]; sender?: string; remoteId?: string; threadId?: string; start?: string; end?: string; location?: string; version?: string; referenceId?: string; clientId?: string | null; caseId?: string | null; propertyId?: string | null; values?: Record<string,unknown> };
+type Payload = { timeZone?: string; title?: string; subject?: string; message?: string; recipient?: string; recipients?:string[]; recipientClientIds?:string[]; sender?: string; remoteId?: string; threadId?: string; start?: string; end?: string; location?: string; version?: string; referenceId?: string; clientId?: string | null; caseId?: string | null; propertyId?: string | null; values?: Record<string,unknown> };
 type Action = { id: string; account_id: string; kind: string; payload: Payload; status: string; result?: Record<string,unknown> };
 const response = (s: CoachScope,text: string,cards: CoachCard[] = []): CoachReply => ({ text,cards,context: s.context });
 const connectionsCard: CoachCard = { kind: "case", id: "connections", title: "Connecter ou reconnecter un compte", href: "/tableau-de-bord/reglages/connexions" };
@@ -138,7 +139,7 @@ export async function readConnectedEvent(s: CoachScope,id: string) {
 }
 function actionReply(s: CoachScope,a: Action): CoachReply {
   const p = a.payload;
-  const text = a.kind === "email" ? `Compte expéditeur : ${p.sender || "compte connecté"}.\nVérifie le destinataire et le texte avant l’envoi.` : a.kind === "crm_update" ? `Informations détectées dans le courriel, à vérifier :\n${Object.entries(p.values || {}).map(([k,v]) => `${k === "budget" ? "Budget" : "Préqualification reçue"} : ${v}`).join("\n")}` : `${a.kind === "event_delete" ? "Supprimer" : a.kind === "event_update" ? "Déplacer" : "Créer"} : ${p.title}\n${displayDate(p.start!)} → ${displayDate(p.end!)}\n${p.location || ""}\nAgenda principal · America/Toronto. Aucun changement avant confirmation.`;
+  const text = a.kind === "email" ? `Compte expéditeur : ${p.sender || "compte connecté"}.\nVérifie le destinataire et le texte avant l’envoi.` : a.kind === "crm_update" ? `Informations détectées dans le courriel, à vérifier :\n${Object.entries(p.values || {}).map(([k,v]) => `${k === "budget" ? "Budget" : "Préqualification reçue"} : ${v}`).join("\n")}` : `${a.kind === "event_delete" ? "Supprimer" : a.kind === "event_update" ? "Déplacer" : "Créer"} : ${p.title}\n${displayDate(p.start!,p.timeZone)} → ${displayDate(p.end!,p.timeZone)}\n${p.location || ""}\nAgenda principal · ${p.timeZone || "America/Toronto"}. Aucun changement avant confirmation.`;
   return { ...response(s,text), approval:{ id:a.id,kind:a.kind,label:a.kind === "email" ? "Envoyer" : a.kind === "crm_update" ? "Mettre à jour le dossier" : "Confirmer" }, ...(a.kind === "email" ? { draft:{ recipient:p.recipient!,subject:p.subject!,message:p.message! } } : {}) };
 }
 export async function handleConnectedAction(s: CoachScope,input: CoachActionRequest): Promise<CoachReply> {
@@ -315,6 +316,16 @@ async function searchEmails(s: CoachScope,i: CoachIntent) {
   return response(s,`${cards.length} courriel(s) trouvé(s), recherche limitée aux 30 derniers jours (20 résultats maximum par compte). Sélectionne un courriel pour poursuivre.\n${warnings.join("\n")}`,cards);
 }
 async function calendar(s: CoachScope,i: CoachIntent) {
+  if (i.tool === "create_calendar_event") {
+    if (!i.query && !/\b(son|ses|sa|lui|ce dossier|cette propriete)\b/.test(foldCoach(s.text))) s.context = { ...emptyCoachContext(), current_account_id: s.context.current_account_id };
+    if (!i.title?.trim()) throw new CoachClarification("title", "Quel titre veux-tu donner au rendez-vous ?");
+    try { dateWindow(i.dateExpression || "",new Date(),true,undefined,s.timeZone); }
+    catch (error) {
+      if (error instanceof Error && error.message.includes("heure précisément")) throw new CoachClarification("time", "À quelle heure ?");
+      throw error;
+    }
+    if (!(await listAccounts(s.userId)).some(account => account.status === "connected")) throw new CoachClarification("calendar_connection", "Le rappel est conservé, mais aucun calendrier n’est connecté. Connecte Google ou Microsoft dans Réglages → Connexions, puis écris « connecté » pour reprendre.");
+  }
   const p = await providers(s);
   if (["get_calendar","search_calendar","check_availability"].includes(i.tool)) {
     const window = dateWindow(i.dateExpression || (i.tool === "search_calendar" ? "cette semaine" : "aujourd’hui"),new Date(),false);
@@ -361,7 +372,7 @@ async function calendar(s: CoachScope,i: CoachIntent) {
     event = await p.calendar.getEvent(ref.remote_id);
     if (!event.version) throw new Error("La version de ce rendez-vous n’a pas pu être vérifiée. Ouvre-le dans ton agenda avant de le modifier.");
   }
-  const window = i.tool === "delete_calendar_event" ? { start:event!.start,end:event!.end } : dateWindow(i.dateExpression || "",new Date(),true,event ? { start:event.start,end:event.end } : s.context.current_slot);
+  const window = i.tool === "delete_calendar_event" ? { start:event!.start,end:event!.end } : dateWindow(i.dateExpression || "",new Date(),true,event ? { start:event.start,end:event.end } : i.tool === "create_calendar_event" ? null : s.context.current_slot,s.timeZone);
   if (event && i.tool === "update_calendar_event") window.end = new Date(Date.parse(window.start)+Date.parse(event.end)-Date.parse(event.start)).toISOString();
   if (i.tool !== "delete_calendar_event") {
     const conflict = await p.calendar.checkAvailability(window.start,window.end,event?.id);
@@ -375,7 +386,7 @@ async function calendar(s: CoachScope,i: CoachIntent) {
   if (!title) throw new Error("Quel titre veux-tu donner au rendez-vous ?");
   if (title.length > 240) throw new Error("Titre du rendez-vous trop long.");
   s.context.current_slot = window;
-  return preview(s,p.account.id,i.tool === "create_calendar_event" ? "event_create" : i.tool === "delete_calendar_event" ? "event_delete" : "event_update",{ title,...window,location:typeof i.values?.location === "string" ? i.values.location.slice(0,500) : event?.location || "",remoteId:event?.id,version:event?.version,clientId:ref?.client_id || s.context.current_client_id,caseId:ref?.case_id || s.context.current_case_id,propertyId:ref?.property_id || s.context.current_property_id });
+  return preview(s,p.account.id,i.tool === "create_calendar_event" ? "event_create" : i.tool === "delete_calendar_event" ? "event_delete" : "event_update",{ timeZone:s.timeZone,title,...window,location:typeof i.values?.location === "string" ? i.values.location.slice(0,500) : event?.location || "",remoteId:event?.id,version:event?.version,clientId:ref?.client_id || s.context.current_client_id,caseId:ref?.case_id || s.context.current_case_id,propertyId:ref?.property_id || s.context.current_property_id });
 }
 export async function generateDailyBrief(s: CoachScope): Promise<CoachReply> {
   s.context = emptyCoachContext();
