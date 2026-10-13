@@ -190,3 +190,12 @@ test('055A : dates figées et fuseaux distincts',()=>{
   const completed=resumeCoachPending({intent,text:'original',kind:'time',options:[],mode:'clarification',timeZone:'Europe/Paris'},'11 h');
   assert.equal(dateWindow(completed.dateExpression,new Date(),true,null,'Europe/Paris').start,'2026-10-14T09:00:00.000Z');
 });
+test('055A : conflit conserve l’action pour une autre heure',async()=>{
+  const {conversationId}=fixture();
+  model.push({tool:'create_calendar_event',title:'Rappel conservé',dateExpression:'demain'});
+  const send=text=>processCoachMessage(db,'owner',{conversationId,messageId:randomUUID(),text});
+  await send('Ajoute demain un rappel');
+  conflicts=[{id:'busy',title:'Occupé',start:'2026-10-13T15:00:00Z',end:'2026-10-13T16:00:00Z'}];
+  const conflict=await send('11 h');assert.match(conflict.text,/Conflit/);assert.equal(db.tables.coach_conversations[0].pending.intent.title,'Rappel conservé');
+  conflicts=[];const reply=await send('14 h');assert.ok(reply.approval);assert.equal(eventCalls,0);
+});

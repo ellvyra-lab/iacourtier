@@ -379,7 +379,7 @@ async function calendar(s: CoachScope,i: CoachIntent) {
     if (conflict.length) {
       const nextStart = new Date(Math.max(...conflict.map(e => Date.parse(e.end)))).toISOString(), nextEnd = new Date(Date.parse(nextStart)+Date.parse(window.end)-Date.parse(window.start)).toISOString();
       const nextConflict = await p.calendar.checkAvailability(nextStart,nextEnd,event?.id);
-      return response(s,`Conflit : ${conflict.map(e => `${e.title} (${displayDate(e.start)} → ${displayDate(e.end)})`).join(", ")}.${nextConflict.length ? " Choisis une autre plage." : ` Le créneau ${displayDate(nextStart)} → ${displayDate(nextEnd)} est libre. Demande cette heure pour préparer le rendez-vous.`}`);
+      throw new CoachClarification("time",`Conflit : ${conflict.map(e => `${e.title} (${displayDate(e.start)} → ${displayDate(e.end)})`).join(", ")}.${nextConflict.length ? " Choisis une autre plage." : ` Le créneau ${displayDate(nextStart)} → ${displayDate(nextEnd)} est libre. Demande cette heure pour préparer le rendez-vous.`}`);
     }
   }
   const title = i.title || event?.title;

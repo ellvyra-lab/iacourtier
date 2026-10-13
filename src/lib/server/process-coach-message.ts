@@ -54,6 +54,7 @@ export async function processCoachMessage(db: Supabase, userId: string, input: {
       } else if (input.action) {
         if (!coachUuid(input.action.id)) throw new Error("Aperçu invalide.");
         response = await handleConnectedAction(scope,input.action);
+        if (!response.changed && scope.context.current_action_id && previous?.mode === "clarification") pending = previous;
       } else if (input.referenceId) {
         if (!coachUuid(input.referenceId)) throw new Error("Référence invalide.");
         const ref = await focusReference(scope,input.referenceId);
