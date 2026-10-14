@@ -21,19 +21,30 @@ Les routes serveur authentifiées vérifient le propriétaire avant chaque opér
 
 ## Vérification
 
-- 44 tests Coach/OAuth/connexions réussis, dont mémoire conversationnelle 055A.
+- 47 tests Coach/OAuth/connexions/transport People réussis, dont mémoire conversationnelle 055A.
 - 2 tests PostgreSQL PGlite réussis : conservation, unicité, clés étrangères propriétaire,
   défauts séparés, RLS et refus des rôles navigateur.
 - TypeScript sans erreur.
 - `npm run build` local : blocage Windows EPERM lors de la création de répertoires `.next`.
-- Build Vercel du commit initial `1d0bc6507d17b956685c9a0396228cca3a45e190` : Ready.
-- Production : accès Gmail et Calendar de `viasoniacourtier@gmail.com` réellement vérifié.
-- Deuxième compte demandé : `sonia.bernier@remax-quebec.com`, déjà utilisateur test Google.
-  Son authentification Google doit être terminée par l'utilisateur avant le test réel
-  de coexistence, reconnexion et révocation. Ces parcours passent avec transport simulé.
-- People API désactivée : activation soumise à acceptation des conditions Google.
-  Contacts en lecture seule est optionnel; les comptes existants ne reçoivent aucune
-  permission Contacts automatiquement.
+- Build Vercel du code `21eaaec8157abe6c6f684e5bb458ad9c3e7b308c` : Ready, production.
+- Production : Gmail et Calendar réellement vérifiés pour `viasoniacourtier@gmail.com`
+  et `sonia.bernier@remax-quebec.com`, après consentement Google officiel.
+- Révocation Remax réussie : compte déconnecté et autorisation Google révoquée.
+  L'accès réel Gmail/Calendar du premier compte fonctionne toujours après cette révocation.
+- Reconnexion Remax réussie : identifiant du compte conservé, date de reconnexion visible,
+  nouvel accès Gmail/Calendar vérifié. SQL confirme 2 comptes, 2 identités, 2 comptes connectés.
+- Défauts par service testés : Courriels sur le premier compte, Calendar sur Remax;
+  choix conservé après rafraîchissement. Le Coach prépare un aperçu de rendez-vous
+  sur Remax sans demander de compte. Aperçu annulé sans création d'événement.
+  Le défaut Calendar initial sur le premier compte est rétabli après le test.
+- Coach : lecture des 2 calendriers (1 rendez-vous trouvé) et recherche Gmail sur les
+  2 comptes (40 résultats, 20 par compte). La provenance apparaît dans chaque carte.
+- Comptes et conversation persistants après rafraîchissement. Aucun doublon de connexion.
+- People API activée dans Google Cloud après accord sur les conditions Google.
+  Contacts en lecture seule reste optionnel; aucune permission Contacts n'a été ajoutée
+  aux deux comptes. Le transport People est testé automatiquement, pas avec ces comptes.
+- Isolation entre courtiers : tests de propriétaires différents, clés étrangères et refus
+  des rôles navigateur validés. Pas de connexion réelle à un deuxième compte IACourtier.
 - Aucun courriel envoyé pendant la vérification. Les aperçus approuvés restent liés
   à un compte précis; une reconnexion ou déconnexion annule ses aperçus en attente.
 
@@ -41,7 +52,7 @@ Les routes serveur authentifiées vérifient le propriétaire avant chaque opér
 
 https://iacourtier-44za.vercel.app/tableau-de-bord/reglages/connexions
 
-Après la deuxième connexion : vérifier chaque accès; choisir un défaut Calendar
-distinct du défaut Courriels; demander au Coach les courriels et les rendez-vous;
-vérifier la provenance puis rafraîchir. Reconnecter le deuxième compte doit conserver
-son ID et ne créer aucun doublon. Sa déconnexion doit laisser le premier fonctionnel.
+Pour reproduire : vérifier chaque accès; choisir un défaut Calendar distinct du défaut
+Courriels; demander au Coach les courriels et les rendez-vous; vérifier la provenance
+puis rafraîchir. Une reconnexion conserve l'identité; une déconnexion laisse l'autre
+compte fonctionnel. Les deux comptes sont laissés connectés à la fin de la vérification.
