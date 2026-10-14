@@ -112,10 +112,12 @@ export class MicrosoftCalendarProvider implements CalendarProvider {
   async updateEvent(id: string,i: EventInput,version?: string) { return msEvent(await this.api(`/v1.0/me/events/${eid(id)}`, { method: "PATCH", headers: version ? { "If-Match": version } : {}, body: JSON.stringify(this.body(i)) })); }
   async deleteEvent(id: string,version?: string) { await this.api(`/v1.0/me/events/${eid(id)}`, { method: "DELETE", headers: version ? { "If-Match": version } : {} }); }
 }
-export async function connectedProviders(userId: string, accountId: string, sourceMessageId?: string): Promise<{ account:ConnectedAccount; email:EmailProvider; calendar:CalendarProvider }> {
+export async function connectedProviders(userId: string, accountId: string, sourceMessageId?: string): Promise<{account:ConnectedAccount;email:EmailProvider;calendar:CalendarProvider;searchContacts:(query:string,count?:number)=>Promise<{id:string;name:string;emails:string[];phones:string[]}[]>}> {
   const { account, accessToken } = await accountToken(userId,accountId);
   const api: RequestApi = async (path,init = {}) => {
-    const base = account.provider === "microsoft" ? "https://graph.microsoft.com" : path.startsWith("/gmail/") ? "https://gmail.googleapis.com" : "https://www.googleapis.com";
+    const service = path.startsWith("/v1/people") ? "contacts" : path.startsWith("/calendar/") || /\/calendarView|\/events/.test(path) ? "calendar" : "email";
+    if (!account.services?.includes(service)) throw new Error(`Le service ${service} n’est pas autorisé pour ${account.email}. Modifie sa connexion dans Réglages → Connexions.`);
+    const base = account.provider === "microsoft" ? "https://graph.microsoft.com" : service === "contacts" ? "https://people.googleapis.com" : path.startsWith("/gmail/") ? "https://gmail.googleapis.com" : "https://www.googleapis.com";
     const method = init.method || "GET", entity = path.split("?")[0];
     await connectionAudit(userId,account.provider,method,"started",entity,sourceMessageId);
     let response: Response;
@@ -123,7 +125,8 @@ export async function connectedProviders(userId: string, accountId: string, sour
     catch { await connectionAudit(userId,account.provider,method,"uncertain",entity,sourceMessageId); throw new Error("Connexion au fournisseur interrompue. Pour une action, vérifie son résultat avant de réessayer."); }
     if (!response.ok) {
       await connectionAudit(userId,account.provider,method,"failed",entity,sourceMessageId);
-      if (response.status === 401 || response.status === 403) { await connectionStore().from("connected_accounts").update({ status: "reconnect" }).eq("id",accountId).eq("user_id",userId); throw new Error("Ton compte doit être reconnecté dans Réglages → Connexions."); }
+      if (response.status === 401) { await connectionStore().from("connected_accounts").update({ status: "reconnect" }).eq("id",accountId).eq("user_id",userId); throw new Error(`Le compte ${account.email} doit être reconnecté dans Réglages → Connexions.`); }
+      if (response.status === 403) throw new Error(`Google/Microsoft refuse l’accès pour ${account.email} (403). Vérifie les permissions du service et l’activation de son API.`);
       if (response.status === 412) throw new Error("Ce rendez-vous a changé depuis l’aperçu. Recharge-le avant de le modifier.");
       if (response.status === 429) throw new Error("Le fournisseur limite temporairement les demandes. Réessaie plus tard.");
       throw new Error(`Le fournisseur a refusé la demande (${response.status}). Aucun succès confirmé.`);
@@ -131,5 +134,13 @@ export async function connectedProviders(userId: string, accountId: string, sour
     await connectionAudit(userId,account.provider,method,response.status === 202 ? "accepted" : "completed",entity,sourceMessageId);
     return response.status === 202 || response.status === 204 ? {} : await response.json();
   };
-  return { account, email: account.provider === "google" ? new GoogleEmailProvider(api) : new MicrosoftEmailProvider(api,account.email), calendar: account.provider === "google" ? new GoogleCalendarProvider(api) : new MicrosoftCalendarProvider(api) };
+  async function searchContacts(query: string, count = 20): Promise<{id:string;name:string;emails:string[];phones:string[]}[]> {
+    if (account.provider !== "google") throw new Error("Contacts Google seulement.");
+    const params = new URLSearchParams({query:query.slice(0,200),readMask:"names,emailAddresses,phoneNumbers",pageSize:String(limit(count))});
+    // Google recommends an empty query to warm its search cache first.
+    if (query) await api(`/v1/people:searchContacts?${new URLSearchParams({query:"",readMask:"names,emailAddresses,phoneNumbers",pageSize:"1"})}`);
+    const result = await api(`/v1/people:searchContacts?${params}`);
+    return (result.results || []).map((r:Json) => ({id:String(r.person.resourceName),name:String(r.person.names?.[0]?.displayName || "Sans nom"),emails:(r.person.emailAddresses || []).map((v:Json) => String(v.value)),phones:(r.person.phoneNumbers || []).map((v:Json) => String(v.value))}));
+  }
+  return { account, searchContacts, email: account.provider === "google" ? new GoogleEmailProvider(api) : new MicrosoftEmailProvider(api,account.email), calendar: account.provider === "google" ? new GoogleCalendarProvider(api) : new MicrosoftCalendarProvider(api) };
 }

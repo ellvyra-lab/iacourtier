@@ -1,5 +1,6 @@
 export type Provider = "google" | "microsoft";
-export type ConnectedAccount = { id: string; provider: Provider; email: string; status: string };
+export type ConnectionService = "email" | "calendar" | "contacts";
+export type ConnectedAccount = { id: string; provider: Provider; email: string; status: string; services?: ConnectionService[]; defaults?: ConnectionService[]; connected_at?: string | null; reconnected_at?: string | null; disconnected_at?: string | null };
 export type Email = { id: string; threadId: string; subject: string; from: string; replyTo: string; to: string[]; text: string; receivedAt: string; unread: boolean; sent: boolean; automated: boolean; internetMessageId?: string; references?: string; url?: string };
 export type EmailQuery = { query?: string; since?: string; unread?: boolean; limit?: number };
 export type OutgoingEmail = { to: string | string[]; subject: string; text: string; replyTo?: Email; operationId: string };

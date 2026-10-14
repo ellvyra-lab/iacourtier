@@ -1,7 +1,7 @@
 import "server-only";
 import { generateWithOpenAI } from "@/lib/openai";
 import { coachLink, emptyCoachContext, foldCoach, type CoachActionRequest, type CoachCard, type CoachIntent, type CoachReply } from "@/lib/coach/conversation";
-import type { CalendarEvent, Email, EventInput, OutgoingEmail } from "@/lib/connections/types";
+import type { CalendarEvent, ConnectionService, Email, EventInput, OutgoingEmail } from "@/lib/connections/types";
 import { dateWindow, displayDate, localDay } from "@/lib/connections/dates";
 import { CoachChoice, coachRows, resolveCoachClient, type CoachScope } from "@/lib/server/coach-tools";
 import { changeBuyerCriteria, changeCrmTask } from "@/lib/server/coach-crm-actions";
@@ -23,13 +23,18 @@ function matchingData(s: CoachScope) {
   if (!data) { data = Promise.all([coachRows(s,"clients"),coachRows(s,"client_cases"),coachRows(s,"properties"),coachRows(s,"client_case_clients")]).then(([clients,cases,properties,relations]) => ({clients,cases,properties,relations})); crmCache.set(s,data); }
   return data;
 }
-async function providers(s: CoachScope, accountId?: string) {
+async function providers(s: CoachScope, accountId?: string, service: ConnectionService = "email") {
   const accounts = await listAccounts(s.userId);
-  const id = accountId || s.selections?.account || s.context.current_account_id;
+  const named = accounts.filter(a => s.text.toLowerCase().includes(a.email.toLowerCase()));
+  if (!accountId && !s.selections?.account && named.length > 1) throw new CoachChoice("account",named.map(a => ({id:a.id,label:a.email})));
+  const id = accountId || s.selections?.account || named[0]?.id;
   const selected = accounts.find(a => a.id === id);
   if (id && !selected) throw new Error("Ce compte n’est plus connecté. Ouvre Réglages → Connexions.");
-  if (!selected && accounts.length > 1) throw new CoachChoice("account",accounts.map(a => ({ id:a.id,label:`${a.provider} — ${a.email}` })));
-  const account = selected || accounts[0];
+  const eligible = accounts.filter(a => a.status === "connected" && a.services?.includes(service));
+  const preferred = eligible.find(a => a.defaults?.includes(service));
+  const contextual = eligible.find(a => a.id === s.context.current_account_id);
+  if (!selected && !preferred && !contextual && eligible.length > 1) throw new CoachChoice("account",eligible.map(a => ({ id:a.id,label:`${a.provider} — ${a.email}` })));
+  const account = selected || preferred || contextual || eligible[0];
   if (!account) throw new Error("Connecte Google ou Microsoft dans Réglages → Connexions pour consulter tes courriels et ton agenda.");
   s.context.current_account_id = account.id;
   return connectedProviders(s.userId,account.id,s.messageId);
@@ -96,12 +101,17 @@ async function eventReference(s: CoachScope,event: CalendarEvent,accountId: stri
 function emailCard(email: Email,r: Reference,detail?: string): CoachCard { return { kind:"email",id:r.id,title:email.subject || "Sans objet",detail:detail || `${email.from} · ${displayDate(email.receivedAt)}${r.match_status === "unverified" ? " · Lien CRM à vérifier" : ""}`,href:coachLink("email",r.id) }; }
 async function currentEmail(s: CoachScope,i: CoachIntent) {
   if (i.query) {
-    const p = await providers(s), emails = await p.email.searchMessages({ query:i.query,limit:20 });
-    if (!emails.length) throw new Error("Aucun courriel correspondant dans les 30 derniers jours. Précise ta recherche.");
-    const refs = await Promise.all(emails.map(e => linkEmail(s,e,p.account.id)));
+    const all = (await listAccounts(s.userId)).filter(a => a.services?.includes("email"));
+    const named = all.filter(a => a.id === s.selections?.account || s.text.toLowerCase().includes(a.email.toLowerCase()));
+    const matches: {email:Email;ref:Reference;accountEmail:string}[] = [];
+    for (const account of named.length ? named : all) {
+      const p = await providers(s,account.id);
+      for (const email of await p.email.searchMessages({query:i.query,limit:20})) matches.push({email,ref:await linkEmail(s,email,account.id),accountEmail:account.email});
+    }
+    if (!matches.length) throw new Error("Aucun courriel correspondant dans les 30 derniers jours. Précise ta recherche.");
     const selection = s.selections?.email;
-    if (emails.length > 1 && !selection) throw new CoachChoice("email",emails.map((e,n) => ({ id:refs[n].id,label:`${e.from} — ${e.subject} — ${displayDate(e.receivedAt)}` })));
-    const r = refs.find(r => r.id === selection) || (emails.length === 1 ? refs[0] : null);
+    if (matches.length > 1 && !selection) throw new CoachChoice("email",matches.map(m => ({id:m.ref.id,label:`${m.accountEmail} — ${m.email.from} — ${m.email.subject} — ${displayDate(m.email.receivedAt)}`})));
+    const r = matches.find(m => m.ref.id === selection)?.ref || (matches.length === 1 ? matches[0].ref : null);
     if (!r) throw new Error("Choisis un courriel de cette recherche."); await focusReference(s,r.id);
   }
   if (s.selections?.email) await focusReference(s,s.selections.email);
@@ -133,13 +143,13 @@ async function validateLinks(s: CoachScope,p: Payload) {
   }
 }
 export async function readConnectedEvent(s: CoachScope,id: string) {
-  const r = await ownedReference(s,id,"event"), p = await providers(s,r.account_id), event = await p.calendar.getEvent(r.remote_id);
+  const r = await ownedReference(s,id,"event"), p = await providers(s,r.account_id,"calendar"), event = await p.calendar.getEvent(r.remote_id);
   s.context.current_slot = { start:event.start,end:event.end };
   return response(s,`${event.title}\n${displayDate(event.start)} → ${displayDate(event.end)}\n${event.location}`,[{ kind:"event",id:r.id,title:event.title,href:coachLink("event",r.id) }]);
 }
 function actionReply(s: CoachScope,a: Action): CoachReply {
   const p = a.payload;
-  const text = a.kind === "email" ? `Compte expéditeur : ${p.sender || "compte connecté"}.\nVérifie le destinataire et le texte avant l’envoi.` : a.kind === "crm_update" ? `Informations détectées dans le courriel, à vérifier :\n${Object.entries(p.values || {}).map(([k,v]) => `${k === "budget" ? "Budget" : "Préqualification reçue"} : ${v}`).join("\n")}` : `${a.kind === "event_delete" ? "Supprimer" : a.kind === "event_update" ? "Déplacer" : "Créer"} : ${p.title}\n${displayDate(p.start!,p.timeZone)} → ${displayDate(p.end!,p.timeZone)}\n${p.location || ""}\nAgenda principal · ${p.timeZone || "America/Toronto"}. Aucun changement avant confirmation.`;
+  const text = a.kind === "email" ? `Compte expéditeur : ${p.sender || "compte connecté"}.\nVérifie le destinataire et le texte avant l’envoi.` : a.kind === "crm_update" ? `Informations détectées dans le courriel, à vérifier :\n${Object.entries(p.values || {}).map(([k,v]) => `${k === "budget" ? "Budget" : "Préqualification reçue"} : ${v}`).join("\n")}` : `${a.kind === "event_delete" ? "Supprimer" : a.kind === "event_update" ? "Déplacer" : "Créer"} : ${p.title}\n${displayDate(p.start!,p.timeZone)} → ${displayDate(p.end!,p.timeZone)}\n${p.location || ""}\nAgenda principal · ${p.sender || "compte connecté"} · ${p.timeZone || "America/Toronto"}. Aucun changement avant confirmation.`;
   return { ...response(s,text), approval:{ id:a.id,kind:a.kind,label:a.kind === "email" ? "Envoyer" : a.kind === "crm_update" ? "Mettre à jour le dossier" : "Confirmer" }, ...(a.kind === "email" ? { draft:{ recipient:p.recipient!,subject:p.subject!,message:p.message! } } : {}) };
 }
 export async function handleConnectedAction(s: CoachScope,input: CoachActionRequest): Promise<CoachReply> {
@@ -158,7 +168,7 @@ export async function handleConnectedAction(s: CoachScope,input: CoachActionRequ
     return preview(s,a.account_id,"email",payload);
   }
   if (input.mode !== "confirm") throw new Error("Confirmation invalide.");
-  const p = await providers(s,a.account_id), payload = a.payload;
+  const p = await providers(s,a.account_id,a.kind.startsWith("event_") ? "calendar" : "email"), payload = a.payload;
   await validateLinks(s,payload);
   // Compare-and-set is the durable exactly-once attempt gate. Never retry an
   // ambiguous external send automatically: Gmail/Graph have no send idempotency key.
@@ -233,7 +243,7 @@ export async function assessEmail(email: Email): Promise<Assessment> {
   return { importance:data.importance,reason:data.reason.slice(0,400),action:data.action.slice(0,400),...(typeof data.budget === "number" && data.budget >= 0 && data.budget <= 1e9 ? { budget:data.budget } : {}),...(typeof data.prequalified === "boolean" ? { prequalified:data.prequalified } : {}) };
 }
 export async function findEmailsNeedingReply(s: CoachScope,since?: string) {
-  const accounts = await listAccounts(s.userId), items: { email:Email; ref:Reference; assessment:Assessment }[] = [], warnings: string[] = [];
+  const accounts = (await listAccounts(s.userId)).filter(a => a.services?.includes("email")), items: { email:Email; ref:Reference; assessment:Assessment }[] = [], warnings: string[] = [];
   const updates: { email:Email;ref:Reference;assessment:Assessment;receivedReply:boolean }[] = [];
   const counts = { urgent:0,reply:0,followup:0,information:0,wait:0 };
   if (!accounts.length) return { items,updates,counts,newMessages:0,warnings:["Courriels non connectés : Réglages → Connexions."],scanned:0 };
@@ -294,14 +304,16 @@ async function readEmail(s: CoachScope,i: CoachIntent) {
   return reply;
 }
 async function searchEmails(s: CoachScope,i: CoachIntent) {
-  const accounts = await listAccounts(s.userId), cards: CoachCard[] = [], warnings: string[] = [];
+  const all = (await listAccounts(s.userId)).filter(a => a.services?.includes("email"));
+  const named = all.filter(a => s.text.toLowerCase().includes(a.email.toLowerCase()));
+  const accounts = named.length ? named : all, cards: CoachCard[] = [], warnings: string[] = [];
   const received: {email:Email;ref:Reference}[] = [];
   if (!accounts.length) return response(s,"Connecte un compte pour chercher tes courriels.",[connectionsCard]);
   for (const a of accounts) {
     try {
       const p = await providers(s,a.id), emails = await p.email.searchMessages({ query:i.query,unread:i.tool === "get_unread_emails",since:i.tool === "get_recent_emails" ? new Date(Date.now()-86400000).toISOString() : undefined,limit:20 });
-      for (const e of emails) { const ref = await linkEmail(s,e,a.id); cards.push(emailCard(e,ref)); if (!e.sent) received.push({email:e,ref}); }
-    } catch(error) { warnings.push(`${a.provider} : ${error instanceof Error ? error.message : "Indisponible"}`); }
+      for (const e of emails) { const ref = await linkEmail(s,e,a.id); const card = emailCard(e,ref); cards.push({...card,detail:`${a.email} · ${card.detail}`}); if (!e.sent) received.push({email:e,ref}); }
+    } catch(error) { warnings.push(`${a.email} : ${error instanceof Error ? error.message : "Indisponible"}`); }
   }
   if (cards.length === 1) await focusReference(s,cards[0].id);
   if (i.query && /repondu|dernier/.test(foldCoach(s.text)) && received.length) {
@@ -324,17 +336,29 @@ async function calendar(s: CoachScope,i: CoachIntent) {
       if (error instanceof Error && error.message.includes("heure précisément")) throw new CoachClarification("time", "À quelle heure ?");
       throw error;
     }
-    if (!(await listAccounts(s.userId)).some(account => account.status === "connected")) throw new CoachClarification("calendar_connection", "Le rappel est conservé, mais aucun calendrier n’est connecté. Connecte Google ou Microsoft dans Réglages → Connexions, puis écris « connecté » pour reprendre.");
+    if (!(await listAccounts(s.userId)).some(account => account.status === "connected" && account.services?.includes("calendar"))) throw new CoachClarification("calendar_connection", "Le rappel est conservé, mais aucun calendrier n’est connecté. Connecte Google ou Microsoft dans Réglages → Connexions, puis écris « connecté » pour reprendre.");
   }
-  const p = await providers(s);
   if (["get_calendar","search_calendar","check_availability"].includes(i.tool)) {
     const window = dateWindow(i.dateExpression || (i.tool === "search_calendar" ? "cette semaine" : "aujourd’hui"),new Date(),false);
     s.context.current_slot = window;
-    const events = i.tool === "check_availability" ? await p.calendar.checkAvailability(window.start,window.end) : i.query ? await p.calendar.searchEvents(i.query,window.start,window.end) : await p.calendar.listEvents(window.start,window.end);
-    const cards = await Promise.all(events.map(async e => { const ref = await eventReference(s,e,p.account.id); return { kind:"event" as const,id:ref.id,title:e.title,detail:`${displayDate(e.start)} → ${displayDate(e.end)}`,href:coachLink("event",ref.id) }; }));
+    const all = (await listAccounts(s.userId)).filter(a => a.services?.includes("calendar"));
+    const selected = s.selections?.account;
+    const named = all.filter(a => a.id === selected || s.text.toLowerCase().includes(a.email.toLowerCase()));
+    const accounts = named.length ? named : all;
+    if (!accounts.length) return response(s,"Aucun compte calendrier autorisé.",[connectionsCard]);
+    const cards: CoachCard[] = [],warnings: string[] = [];
+    for (const a of accounts) {
+      try {
+        const p = await providers(s,a.id,"calendar");
+        const events = i.tool === "check_availability" ? await p.calendar.checkAvailability(window.start,window.end) : i.query ? await p.calendar.searchEvents(i.query,window.start,window.end) : await p.calendar.listEvents(window.start,window.end);
+        for (const e of events) { const ref = await eventReference(s,e,a.id); cards.push({kind:"event",id:ref.id,title:e.title,detail:`${a.email} · ${displayDate(e.start)} → ${displayDate(e.end)}`,href:coachLink("event",ref.id)}); }
+      } catch(error) { warnings.push(`${a.email} : ${error instanceof Error ? error.message : "Indisponible"}`); }
+    }
     if (cards.length === 1) s.context.current_event_id = cards[0].id;
-    return response(s,`${displayDate(window.start)} → ${displayDate(window.end)}\n${i.tool === "check_availability" ? events.length ? "Ce créneau est occupé." : "Tu es libre dans ton agenda principal." : `${events.length} rendez-vous dans ton agenda principal.`}`,cards);
+    return response(s,`${displayDate(window.start)} → ${displayDate(window.end)}\n${i.tool === "check_availability" ? cards.length ? "Ce créneau est occupé." : warnings.length ? "La disponibilité ne peut pas être confirmée sur tous les comptes." : "Tu es libre dans les agendas vérifiés." : `${cards.length} rendez-vous dans ${accounts.length} compte(s).`}\n${warnings.join("\n")}`,cards);
   }
+  const eventAccount = i.tool !== "create_calendar_event" && s.context.current_event_id ? (await ownedReference(s,s.context.current_event_id,"event")).account_id : undefined;
+  const p = await providers(s,eventAccount,"calendar");
   let event: CalendarEvent | undefined, ref: Reference | undefined;
   if (i.tool === "create_calendar_event") {
     if (i.query) {
@@ -386,7 +410,7 @@ async function calendar(s: CoachScope,i: CoachIntent) {
   if (!title) throw new Error("Quel titre veux-tu donner au rendez-vous ?");
   if (title.length > 240) throw new Error("Titre du rendez-vous trop long.");
   s.context.current_slot = window;
-  return preview(s,p.account.id,i.tool === "create_calendar_event" ? "event_create" : i.tool === "delete_calendar_event" ? "event_delete" : "event_update",{ timeZone:s.timeZone,title,...window,location:typeof i.values?.location === "string" ? i.values.location.slice(0,500) : event?.location || "",remoteId:event?.id,version:event?.version,clientId:ref?.client_id || s.context.current_client_id,caseId:ref?.case_id || s.context.current_case_id,propertyId:ref?.property_id || s.context.current_property_id });
+  return preview(s,p.account.id,i.tool === "create_calendar_event" ? "event_create" : i.tool === "delete_calendar_event" ? "event_delete" : "event_update",{ sender:p.account.email,timeZone:s.timeZone,title,...window,location:typeof i.values?.location === "string" ? i.values.location.slice(0,500) : event?.location || "",remoteId:event?.id,version:event?.version,clientId:ref?.client_id || s.context.current_client_id,caseId:ref?.case_id || s.context.current_case_id,propertyId:ref?.property_id || s.context.current_property_id });
 }
 export async function generateDailyBrief(s: CoachScope): Promise<CoachReply> {
   s.context = emptyCoachContext();
@@ -399,9 +423,9 @@ export async function generateDailyBrief(s: CoachScope): Promise<CoachReply> {
   const lines = ["☀️ MON TOPO",`Depuis hier : ${mail.newMessages} nouveaux courriels reçus dans la fenêtre consultée.`,`${mail.scanned} fils récents analysés : ${mail.counts.urgent} urgents · ${mail.counts.reply} à répondre · ${mail.counts.followup} à suivre · ${mail.counts.information} informatifs · ${mail.counts.wait} peuvent attendre.`,...mail.warnings];
   for (const u of mail.updates.filter(u => !mail.items.some(i => i.ref.id === u.ref.id)).slice(0,4)) cards.push(emailCard(u.email,u.ref,`${u.receivedReply ? "Réponse reçue après ton envoi. " : "Information CRM détectée, à vérifier. "}${u.assessment.reason}`));
   if (mail.items[0]) { await focusReference(s,mail.items[0].ref.id); lines.push(`Je commencerais par : ${mail.items[0].email.subject} — ${mail.items[0].assessment.action}`); }
-  const accounts = await listAccounts(s.userId).catch(() => []), window = dateWindow("aujourd’hui");
+  const accounts = (await listAccounts(s.userId).catch(() => [])).filter(a => a.services?.includes("calendar")), window = dateWindow("aujourd’hui");
   let appointments = 0;
-  for (const a of accounts) { try { const p = await providers(s,a.id), events = await p.calendar.listEvents(window.start,window.end); appointments += events.length; for (const e of events.slice(0,8)) { const ref = await eventReference(s,e,a.id); cards.push({ kind:"event",id:ref.id,title:e.title,detail:displayDate(e.start),href:coachLink("event",ref.id) }); } } catch(error) { lines.push(`${a.provider} agenda : ${error instanceof Error ? error.message : "indisponible"}`); } }
+  for (const a of accounts) { try { const p = await providers(s,a.id,"calendar"), events = await p.calendar.listEvents(window.start,window.end); appointments += events.length; for (const e of events.slice(0,8)) { const ref = await eventReference(s,e,a.id); cards.push({ kind:"event",id:ref.id,title:e.title,detail:`${a.email} · ${displayDate(e.start)}`,href:coachLink("event",ref.id) }); } } catch(error) { lines.push(`${a.email} agenda : ${error instanceof Error ? error.message : "indisponible"}`); } }
   lines.push(`Aujourd’hui : ${appointments} rendez-vous. ${tasks.length} tâche(s) du jour ou en retard. ${cases.length} dossier(s) à surveiller.`);
   for (const t of tasks.slice(0,8)) cards.push({ kind:"task",id:t.id,title:String(t.title),detail:String(t.due_on || t.due_at),href:coachLink("task",t.id) });
   for (const c of cases.slice(0,5)) cards.push({ kind:"case",id:c.id,title:String(c.title),detail:String(c.next_best_action || "Suivi du dossier à vérifier"),href:coachLink("case",c.id) });
@@ -437,7 +461,12 @@ async function searchEverywhere(s: CoachScope,i: CoachIntent) {
   let text = "Résultats CRM, courriels et agenda (7 prochains jours).";
   try { const mail = await searchEmails(s,i); cards.push(...mail.cards); text += `\n${mail.text}`; } catch(error) { text += `\nCourriels : ${error instanceof Error ? error.message : "Indisponible"}`; }
   const accounts = await listAccounts(s.userId), w = dateWindow("cette semaine");
-  for (const a of accounts) { try { const p = await providers(s,a.id), events = await p.calendar.searchEvents(i.query,w.start,w.end); for (const e of events) { const r = await eventReference(s,e,a.id); cards.push({ kind:"event",id:r.id,title:e.title,detail:displayDate(e.start),href:coachLink("event",r.id) }); } } catch(error) { text += `\nAgenda : ${error instanceof Error ? error.message : "Indisponible"}`; } }
+  for (const a of accounts.filter(a => a.services?.includes("contacts"))) {
+    try { const p = await providers(s,a.id,"contacts"); const contacts = await p.searchContacts(i.query || "");
+      for (const c of contacts) cards.push({kind:"client",id:`google:${a.id}:${c.id}`,title:c.name,detail:`Google Contacts · ${a.email} · ${c.emails.join(", ")} · ${c.phones.join(", ")}`,href:`https://contacts.google.com/u/${encodeURIComponent(a.email)}/`});
+    } catch(error) { text += `\nContacts ${a.email} : ${error instanceof Error ? error.message : "Indisponible"}`; }
+  }
+  for (const a of accounts.filter(a => a.services?.includes("calendar"))) { try { const p = await providers(s,a.id,"calendar"), events = await p.calendar.searchEvents(i.query,w.start,w.end); for (const e of events) { const r = await eventReference(s,e,a.id); cards.push({ kind:"event",id:r.id,title:e.title,detail:`${a.email} · ${displayDate(e.start)}`,href:coachLink("event",r.id) }); } } catch(error) { text += `\nAgenda : ${error instanceof Error ? error.message : "Indisponible"}`; } }
   return response(s,text,cards);
 }
 export const connectedCoachHandlers = {

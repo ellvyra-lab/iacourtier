@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useDashboardAuth } from "@/components/auth/DashboardAuthProvider";
-import type { ConnectedAccount, Provider } from "@/lib/connections/types";
+import type { ConnectedAccount, ConnectionService, Provider } from "@/lib/connections/types";
 import { unconfiguredCentris, type CentrisConnection } from "@/lib/centris/provider";
 
 export function ConnectedAccounts() {
@@ -12,6 +12,8 @@ export function ConnectedAccounts() {
   const [centris, setCentris] = useState<CentrisConnection>(unconfiguredCentris);
   const [busy, setBusy] = useState(true);
   const [notice, setNotice] = useState("");
+  const [services,setServices] = useState<ConnectionService[]>(["email","calendar"]);
+  const labels: Record<ConnectionService,string> = {email:"Courriels",calendar:"Calendar",contacts:"Contacts (lecture seulement)"};
   const load = useCallback(async () => {
     const response = await authenticatedFetch("/api/connections", { cache: "no-store" });
     const data = await response.json();
@@ -24,11 +26,11 @@ export function ConnectedAccounts() {
     setNotice(new URLSearchParams(window.location.search).get("notice") || "");
     void load().catch(e => setNotice(e instanceof Error ? e.message : "Connexions indisponibles.")).finally(() => setBusy(false));
   }, [load]);
-  async function act(provider: Provider, action: "connect" | "disconnect" | "verify") {
+  async function act(provider: Provider, action: "connect" | "disconnect" | "verify" | "default", account?: ConnectedAccount, service?: ConnectionService) {
     setBusy(true); setNotice("");
     try {
       const response = await authenticatedFetch(`/api/connections/${provider}`, {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action }),
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action,accountId:account?.id,service,services:account?.services || services }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error);
@@ -47,17 +49,24 @@ export function ConnectedAccounts() {
     {notice ? <p role="status" className="rounded-xl border p-4">{notice}</p> : null}
     <div className="grid gap-4 sm:grid-cols-2">
       {(["google", "microsoft"] as const).map(provider => {
-        const account = accounts.find(a => a.provider === provider);
         return <article key={provider} className="space-y-4 rounded-2xl border p-5">
           <h2 className="text-xl font-semibold">{provider === "google" ? "Google" : "Microsoft"}</h2>
-          <p>{provider === "google" ? "Gmail + Google Calendar" : "Outlook + Microsoft Calendar"}</p>
-          <p className="text-sm font-medium">{account ? account.status === "connected" ? "Connecté" : "Reconnexion nécessaire" : "Non connecté"}</p>
-          {account ? <p className="break-words text-sm">{account.email}</p> : null}
+          <p>{provider === "google" ? "Gmail · Calendar · Contacts" : "Outlook + Microsoft Calendar"}</p>
+          {accounts.filter(a => a.provider === provider).map(account => <div key={account.id} className="space-y-2 rounded-xl border p-3">
+            <p className="break-words font-medium">{account.email}</p>
+            <p className="text-sm">{account.status === "connected" ? "Connecté" : account.status === "disconnected" ? "Déconnecté" : "Reconnexion nécessaire"}</p>
+            <p className="text-xs text-slate-600">Connexion : {account.connected_at ? new Date(account.connected_at).toLocaleString("fr-CA") : "date historique inconnue"}{account.reconnected_at ? ` · Reconnexion : ${new Date(account.reconnected_at).toLocaleString("fr-CA")}` : ""}</p>
+            {account.services?.map(service => <div key={service} className="flex flex-wrap items-center justify-between gap-2 text-sm"><span>{labels[service]}</span>{account.defaults?.includes(service) ? <strong>Par défaut</strong> : <button disabled={busy || account.status !== "connected"} className="rounded border p-2 disabled:opacity-40" onClick={() => void act(provider,"default",account,service)}>Utiliser par défaut</button>}</div>)}
+            <div className="flex flex-wrap gap-2">
+              <button disabled={busy || !configured[provider]} onClick={() => void act(provider,"connect",account)} className="min-h-12 rounded-xl border px-3 disabled:opacity-40">Reconnecter</button>
+              {account.status !== "disconnected" ? <button disabled={busy} onClick={() => void act(provider,"disconnect",account)} className="min-h-12 rounded-xl border px-3">Déconnecter et révoquer</button> : null}
+              <button disabled={busy || account.status !== "connected" || !configured[provider]} onClick={() => void act(provider,"verify",account)} className="min-h-12 rounded-xl border px-3 disabled:opacity-40">Vérifier l’accès</button>
+            </div>
+          </div>)}
           {!configured[provider] ? <p className="text-sm text-amber-700">Configuration administrateur requise avant de connecter ce service.</p> : null}
           <div className="flex flex-wrap gap-2">
-            <button disabled={busy || !configured[provider]} onClick={() => void act(provider, "connect")} className="min-h-12 rounded-xl bg-blue-600 px-4 text-white disabled:opacity-40">{account ? "Reconnecter" : "Connecter"}</button>
-            {account ? <><button disabled={busy} onClick={() => void act(provider, "disconnect")} className="min-h-12 rounded-xl border px-3">Déconnecter</button>
-              <button disabled={busy || account.status !== "connected" || !configured[provider]} onClick={() => void act(provider, "verify")} className="min-h-12 rounded-xl border px-3 disabled:opacity-40">Vérifier l’accès</button></> : null}
+            {provider === "google" ? <fieldset className="w-full space-y-2"><legend>Services du nouveau compte</legend>{(["email","calendar","contacts"] as const).map(service => <label key={service} className="flex items-center gap-2"><input type="checkbox" checked={services.includes(service)} disabled={busy} onChange={e => setServices(current => e.target.checked ? [...current,service] : current.filter(s => s !== service))}/>{labels[service]}</label>)}</fieldset> : null}
+            <button disabled={busy || !configured[provider] || provider === "google" && !services.length} onClick={() => void act(provider, "connect")} className="min-h-12 rounded-xl bg-blue-600 px-4 text-white disabled:opacity-40">Ajouter un compte</button>
           </div>
         </article>;
       })}
@@ -71,7 +80,7 @@ export function ConnectedAccounts() {
         </details>
       </article>
     </div>
-    <p className="text-sm text-slate-500">Un compte par fournisseur, agenda principal seulement. Les messages et changements de rendez-vous nécessitent une confirmation. Les analyses et événements d’automatisation sont déclenchés à la demande; aucune surveillance permanente n’est activée.</p>
+    <p className="text-sm text-slate-500">Plusieurs comptes indépendants, agenda principal de chaque compte. Les messages et changements de rendez-vous nécessitent une confirmation. Les analyses sont déclenchées à la demande.</p>
     <p className="text-sm text-slate-500">Les autorisations sont enregistrées de façon chiffrée côté serveur. Aucun mot de passe n’est conservé. Tu peux déconnecter tes services à tout moment.</p>
     <Link href="/tableau-de-bord/coach" className="inline-block rounded-xl border px-4 py-3">Parler au Coach</Link>
   </section>;

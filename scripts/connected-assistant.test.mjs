@@ -58,7 +58,7 @@ let db,model=[],fixtureProviders,sendCalls=0,eventCalls=0,sendError=false,confli
 const load=loader({
   '@/lib/openai':{getOpenAIErrorPayload:()=>null,generateWithOpenAI:async()=>{const next=model.shift();if(!next)throw Error('Unexpected model call');return typeof next==='string'?next:JSON.stringify(next);}},
   '@/lib/server/connections/accounts':{connectionStore:()=>db,listAccounts:async owner=>(db.tables.connected_accounts||[]).filter(a=>a.user_id===owner),connectionAudit:async()=>{}},
-  '@/lib/server/connections/providers':{mailbox,connectedProviders:async(owner,id)=>{if(!db.tables.connected_accounts.some(a=>a.user_id===owner&&a.id===id))throw Error('Compte inaccessible');return fixtureProviders;}},
+  '@/lib/server/connections/providers':{mailbox,connectedProviders:async(owner,id)=>{const account=db.tables.connected_accounts.find(a=>a.user_id===owner&&a.id===id);if(!account)throw Error('Compte inaccessible');return {...fixtureProviders,account};}},
   '@/app/api/clients/[id]/route':{PATCH:async()=>Response.json({})},'@/app/api/properties/[id]/route':{PATCH:async()=>Response.json({})},
 });
 const connected=load('@/lib/server/connections/coach-connected');
@@ -68,7 +68,7 @@ const {localDay}=primitives('@/lib/connections/dates');
 function fixture(){
   const accountId=randomUUID(),conversationId=randomUUID(),refId=randomUUID(),clientId=randomUUID(),caseId=randomUUID();
   const email={id:'incoming',threadId:'thread',subject:'Certificat 91 Régent',from:'jacques@example.test',replyTo:'jacques@example.test',to:['me@example.test'],text:'Pouvez-vous envoyer le certificat ?',receivedAt:new Date().toISOString(),sent:false,unread:true,automated:false};
-  db=database({connected_accounts:[{id:accountId,user_id:'owner',provider:'google',email:'me@example.test',status:'connected'}],clients:[{id:clientId,user_id:'owner',first_name:'Jacques',last_name:'Test',email:'jacques@example.test'}],client_cases:[{id:caseId,user_id:'owner',primary_client_id:clientId,title:'91 Régent',status:'active',case_type:'seller',pipeline_type:'seller',current_stage:'qualification'}],connected_references:[{id:refId,user_id:'owner',account_id:accountId,kind:'email',remote_id:'incoming',thread_id:'thread',client_id:clientId,case_id:caseId,property_id:null,match_status:'matched'}],coach_conversations:[{id:conversationId,user_id:'owner',context:{...emptyCoachContext(),current_account_id:accountId,current_email_id:refId,current_thread_id:'thread',current_client_id:clientId,current_case_id:caseId}}]});
+  db=database({connected_accounts:[{id:accountId,user_id:'owner',provider:'google',email:'me@example.test',status:'connected',services:['email','calendar'],defaults:['email','calendar']}],clients:[{id:clientId,user_id:'owner',first_name:'Jacques',last_name:'Test',email:'jacques@example.test'}],client_cases:[{id:caseId,user_id:'owner',primary_client_id:clientId,title:'91 Régent',status:'active',case_type:'seller',pipeline_type:'seller',current_stage:'qualification'}],connected_references:[{id:refId,user_id:'owner',account_id:accountId,kind:'email',remote_id:'incoming',thread_id:'thread',client_id:clientId,case_id:caseId,property_id:null,match_status:'matched'}],coach_conversations:[{id:conversationId,user_id:'owner',context:{...emptyCoachContext(),current_account_id:accountId,current_email_id:refId,current_thread_id:'thread',current_client_id:clientId,current_case_id:caseId}}]});
   model=[];sendCalls=0;eventCalls=0;sendError=false;conflicts=[];
   fixtureProviders={account:db.tables.connected_accounts[0],email:{getMessage:async()=>email,getThread:async()=>[email],listMessages:async()=>[email],searchMessages:async()=>[email],createDraft:async()=> 'draft',sendMessage:async()=>{sendCalls++;if(sendError)throw Error('Gmail a échoué');return {id:'sent',threadId:'thread',accepted:false};}},calendar:{checkAvailability:async()=>conflicts,createEvent:async i=>{eventCalls++;return {id:'event',...i,busy:true};},getEvent:async()=>({id:'event',title:'Visite',start:'2026-09-24T18:00:00Z',end:'2026-09-24T19:00:00Z',location:'91 Régent',busy:true}),listEvents:async()=>[]}};
   const scope={db,userId:'owner',conversationId,messageId:randomUUID(),text:'Réponds-lui que jeudi fonctionne.',context:structuredClone(db.tables.coach_conversations[0].context)};
@@ -198,4 +198,23 @@ test('055A : conflit conserve l’action pour une autre heure',async()=>{
   conflicts=[{id:'busy',title:'Occupé',start:'2026-10-13T15:00:00Z',end:'2026-10-13T16:00:00Z'}];
   const conflict=await send('11 h');assert.match(conflict.text,/Conflit/);assert.equal(db.tables.coach_conversations[0].pending.intent.title,'Rappel conservé');
   conflicts=[];const reply=await send('14 h');assert.ok(reply.approval);assert.equal(eventCalls,0);
+});
+
+test('055B Coach : recherches multicomptes avec provenance et défaut calendrier distinct',async()=>{
+ const {scope,accountId}=fixture();const secondId=randomUUID();
+ db.tables.connected_accounts.push({id:secondId,user_id:'owner',provider:'google',email:'second@example.test',status:'connected',services:['email','calendar'],defaults:['calendar']});
+ db.tables.connected_accounts[0].defaults=['email'];
+ db.tables.connected_accounts.push({id:randomUUID(),user_id:'other',provider:'google',email:'foreign@example.test',status:'connected',services:['email','calendar']});
+ scope.text='Recherche mes courriels';
+ const mail=await connected.connectedCoachHandlers.search_emails(scope,{tool:'search_emails',query:'certificat'});
+ assert.equal(mail.cards.length,2);assert.ok(mail.cards.some(c=>c.detail.includes('me@example.test')));assert.ok(mail.cards.some(c=>c.detail.includes('second@example.test')));assert.equal(mail.cards.some(c=>c.detail.includes('foreign')),false);
+ fixtureProviders.calendar.listEvents=async()=>[{id:'same-remote-id',title:'Visite',start:'2026-10-15T15:00:00Z',end:'2026-10-15T16:00:00Z'}];
+ const events=await connected.connectedCoachHandlers.get_calendar(scope,{tool:'get_calendar',dateExpression:'demain'});
+ assert.equal(events.cards.length,2);assert.notEqual(events.cards[0].id,events.cards[1].id);assert.ok(events.cards[1].detail.includes('second@example.test'));
+ scope.text='Ajoute une visite demain à 11 h';
+ const draft=await connected.connectedCoachHandlers.create_calendar_event(scope,{tool:'create_calendar_event',title:'Visite',dateExpression:'demain à 11 h'});
+ assert.equal(db.tables.connected_actions.find(a=>a.id===draft.approval.id).account_id,secondId);
+ assert.equal(eventCalls,0);
+ scope.text='Recherche les courriels de me@example.test';
+ const firstOnly=await connected.connectedCoachHandlers.search_emails(scope,{tool:'search_emails',query:'certificat'});assert.equal(firstOnly.cards.length,1);
 });

@@ -50,6 +50,6 @@ test('revoked refresh token requires reconnection; transient failure preserves a
  try {
   db.tables.connected_accounts=[{...account}];global.fetch=async()=>new Response('',{status:503});await assert.rejects(a.accountToken('owner','account'));assert.equal(db.tables.connected_accounts[0].status,'connected');
   global.fetch=async()=>new Response('',{status:400});await assert.rejects(a.accountToken('owner','account'));assert.equal(db.tables.connected_accounts[0].status,'reconnect');
-  let revoked=false;global.fetch=async(url)=>{revoked=String(url)==='https://oauth2.googleapis.com/revoke';return new Response('');};await a.disconnectAccount('owner','google');assert.equal(db.tables.connected_accounts.length,0);assert.equal(revoked,true);
+  let revoked=false;global.fetch=async(url)=>{revoked=String(url)==='https://oauth2.googleapis.com/revoke';return new Response('');};await a.disconnectAccount('owner','google','account');assert.equal(db.tables.connected_accounts.length,1);assert.equal(db.tables.connected_accounts[0].status,'disconnected');assert.equal(db.tables.connected_accounts[0].encrypted_tokens,'');assert.equal(revoked,true);
  }finally{global.fetch=original;}
 });
