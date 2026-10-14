@@ -76,3 +76,13 @@ test('055B: consentement minimal Contacts, identité par courtier et chiffrement
     await assert.rejects(accounts.beginOAuth('owner','google',['invalid']),/service/);
   } finally {global.fetch=original;}
 });
+
+test('055B: un ancien refresh token ne remplace pas une nouvelle autorisation de service',async()=>{
+ setup();const original=global.fetch;
+ db.tables.connected_accounts=[{id:'first',user_id:'owner',provider:'google',provider_subject:'first',email:'first@example.test',status:'connected',scopes:accounts.scopes.google.join(' '),encrypted_tokens:accounts.encryptTokens({access_token:'old',refresh_token:'old-refresh',expires_at:Date.now()+3600000},'owner:google')}];
+ const before=structuredClone(db.tables.connected_accounts);
+ const url=new URL(await accounts.beginOAuth('owner','google',['contacts'],'first'));
+ global.fetch=async u=>String(u).includes('/token') ? Response.json({access_token:'new',scope:'openid email https://www.googleapis.com/auth/contacts.readonly'}) : Response.json({sub:'first',email:'first@example.test'});
+ try {await assert.rejects(accounts.finishOAuth('owner','google',url.searchParams.get('state'),'code'),/renouvelable/);assert.deepEqual(db.tables.connected_accounts,before);}
+ finally {global.fetch=original;}
+});

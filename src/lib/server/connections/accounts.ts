@@ -118,7 +118,9 @@ export async function finishOAuth(userId: string, provider: Provider, state: str
   const old = await db.from("connected_accounts").select("*").eq("user_id", userId).eq("provider", provider).eq("provider_subject",subject).maybeSingle();
   if (old.error) throw new Error("Impossible de vérifier la connexion existante.");
   if (data.account_id && old.data?.id !== data.account_id) throw new Error("Le compte Google choisi ne correspond pas au compte à reconnecter. Aucun compte n’a été remplacé.");
-  const refresh = token.refresh_token || (old.data?.status !== "disconnected" && old.data?.encrypted_tokens ? decryptTokens(old.data.encrypted_tokens,tokenOwner(userId,old.data)).refresh_token : "");
+  const previousScopes = String(old.data?.scopes || "").toLowerCase().split(/\s+/);
+  const canReuseRefresh = required.every(scope => previousScopes.includes(scope.toLowerCase()) || previousScopes.includes(`https://graph.microsoft.com/${scope.toLowerCase()}`));
+  const refresh = token.refresh_token || (canReuseRefresh && old.data?.status !== "disconnected" && old.data?.encrypted_tokens ? decryptTokens(old.data.encrypted_tokens,tokenOwner(userId,old.data)).refresh_token : "");
   if (!refresh) throw new Error("L’accès renouvelable n’a pas été accordé. Reconnecte le compte.");
   const now = new Date().toISOString();
   const saved = await db.from("connected_accounts").upsert({ user_id: userId, provider, provider_subject: subject, email, scopes: String(token.scope),status:"connected",token_version:2,updated_at:now,connected_at:old.data ? old.data.connected_at : now,reconnected_at:old.data ? now : null,disconnected_at:null, encrypted_tokens: encryptTokens({ access_token: token.access_token, refresh_token: refresh, expires_at: Date.now() + Number(token.expires_in || 3600) * 1000 }, `${userId}:${provider}:${subject}`) },{onConflict:"user_id,provider,provider_subject"}).select("id").single();
