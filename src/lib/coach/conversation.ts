@@ -14,11 +14,15 @@ export type CoachContext = {
   current_action_id?: string | null;
 };
 export const emptyCoachContext = (): CoachContext => ({ current_client_id: null, current_case_id: null, current_property_id: null, current_document_id: null, current_task_id: null, current_pipeline_stage: null });
-export type CoachCard = { kind: "client" | "case" | "property" | "task" | "document" | "email" | "event"; id: string; title: string; detail?: string; href: string; phone?: string; download?: boolean };
+export type CoachConnectionCard = { provider: "google" | "microsoft" | "centris"; action: "connect" | "disconnect" | "inspect"; status: "offered" | "pending" | "verifying" | "verified" | "failed" | "cancelled" | "disconnected" | "connected" | "reconnect" | "unavailable"; services: ("email" | "calendar" | "contacts")[]; accountId?: string; email?: string; verifiedAt?: string | null };
+export type CoachCard = { kind: "client" | "case" | "property" | "task" | "document" | "email" | "event" | "connection"; id: string; title: string; detail?: string; href: string; phone?: string; download?: boolean; connection?: CoachConnectionCard };
 export type CoachActionRequest = { id: string; mode: "confirm" | "cancel" | "edit"; subject?: string; message?: string };
 export type CoachReply = { text: string; cards: CoachCard[]; context: CoachContext; choices?: { id: string; label: string }[]; navigate?: string; draft?: { recipient: string; subject: string; message: string }; approval?: { id: string; label: string; kind: string }; changed?: boolean };
 export type CoachMessage = { id: string; text: string; reply: CoachReply | null };
 export const coachTools = {
+  list_connections: "Lister les comptes réellement enregistrés et leurs services autorisés.",
+  connect_service: "Proposer OAuth officiel. values.provider=google|microsoft, values.service=email|calendar|contacts. query=courriel explicite du compte à reconnecter. Aucun mot de passe dans le chat.",
+  disconnect_account: "Préparer une déconnexion/révocation avec confirmation, query=courriel explicite ou compte courant. Jamais déconnecter tous les comptes.",
   get_centris_status: "Vérifier l’état réel de l’intégration Centris; aucune recherche ou transmission sans accès officiel autorisé.",
   link_clients: "Relier deux contacts existants sans les fusionner. values={person1,person2,relationshipType}. person1 est le parent si type=parent. Noms explicites, aucun ID.",
   get_related_client: "Trouver la conjointe/le conjoint ou autre lien du client query (ou courant), values.relationshipType=spouse par défaut.",
@@ -85,6 +89,7 @@ export function parseCoachIntent(input: unknown): CoachIntent {
 export function coachLink(kind: CoachCard["kind"], id: string, caseId?: string | null) {
   const safe = encodeURIComponent(id);
   const base = "/tableau-de-bord";
+  if (kind === "connection") return `${base}/reglages/connexions`;
   if (kind === "email" || kind === "event") return `${base}/coach?reference=${safe}`;
   const routes = { client: `${base}/clients/${safe}`, case: `${base}/dossiers/${safe}`, property: `${base}/proprietes/${safe}`, task: `${base}/taches/${safe}`, document: caseId ? `${base}/dossiers/${encodeURIComponent(caseId)}#document-${safe}` : `${base}/telechargements?document=${safe}` };
   return routes[kind];

@@ -8,6 +8,7 @@ let db;
 let modelReplies = [];
 const cache = new Map();
 function load(name) {
+  if (name === "@/lib/server/connections/coach-connections") return { coachConnectionHandlers:{}, connectionIntent:()=>undefined };
   if (name === "@/lib/server/connections/coach-connected") return { connectedCoachHandlers:{} };
   if (name === "@/lib/openai") return { getOpenAIErrorPayload: () => null, generateWithOpenAI: async () => { const next = modelReplies.shift(); if (next instanceof Error) throw next; if (!next) throw Error("Unexpected model request"); return typeof next === "string" ? next : JSON.stringify(next); } };
   if (name === "@/app/api/clients/[id]/route") return { PATCH: async (request, context) => { const { id } = await context.params; const body = await request.json(); const row = db.tables.clients.find(row => row.id === id && row.user_id === "owner"); Object.assign(row, body.values); return Response.json({ client: row }); } };

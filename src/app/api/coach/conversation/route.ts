@@ -1,6 +1,7 @@
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { coachStorageError } from "@/lib/server/coach-storage-error";
 import { coachUuid, processCoachMessage } from "@/lib/server/process-coach-message";
+import { hydrateConnectionMessages } from "@/lib/server/connections/coach-connections";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -17,7 +18,8 @@ export async function GET(request: Request) {
   if (!conversation) return Response.json({ error: "Conversation introuvable. Ouvre une nouvelle conversation." }, { status: 404 });
   const { data, error } = await db.from("coach_messages").select("id,text,reply").eq("conversation_id", id).eq("user_id", user.id).order("created_at", { ascending: false }).limit(100);
   if (error) return Response.json({ error: coachStorageError(error, "charger l’historique").message }, { status: 503 });
-  return Response.json({ messages: (data || []).reverse() });
+  try {return Response.json({ messages: await hydrateConnectionMessages(user.id,id,(data || []).reverse()) });}
+  catch(error) {return Response.json({error:error instanceof Error ? error.message : "États de connexion indisponibles."},{status:503});}
 }
 export async function POST(request: Request) {
   if (request.headers.get("origin") !== new URL(request.url).origin) return Response.json({ error:"Origine invalide." },{ status:403 });

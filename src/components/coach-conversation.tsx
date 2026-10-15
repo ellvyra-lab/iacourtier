@@ -6,9 +6,9 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, ty
 import { Bot, Mic, Send, X, Loader2, Plus, ArrowUpRight } from "lucide-react";
 import { useDashboardAuth } from "@/components/auth/DashboardAuthProvider";
 import { VoiceDictationButton } from "@/components/voice-dictation-button";
-import type { CoachActionRequest, CoachMessage, CoachReply } from "@/lib/coach/conversation";
+import type { CoachActionRequest, CoachCard, CoachMessage, CoachReply } from "@/lib/coach/conversation";
 
-type ConversationState = { messages: CoachMessage[]; busy: boolean; error: string; send: (text: string, choiceId?: string, taskId?: string, action?: CoachActionRequest, referenceId?: string) => Promise<void>; reset: () => Promise<void>; open: boolean; setOpen: (value: boolean) => void; voice: number; consumeVoice: () => void; launch: (voice?: boolean) => void };
+type ConversationState = { messages: CoachMessage[]; busy: boolean; error: string; send: (text: string, choiceId?: string, taskId?: string, action?: CoachActionRequest, referenceId?: string) => Promise<void>; connectionAction: (id:string,action:"start"|"confirm"|"cancel")=>Promise<void>; reset: () => Promise<void>; open: boolean; setOpen: (value: boolean) => void; voice: number; consumeVoice: () => void; launch: (voice?: boolean) => void };
 const ConversationContext = createContext<ConversationState | null>(null);
 function useConversation() { const context = useContext(ConversationContext); if (!context) throw new Error("CoachConversationProvider requis"); return context; }
 export function CoachConversationProvider({ children }: { children: ReactNode }) {
@@ -29,20 +29,52 @@ export function CoachConversationProvider({ children }: { children: ReactNode })
     idRef.current = null; setMessages([]); setError("");
     if (status !== "authenticated" || !storageKey) return;
     let active = true;
-    const id = sessionStorage.getItem(storageKey);
+    const params=new URLSearchParams(window.location.search);
+    const returnedId=params.get("conversation");
+    const id = returnedId || sessionStorage.getItem(storageKey);
     if (id) {
-      idRef.current = id;
+      setBusy(true);
       void authenticatedFetch(`/api/coach/conversation?id=${encodeURIComponent(id)}`, { cache: "no-store" }).then(async response => {
         const body = await response.json();
         if (!response.ok) throw new Error(body.error);
-        if (active && idRef.current === id) setMessages(previous => {
+        if (active) {
+          idRef.current=id;sessionStorage.setItem(storageKey,id);
+          if(returnedId) {
+            if(params.get("notice"))setError(params.get("notice") || "Résultat de connexion à vérifier.");
+            params.delete("conversation");params.delete("connection");params.delete("notice");
+            window.history.replaceState(null,"",`${window.location.pathname}${params.size ? `?${params}` : ""}`);
+          }
+          setMessages(previous => {
           const history = (body.messages || []) as CoachMessage[];
           return [...history, ...previous.filter(message => !history.some(stored => stored.id === message.id))];
-        });
-      }).catch(reason => { if (active) setError(reason instanceof Error ? reason.message : "Historique indisponible."); });
+          });
+        }
+      }).catch(reason => { if (active) setError(reason instanceof Error ? reason.message : "Historique indisponible."); }).finally(()=>{if(active)setBusy(false);});
     }
     return () => { active = false; };
   }, [status, storageKey, authenticatedFetch]);
+
+  async function refreshHistory() {
+    const id=idRef.current,owner=userRef.current;
+    if(!id)return;
+    const response=await authenticatedFetch(`/api/coach/conversation?id=${encodeURIComponent(id)}`,{cache:"no-store"}),body=await response.json();
+    if(!response.ok)throw new Error(body.error || "Historique indisponible.");
+    if(owner===userRef.current && id===idRef.current)setMessages(body.messages || []);
+  }
+  async function connectionAction(id:string,action:"start"|"confirm"|"cancel") {
+    if(sending.current || !idRef.current)return;
+    sending.current=true;setBusy(true);setError("");
+    const owner=userRef.current;
+    try {
+      const response=await authenticatedFetch("/api/coach/connections",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id,action,conversationId:idRef.current})});
+      const body=await response.json();
+      if(owner!==userRef.current)return;
+      await refreshHistory();
+      if(!response.ok)throw new Error(body.error || "Connexion non confirmée.");
+      if(body.url)window.location.assign(body.url);
+    } catch(reason) {setError(reason instanceof Error ? reason.message : "Connexion interrompue. Aucun accès confirmé.");}
+    finally {sending.current=false;setBusy(false);}
+  }
 
   const createConversation = useCallback(async () => {
     const response = await authenticatedFetch("/api/coach/conversation", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "new" }) });
@@ -80,7 +112,7 @@ export function CoachConversationProvider({ children }: { children: ReactNode })
   }
   function launch(withVoice = false) { setOpen(true); if (withVoice) setVoice(current => current + 1); }
   const isCoachPage = pathname === "/tableau-de-bord" || pathname === "/tableau-de-bord/coach";
-  return <ConversationContext.Provider value={{ messages, busy, error, send, reset, open, setOpen, voice, consumeVoice: () => setVoice(0), launch }}>
+  return <ConversationContext.Provider value={{ messages, busy, error, send, connectionAction, reset, open, setOpen, voice, consumeVoice: () => setVoice(0), launch }}>
     {children}
     {open && !isCoachPage ? <div className="fixed inset-0 z-[80] flex justify-end bg-slate-950/50" onClick={() => setOpen(false)}><section role="dialog" aria-modal="true" aria-label="Coach IA" className="h-[100dvh] w-full max-w-xl bg-white shadow-2xl dark:bg-slate-950" onClick={event => event.stopPropagation()}><CoachConversation panel /></section></div> : null}
   </ConversationContext.Provider>;
@@ -118,7 +150,7 @@ export function CoachConversation({ panel = false }: { panel?: boolean }) {
   return <section ref={container} style={availableHeight ? { height: availableHeight } : undefined} className={`mx-auto flex w-full max-w-4xl flex-col ${panel ? "h-full" : "h-[calc(100dvh-10rem)]"}`} aria-label="Conversation avec le Coach IA" onKeyDown={event => { if (panel && event.key === "Escape") setOpen(false); }}>
     <header className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-200 px-3 py-4 dark:border-slate-800"><div className="flex items-center gap-3"><span className="rounded-2xl bg-blue-50 p-3 text-blue-700"><Bot /></span><div><h1 className="text-xl font-semibold">Coach IA</h1><p className="text-xs text-slate-500">Ton assistant immobilier</p></div></div><div className="flex gap-2"><button type="button" disabled={busy} onClick={() => void reset()} className="min-h-11 rounded-xl border border-slate-200 px-3 text-sm disabled:opacity-50" title="Nouvelle conversation, sans ancien contexte"><Plus className="inline h-4 w-4" /><span className="hidden sm:inline"> Nouvelle conversation</span></button>{panel ? <button type="button" onClick={() => setOpen(false)} className="min-h-11 min-w-11 rounded-xl border" aria-label="Fermer le Coach"><X className="mx-auto h-5 w-5" /></button> : <Link className="hidden rounded-xl px-3 py-3 text-sm text-blue-700 sm:block" href="/tableau-de-bord/accueil">Vue d’ensemble</Link>}</div></header>
     <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-6" role="log" aria-live="polite" aria-relevant="additions">
-      {!messages.length ? <div className="mx-auto max-w-xl py-8"><p className="text-2xl font-semibold">Bonjour{name ? ` ${name}` : ""}.</p><p className="mt-2 text-xl text-slate-500">Qu’est-ce qu’on fait aujourd’hui ?</p><div className="mt-8 grid gap-3 sm:grid-cols-2">{["☀️ Mon topo", "À quoi dois-je répondre ?", "Montre-moi ma journée.", "Trouve un client."].map(suggestion => <button type="button" disabled={busy} key={suggestion} onClick={() => { if (suggestion === "Trouve un client." || suggestion === "Ajoute une tâche.") setText(suggestion === "Trouve un client." ? "Trouve " : "Rappelle-moi de "); else void submit(suggestion); }} className="min-h-14 rounded-2xl border border-slate-200 p-4 text-left text-sm hover:border-blue-400 dark:border-slate-800">{suggestion}</button>)}</div></div> : messages.map((message, index) => <div key={message.id} className="mb-6 space-y-4"><div className="ml-auto max-w-[88%] whitespace-pre-wrap break-words rounded-2xl bg-blue-600 px-4 py-3 text-white">{message.text}</div>{message.reply ? <div className="max-w-full space-y-3"><p className="whitespace-pre-wrap break-words leading-relaxed">{message.reply.text}</p>{message.reply.cards.map(card => <div key={`${card.kind}-${card.id}`} className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 p-4 dark:border-slate-800"><div className="min-w-0"><Link href={card.href} download={card.download} prefetch={card.download ? false : undefined} onClick={event => { if (card.kind === "email" || card.kind === "event") { event.preventDefault(); void send(`Voir : ${card.title}`,undefined,undefined,undefined,card.id); } }} className="break-words font-semibold text-blue-700">{card.title}<ArrowUpRight className="ml-1 inline h-4 w-4" /></Link>{card.detail ? <p className="mt-1 text-sm text-slate-500">{card.detail}</p> : null}</div>{card.phone ? <a href={`tel:${card.phone.replace(/[^+\d]/g, "")}`} className="shrink-0 rounded-xl border px-3 py-3 text-sm">Appeler</a> : null}{card.kind === "task" ? <button disabled={busy} className="shrink-0 rounded-xl border px-3 py-3 text-sm" onClick={() => void submit(`Marque la tâche « ${card.title} » comme faite.`, undefined, card.id)}>Terminer</button> : null}</div>)}{message.reply.choices && index === messages.length - 1 ? <div className="grid gap-2">{message.reply.choices.map(choice => <button disabled={busy} type="button" key={choice.id} onClick={() => void submit(choice.label, choice.id)} className="min-h-12 rounded-xl border border-blue-300 px-4 py-3 text-left">{choice.label}</button>)}</div> : null}{message.reply.approval && !message.reply.draft ? <Approval approval={message.reply.approval} active={index === messages.length - 1} /> : null}{message.reply.draft ? <EmailDraft draft={message.reply.draft} approval={message.reply.approval} active={index === messages.length - 1} /> : null}</div> : null}</div>)}
+      {!messages.length ? <div className="mx-auto max-w-xl py-8"><p className="text-2xl font-semibold">Bonjour{name ? ` ${name}` : ""}.</p><p className="mt-2 text-xl text-slate-500">Qu’est-ce qu’on fait aujourd’hui ?</p><div className="mt-8 grid gap-3 sm:grid-cols-2">{["☀️ Mon topo", "À quoi dois-je répondre ?", "Montre-moi ma journée.", "Trouve un client."].map(suggestion => <button type="button" disabled={busy} key={suggestion} onClick={() => { if (suggestion === "Trouve un client." || suggestion === "Ajoute une tâche.") setText(suggestion === "Trouve un client." ? "Trouve " : "Rappelle-moi de "); else void submit(suggestion); }} className="min-h-14 rounded-2xl border border-slate-200 p-4 text-left text-sm hover:border-blue-400 dark:border-slate-800">{suggestion}</button>)}</div></div> : messages.map((message, index) => <div key={message.id} className="mb-6 space-y-4"><div className="ml-auto max-w-[88%] whitespace-pre-wrap break-words rounded-2xl bg-blue-600 px-4 py-3 text-white">{message.text}</div>{message.reply ? <div className="max-w-full space-y-3"><p className="whitespace-pre-wrap break-words leading-relaxed">{message.reply.text}</p>{message.reply.cards.map(card => card.kind === "connection" ? <ConnectionCard key={card.id} card={card} /> : <div key={`${card.kind}-${card.id}`} className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 p-4 dark:border-slate-800"><div className="min-w-0"><Link href={card.href} download={card.download} prefetch={card.download ? false : undefined} onClick={event => { if (card.kind === "email" || card.kind === "event") { event.preventDefault(); void send(`Voir : ${card.title}`,undefined,undefined,undefined,card.id); } }} className="break-words font-semibold text-blue-700">{card.title}<ArrowUpRight className="ml-1 inline h-4 w-4" /></Link>{card.detail ? <p className="mt-1 text-sm text-slate-500">{card.detail}</p> : null}</div>{card.phone ? <a href={`tel:${card.phone.replace(/[^+\d]/g, "")}`} className="shrink-0 rounded-xl border px-3 py-3 text-sm">Appeler</a> : null}{card.kind === "task" ? <button disabled={busy} className="shrink-0 rounded-xl border px-3 py-3 text-sm" onClick={() => void submit(`Marque la tâche « ${card.title} » comme faite.`, undefined, card.id)}>Terminer</button> : null}</div>)}{message.reply.choices && index === messages.length - 1 ? <div className="grid gap-2">{message.reply.choices.map(choice => <button disabled={busy} type="button" key={choice.id} onClick={() => void submit(choice.label, choice.id)} className="min-h-12 rounded-xl border border-blue-300 px-4 py-3 text-left">{choice.label}</button>)}</div> : null}{message.reply.approval && !message.reply.draft ? <Approval approval={message.reply.approval} active={index === messages.length - 1} /> : null}{message.reply.draft ? <EmailDraft draft={message.reply.draft} approval={message.reply.approval} active={index === messages.length - 1} /> : null}</div> : null}</div>)}
       {busy ? <p className="flex items-center gap-2 text-sm text-slate-500" role="status"><Loader2 className="h-4 w-4 animate-spin" />Le Coach travaille…</p> : null}<div ref={bottom} />
     </div>
     <footer className="shrink-0 border-t border-slate-200 bg-white px-3 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 dark:border-slate-800 dark:bg-slate-950">
@@ -127,6 +159,30 @@ export function CoachConversation({ panel = false }: { panel?: boolean }) {
       <div className="mt-3">{!busy ? <VoiceDictationButton key={`${voice}-${messages.length}`} autoStart={voice > 0} onTranscript={value => void submit(value)} onLiveTranscript={setText} label="Parler à IACourtier" large /> : null}</div>
     </footer>
   </section>;
+}
+function ConnectionCard({card}:{card:CoachCard}) {
+  const {busy,send,connectionAction}=useConversation();
+  const c=card.connection;
+  if(!c)return null;
+  const labels={offered:"Autorisation à confirmer",pending:"En attente du fournisseur",verifying:"Vérification serveur en cours",verified:"Connexion vérifiée",failed:"Échec — connexion non confirmée",cancelled:"Demande annulée",disconnected:"Déconnecté",connected:"Autorisation enregistrée",reconnect:"Reconnexion nécessaire",unavailable:"Intégration non disponible"};
+  const provider=c.provider === "google" ? "Google" : "Microsoft";
+  const reconnect=()=>send(`Reconnecte le compte ${provider} ${c.email}.`);
+  return <article aria-label={`Connexion ${card.title}`} className="space-y-3 rounded-2xl border border-slate-200 p-4 dark:border-slate-800">
+    <h3 className="break-words font-semibold">{card.title}</h3>
+    <p role="status" className="text-sm font-medium">{labels[c.status]}</p>
+    <p className="whitespace-pre-wrap text-sm text-slate-600 dark:text-slate-300">{card.detail}</p>
+    {c.verifiedAt ? <p className="text-xs text-slate-500">Vérification : {new Date(c.verifiedAt).toLocaleString("fr-CA")}</p> : null}
+    <div className="flex flex-wrap gap-2">
+      {c.provider === "centris" ? <Link href={card.href} className="min-h-11 rounded-xl border px-4 py-3 text-sm">Préparer un dossier dans le CRM</Link> : c.action === "inspect" ? <>
+        <button type="button" disabled={busy} onClick={()=>void reconnect()} className="min-h-11 rounded-xl border px-4">Reconnecter via {provider}</button>
+        {c.status !== "disconnected" ? <button type="button" disabled={busy} onClick={()=>void send(`Déconnecte le compte ${c.email}.`)} className="min-h-11 rounded-xl border px-4">Déconnecter ce compte</button> : null}
+      </> : ["offered","failed"].includes(c.status) ? <>
+        <button type="button" disabled={busy} onClick={()=>void connectionAction(card.id,c.action === "connect" ? "start" : "confirm")} className="min-h-11 rounded-xl bg-blue-600 px-4 text-white disabled:opacity-40">{c.action === "connect" ? `Autoriser via ${provider}` : "Confirmer la déconnexion et révocation"}</button>
+        <button type="button" disabled={busy} onClick={()=>void connectionAction(card.id,"cancel")} className="min-h-11 rounded-xl border px-4">Annuler</button>
+      </> : c.status === "pending" ? <button type="button" disabled={busy} onClick={()=>void connectionAction(card.id,"cancel")} className="min-h-11 rounded-xl border px-4">Annuler la demande</button> : ["disconnected","reconnect"].includes(c.status) && c.email ? <button type="button" disabled={busy} onClick={()=>void reconnect()} className="min-h-11 rounded-xl border px-4">Reconnecter via {provider}</button> : null}
+      <Link href="/tableau-de-bord/reglages/connexions" className="min-h-11 rounded-xl px-4 py-3 text-sm text-blue-700">Réglages → Connexions</Link>
+    </div>
+  </article>;
 }
 function EmailDraft({ draft, approval, active }: { draft: NonNullable<CoachReply["draft"]>; approval?: CoachReply["approval"]; active: boolean }) {
   const { send, busy } = useConversation();

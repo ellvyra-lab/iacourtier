@@ -8,6 +8,7 @@ import type { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { CoachActionRequest } from "@/lib/coach/conversation";
 import { connectedCoachHandlers, focusReference, handleConnectedAction, readConnectedEvent } from "@/lib/server/connections/coach-connected";
 import { CoachClarification, freezeCoachDate, isCoachCancellation, resumeCoachPending, type PendingCoachAction } from "@/lib/server/coach-pending";
+import { coachConnectionHandlers, connectionIntent } from "@/lib/server/connections/coach-connections";
 
 type Supabase = Awaited<ReturnType<typeof createSupabaseServerClient>>;
 type Pending = PendingCoachAction;
@@ -41,7 +42,9 @@ export async function processCoachMessage(db: Supabase, userId: string, input: {
     try {
       const previous = conversation.pending as Pending | null;
       const selected = previous?.options?.find(option => input.choiceId ? option.id === input.choiceId : foldCoach(option.label) === foldCoach(scope.text));
-      const resumed = previous ? resumeCoachPending(previous, scope.text) : null;
+      const connectionCommand = !input.action && !input.taskId && !input.referenceId && !input.choiceId ? connectionIntent(scope.text) : undefined;
+      if (connectionCommand) pending = previous;
+      const resumed = previous && !connectionCommand ? resumeCoachPending(previous, scope.text) : null;
       if (input.choiceId && !selected) throw new Error("Ce choix ne correspond pas à la question en cours.");
       if (isCoachCancellation(scope.text) && (previous || scope.context.current_action_id)) {
         if (scope.context.current_action_id) response = await handleConnectedAction(scope, { id: scope.context.current_action_id, mode: "cancel" });
@@ -75,13 +78,15 @@ export async function processCoachMessage(db: Supabase, userId: string, input: {
       } else {
         const { data: history, error: historyError } = await db.from("coach_messages").select("text,reply").eq("conversation_id", input.conversationId).eq("user_id", userId).eq("status", "completed").order("created_at", { ascending: false }).limit(8);
         if (historyError) throw historyError;
-        intent = await understandCoachMessage(scope.context, history || [], scope.text, scope.timeZone);
+        intent = connectionCommand || await understandCoachMessage(scope.context, history || [], scope.text, scope.timeZone);
       }
       if (intent) {
         intent = freezeCoachDate(intent, scope.timeZone);
-        if (!resumed && !selected && scope.context.current_action_id && intent.tool !== "send_email") await handleConnectedAction(scope, { id: scope.context.current_action_id, mode: "cancel" });
-        if (intent.tool !== "send_email") scope.context.current_action_id = null;
-        const handlers = { ...coachHandlers,...connectedCoachHandlers,...relationshipCoachHandlers };
+        const preservesPending = ["connect_service", "list_connections", "disconnect_account", "get_centris_status"].includes(intent.tool);
+        if (preservesPending) pending = previous;
+        if (!preservesPending && !resumed && !selected && scope.context.current_action_id && intent.tool !== "send_email") await handleConnectedAction(scope, { id: scope.context.current_action_id, mode: "cancel" });
+        if (!preservesPending && intent.tool !== "send_email") scope.context.current_action_id = null;
+        const handlers = { ...coachHandlers,...connectedCoachHandlers,...relationshipCoachHandlers,...coachConnectionHandlers };
         const handler = handlers[intent.tool];
         if (!handler) throw new Error("Outil indisponible.");
         console.info("[coach.tool.start]", { tool: intent.tool, hasClientReference: Boolean(intent.query), hasTitle: Boolean(intent.title), hasDate: Boolean(intent.dateExpression) });

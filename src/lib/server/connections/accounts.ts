@@ -75,14 +75,14 @@ export async function connectionAudit(userId: string, provider: string, action: 
   const { error } = await connectionStore().from("connection_audit").insert({ user_id: userId, provider, action, status, entity, source_message_id: source });
   if (error) throw new Error("Le journal des connexions est indisponible.");
 }
-export async function beginOAuth(userId: string, provider: Provider, services: ConnectionService[] = ["email","calendar"], accountId?: string) {
+export async function beginOAuth(userId: string, provider: Provider, services: ConnectionService[] = ["email","calendar"], accountId?: string, coachRequestId?: string) {
   const config = oauthConfig(provider); key();
   if (!Array.isArray(services) || !services.length || services.some(s => !["email","calendar","contacts"].includes(s))) throw new Error("Choisis au moins un service autorisé.");
   const target = accountId ? (await listAccounts(userId)).find(a => a.id === accountId && a.provider === provider) : undefined;
   if (accountId && !target) throw new Error("Compte inaccessible.");
   const requested = provider === "google" ? [...new Set(["openid","email",...services.flatMap(s => googleServiceScopes[s])])] : scopes.microsoft;
   const state = randomBytes(32).toString("base64url"), verifier = randomBytes(48).toString("base64url");
-  const { error } = await connectionStore().from("connection_oauth_states").insert({ id: createHash("sha256").update(state).digest("hex"), user_id: userId, provider, verifier, requested_scopes:requested.join(" "),account_id:accountId || null, expires_at: new Date(Date.now() + 600000).toISOString() });
+  const { error } = await connectionStore().from("connection_oauth_states").insert({ id: createHash("sha256").update(state).digest("hex"), user_id: userId, provider, verifier, requested_scopes:requested.join(" "),account_id:accountId || null,...(coachRequestId ? {coach_request_id:coachRequestId} : {}), expires_at: new Date(Date.now() + 600000).toISOString() });
   if (error) throw new Error("Impossible de préparer la connexion. Vérifie la migration.");
   const params = new URLSearchParams({ client_id: config.clientId!, redirect_uri: config.redirectUri, response_type: "code", scope: requested.join(" "), state, code_challenge: createHash("sha256").update(verifier).digest("base64url"), code_challenge_method: "S256", ...(provider === "google" ? { access_type: "offline", prompt: "consent select_account",...(target ? {login_hint:target.email} : {}) } : { response_mode: "query", prompt: "select_account" }) });
   return `${config.authorize}?${params}`;
@@ -104,7 +104,7 @@ export async function finishOAuth(userId: string, provider: Provider, state: str
   if (!/^[\w-]{40,100}$/.test(state) || !code || code.length > 4096) throw new Error("Retour OAuth invalide.");
   const db = connectionStore();
   // DELETE RETURNING consumes state atomically, bound to the signed-in owner.
-  const { data, error } = await db.from("connection_oauth_states").delete().eq("id", createHash("sha256").update(state).digest("hex")).eq("user_id", userId).eq("provider", provider).gt("expires_at", new Date().toISOString()).select("verifier,requested_scopes,account_id").single();
+  const { data, error } = await db.from("connection_oauth_states").delete().eq("id", createHash("sha256").update(state).digest("hex")).eq("user_id", userId).eq("provider", provider).gt("expires_at", new Date().toISOString()).select("verifier,requested_scopes,account_id,coach_request_id").single();
   if (error || !data) throw new Error("Cette connexion a expiré. Recommence depuis les réglages.");
   const token = await exchange(provider, { grant_type: "authorization_code", code, code_verifier: data.verifier, redirect_uri: oauthConfig(provider).redirectUri });
   const granted = String(token.scope || "").split(" ");
@@ -117,6 +117,7 @@ export async function finishOAuth(userId: string, provider: Provider, state: str
   if (!subject || !email.includes("@")) throw new Error("Le compte ne possède pas d’adresse courriel utilisable.");
   const old = await db.from("connected_accounts").select("*").eq("user_id", userId).eq("provider", provider).eq("provider_subject",subject).maybeSingle();
   if (old.error) throw new Error("Impossible de vérifier la connexion existante.");
+  if(data.coach_request_id && old.data && authorizedServices(provider,old.data.scopes).some(service=>!authorizedServices(provider,String(token.scope)).includes(service))) throw new Error("Ce compte existe déjà avec d’autres services. Reconnecte sa carte existante pour conserver ses permissions.");
   if (data.account_id && old.data?.id !== data.account_id) throw new Error("Le compte Google choisi ne correspond pas au compte à reconnecter. Aucun compte n’a été remplacé.");
   const previousScopes = String(old.data?.scopes || "").toLowerCase().split(/\s+/);
   const canReuseRefresh = required.every(scope => previousScopes.includes(scope.toLowerCase()) || previousScopes.includes(`https://graph.microsoft.com/${scope.toLowerCase()}`));
@@ -143,6 +144,7 @@ export async function finishOAuth(userId: string, provider: Provider, state: str
     }
   }
   await connectionAudit(userId, provider, "connect", "completed");
+  return saved.data.id as string;
 }
 export async function accountToken(userId: string, accountId: string) {
   const db = connectionStore();
