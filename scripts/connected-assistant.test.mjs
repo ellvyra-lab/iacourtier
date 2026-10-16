@@ -56,7 +56,7 @@ test('chiffrement: propriétaire et intégrité authentifiés',()=>{
 
 let db,model=[],fixtureProviders,sendCalls=0,eventCalls=0,sendError=false,conflicts=[];
 const load=loader({
-  '@/lib/openai':{getOpenAIErrorPayload:()=>null,generateWithOpenAI:async()=>{const next=model.shift();if(!next)throw Error('Unexpected model call');return typeof next==='string'?next:JSON.stringify(next);}},
+  '@/lib/openai':{getOpenAIErrorPayload:()=>null,generateWithOpenAI:async request=>{const next=model.shift();if(!next)throw Error('Unexpected model call');return request.systemPrompt.includes('IACOURTIER_EMAIL_V1') && typeof next==='string' ? JSON.stringify({message:next,question:''}) : typeof next==='string'?next:JSON.stringify(next);}},
   '@/lib/server/connections/accounts':{connectionStore:()=>db,listAccounts:async owner=>(db.tables.connected_accounts||[]).filter(a=>a.user_id===owner),connectionAudit:async()=>{}},
   '@/lib/server/connections/providers':{mailbox,connectedProviders:async(owner,id)=>{const account=db.tables.connected_accounts.find(a=>a.user_id===owner&&a.id===id);if(!account)throw Error('Compte inaccessible');return {...fixtureProviders,account};}},
   '@/app/api/clients/[id]/route':{PATCH:async()=>Response.json({})},'@/app/api/properties/[id]/route':{PATCH:async()=>Response.json({})},
@@ -68,7 +68,7 @@ const {localDay}=primitives('@/lib/connections/dates');
 function fixture(){
   const accountId=randomUUID(),conversationId=randomUUID(),refId=randomUUID(),clientId=randomUUID(),caseId=randomUUID();
   const email={id:'incoming',threadId:'thread',subject:'Certificat 91 Régent',from:'jacques@example.test',replyTo:'jacques@example.test',to:['me@example.test'],text:'Pouvez-vous envoyer le certificat ?',receivedAt:new Date().toISOString(),sent:false,unread:true,automated:false};
-  db=database({connected_accounts:[{id:accountId,user_id:'owner',provider:'google',email:'me@example.test',status:'connected',services:['email','calendar'],defaults:['email','calendar']}],clients:[{id:clientId,user_id:'owner',first_name:'Jacques',last_name:'Test',email:'jacques@example.test'}],client_cases:[{id:caseId,user_id:'owner',primary_client_id:clientId,title:'91 Régent',status:'active',case_type:'seller',pipeline_type:'seller',current_stage:'qualification'}],connected_references:[{id:refId,user_id:'owner',account_id:accountId,kind:'email',remote_id:'incoming',thread_id:'thread',client_id:clientId,case_id:caseId,property_id:null,match_status:'matched'}],coach_conversations:[{id:conversationId,user_id:'owner',context:{...emptyCoachContext(),current_account_id:accountId,current_email_id:refId,current_thread_id:'thread',current_client_id:clientId,current_case_id:caseId}}]});
+  db=database({profiles:[{id:'owner',professional_profile:{fullName:'Courtier Test',professionalTitle:'Courtier immobilier',agencyName:'Agence Test',email:'me@example.test'}}],connected_accounts:[{id:accountId,user_id:'owner',provider:'google',email:'me@example.test',status:'connected',services:['email','calendar'],defaults:['email','calendar']}],clients:[{id:clientId,user_id:'owner',first_name:'Jacques',last_name:'Test',email:'jacques@example.test'}],client_cases:[{id:caseId,user_id:'owner',primary_client_id:clientId,title:'91 Régent',status:'active',case_type:'seller',pipeline_type:'seller',current_stage:'qualification'}],connected_references:[{id:refId,user_id:'owner',account_id:accountId,kind:'email',remote_id:'incoming',thread_id:'thread',client_id:clientId,case_id:caseId,property_id:null,match_status:'matched'}],coach_conversations:[{id:conversationId,user_id:'owner',context:{...emptyCoachContext(),current_account_id:accountId,current_email_id:refId,current_thread_id:'thread',current_client_id:clientId,current_case_id:caseId}}]});
   model=[];sendCalls=0;eventCalls=0;sendError=false;conflicts=[];
   fixtureProviders={account:db.tables.connected_accounts[0],email:{getMessage:async()=>email,getThread:async()=>[email],listMessages:async()=>[email],searchMessages:async()=>[email],createDraft:async()=> 'draft',sendMessage:async()=>{sendCalls++;if(sendError)throw Error('Gmail a échoué');return {id:'sent',threadId:'thread',accepted:false};}},calendar:{checkAvailability:async()=>conflicts,createEvent:async i=>{eventCalls++;return {id:'event',...i,busy:true};},getEvent:async()=>({id:'event',title:'Visite',start:'2026-09-24T18:00:00Z',end:'2026-09-24T19:00:00Z',location:'91 Régent',busy:true}),listEvents:async()=>[]}};
   const scope={db,userId:'owner',conversationId,messageId:randomUUID(),text:'Réponds-lui que jeudi fonctionne.',context:structuredClone(db.tables.coach_conversations[0].context)};
@@ -111,7 +111,7 @@ test('même moteur: courriel → réponse → Envoie → tâche à midi',async()
   const send=async(text,intent)=>{if(intent)model.push(intent);return processCoachMessage(db,'owner',{conversationId,messageId:randomUUID(),text});};
   model.push({tool:'reply_email'},'Bonjour, je vous envoie le certificat aujourd’hui.');
   let r=await send('Réponds-lui que je l’envoie aujourd’hui.');assert.ok(r.approval);
-  r=await send('Envoie',{tool:'send_email'});assert.match(r.text,/envoyé/);
+  r=await send('Envoie');assert.match(r.text,/envoyé/);
   r=await send('Fais une tâche pour midi',{tool:'create_task',title:'Envoyer certificat de localisation',dateExpression:'aujourd’hui midi'});assert.equal(r.changed,true,r.text);
   const task=db.tables.tasks.find(t=>t.title==='Envoyer certificat de localisation');assert.equal(task.case_id,caseId);assert.ok(task.due_at);assert.equal(new Intl.DateTimeFormat('fr-CA',{timeZone:'America/Toronto',hour:'2-digit',hourCycle:'h23'}).format(new Date(task.due_at)), '12 h');
 });
@@ -217,4 +217,11 @@ test('055B Coach : recherches multicomptes avec provenance et défaut calendrier
  assert.equal(eventCalls,0);
  scope.text='Recherche les courriels de me@example.test';
  const firstOnly=await connected.connectedCoachHandlers.search_emails(scope,{tool:'search_emails',query:'certificat'});assert.equal(firstOnly.cards.length,1);
+});
+
+
+test('Gmail: changement de compte conserve les références RFC sans injecter un thread inaccessible',async()=>{
+ const calls=[];const p=new GoogleEmailProvider(async(path,init)=>{calls.push(JSON.parse(init.body));return {id:'draft'};});
+ await p.createDraft({to:'client@example.test',subject:'Re: dossier',text:'Bonjour',operationId:randomUUID(),replyTo:{threadId:'',internetMessageId:'<original@example.test>'}});
+ assert.equal(calls[0].message.threadId,undefined);assert.match(Buffer.from(calls[0].message.raw,'base64url').toString(),/In-Reply-To: <original@example.test>/);
 });

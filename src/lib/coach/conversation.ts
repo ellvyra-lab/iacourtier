@@ -12,12 +12,14 @@ export type CoachContext = {
   current_event_id?: string | null;
   current_slot?: { start: string; end: string } | null;
   current_action_id?: string | null;
+  professional_update?: { id:string; field:"phone"|"email"|"signature"|"fullName"|"professionalTitle"|"agencyName"; value:string; before:string } | null;
+  email_question?: { field?:"fullName"|"email"|"phone"|"professionalTitle"|"agencyName"; intent:CoachIntent; question:string } | null;
 };
 export const emptyCoachContext = (): CoachContext => ({ current_client_id: null, current_case_id: null, current_property_id: null, current_document_id: null, current_task_id: null, current_pipeline_stage: null });
 export type CoachConnectionCard = { provider: "google" | "microsoft" | "centris"; action: "connect" | "disconnect" | "inspect"; status: "offered" | "pending" | "verifying" | "verified" | "failed" | "cancelled" | "disconnected" | "connected" | "reconnect" | "unavailable"; services: ("email" | "calendar" | "contacts")[]; accountId?: string; email?: string; verifiedAt?: string | null };
 export type CoachCard = { kind: "client" | "case" | "property" | "task" | "document" | "email" | "event" | "connection"; id: string; title: string; detail?: string; href: string; phone?: string; download?: boolean; connection?: CoachConnectionCard };
-export type CoachActionRequest = { id: string; mode: "confirm" | "cancel" | "edit"; subject?: string; message?: string };
-export type CoachReply = { text: string; cards: CoachCard[]; context: CoachContext; choices?: { id: string; label: string }[]; navigate?: string; draft?: { recipient: string; subject: string; message: string }; approval?: { id: string; label: string; kind: string }; changed?: boolean };
+export type CoachActionRequest = { id: string; mode: "confirm" | "cancel" | "edit" | "profile_confirm" | "profile_cancel"; subject?: string; message?: string; recipient?:string; signature?:string; accountId?:string };
+export type CoachReply = { text: string; cards: CoachCard[]; context: CoachContext; choices?: { id: string; label: string }[]; navigate?: string; profileUpdate?: {id:string;field:string;value:string}; draft?: { recipient: string; subject: string; message: string; signature?:string; sender?:string; accountId?:string; accounts?:{id:string;email:string}[] }; approval?: { id: string; label: string; kind: string }; changed?: boolean };
 export type CoachMessage = { id: string; text: string; reply: CoachReply | null };
 export const coachTools = {
   list_connections: "Lister les comptes réellement enregistrés et leurs services autorisés.",
@@ -49,6 +51,10 @@ export const coachTools = {
   update_task: "Reporter/modifier une tâche résolue par taskQuery ou contexte, title/dateExpression.",
   complete_task: "Terminer une tâche résolue par taskQuery ou contexte.",
   update_pipeline_stage: "Changer l'étape via pipelineStage.",
+  revise_email: "Retoucher le brouillon courant sans changer destinataire, sujet ou faits. capture=instruction. Ne jamais envoyer.",
+  prepare_email: "Représenter la version finale du brouillon pour confirmation explicite. Ne jamais envoyer.",
+  switch_email_account: "Changer seulement le compte expéditeur du brouillon courant. query=courriel du compte si explicite. Demander lequel si ambigu.",
+  propose_professional_update: "Proposer l'enregistrement explicite d'un nouveau téléphone/courriel professionnel dans le profil, jamais dans la fiche client. values={field,value}. Confirmation séparée.",
   draft_email: "Préparer un brouillon sans envoyer: subject et instruction dans capture.",
   search_emails: "Chercher courriels (query=nom/adresse/mots exacts). Réponse de Jacques → search_emails,query=Jacques.",
   get_email: "Lire et résumer le courriel courant; query seulement si nouvelle recherche explicite.",

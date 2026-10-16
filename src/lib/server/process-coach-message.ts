@@ -1,3 +1,4 @@
+import { emailConversationIntent } from "@/lib/server/coach-professional-context";
 import { understandCoachMessage } from "@/lib/server/coach-intent";
 import { coachStorageError } from "@/lib/server/coach-storage-error";
 import { getOpenAIErrorPayload } from "@/lib/openai";
@@ -42,11 +43,13 @@ export async function processCoachMessage(db: Supabase, userId: string, input: {
     try {
       const previous = conversation.pending as Pending | null;
       const selected = previous?.options?.find(option => input.choiceId ? option.id === input.choiceId : foldCoach(option.label) === foldCoach(scope.text));
+      const emailCommand = !input.action && !input.taskId && !input.referenceId && !input.choiceId ? emailConversationIntent(scope.text,scope.context) : undefined;
       const connectionCommand = !input.action && !input.taskId && !input.referenceId && !input.choiceId ? connectionIntent(scope.text) : undefined;
       if (connectionCommand) pending = previous;
-      const resumed = previous && !connectionCommand ? resumeCoachPending(previous, scope.text) : null;
+      const resumed = previous && !connectionCommand && !emailCommand ? resumeCoachPending(previous, scope.text) : null;
       if (input.choiceId && !selected) throw new Error("Ce choix ne correspond pas à la question en cours.");
-      if (isCoachCancellation(scope.text) && (previous || scope.context.current_action_id)) {
+      if (isCoachCancellation(scope.text) && (previous || scope.context.current_action_id || scope.context.email_question || scope.context.professional_update)) {
+        scope.context.email_question=null;scope.context.professional_update=null;
         if (scope.context.current_action_id) response = await handleConnectedAction(scope, { id: scope.context.current_action_id, mode: "cancel" });
         else response = { text: "Action en attente annulée. Aucun événement créé.", cards: [], context: scope.context };
       } else if (resumed && previous && !input.action && !input.taskId && !input.referenceId) {
@@ -78,12 +81,14 @@ export async function processCoachMessage(db: Supabase, userId: string, input: {
       } else {
         const { data: history, error: historyError } = await db.from("coach_messages").select("text,reply").eq("conversation_id", input.conversationId).eq("user_id", userId).eq("status", "completed").order("created_at", { ascending: false }).limit(8);
         if (historyError) throw historyError;
-        intent = connectionCommand || await understandCoachMessage(scope.context, history || [], scope.text, scope.timeZone);
+        intent = connectionCommand || emailCommand || await understandCoachMessage(scope.context, history || [], scope.text, scope.timeZone);
       }
       if (intent) {
         intent = freezeCoachDate(intent, scope.timeZone);
-        const preservesPending = ["connect_service", "list_connections", "disconnect_account", "get_centris_status"].includes(intent.tool);
+        if(["draft_email","reply_email","revise_email","switch_email_account","prepare_email"].includes(intent.tool))scope.context.professional_update=null;
+        const preservesPending = ["connect_service", "list_connections", "disconnect_account", "get_centris_status", "revise_email", "prepare_email", "switch_email_account", "propose_professional_update", "draft_email", "reply_email"].includes(intent.tool);
         if (preservesPending) pending = previous;
+        else if(intent.tool !== "send_email") {scope.context.email_question=null;scope.context.professional_update=null;}
         if (!preservesPending && !resumed && !selected && scope.context.current_action_id && intent.tool !== "send_email") await handleConnectedAction(scope, { id: scope.context.current_action_id, mode: "cancel" });
         if (!preservesPending && intent.tool !== "send_email") scope.context.current_action_id = null;
         const handlers = { ...coachHandlers,...connectedCoachHandlers,...relationshipCoachHandlers,...coachConnectionHandlers };
