@@ -60,6 +60,8 @@ Le premier texte réel contenait une formule de suivi non demandée malgré la c
 
 L'isolation entre deux courtiers est testée automatiquement, mais aucune seconde session réelle de courtier distinct n'a été utilisée. Deux comptes Google du même courtier ne constituent pas ce test. Aucun envoi réel à un client n'a été déclenché; le retour de Gmail après envoi est couvert par les régressions fournisseur, pas par un envoi de production pendant cette vérification. Les brouillons préparatoires sont persistés dans IACourtier; la création du brouillon natif Gmail intervient lors de l'exécution finale confirmée.
 
+Après ces essais, la signature originale a également été relue dans le dernier brouillon. L'annulation de cet aperçu a été demandée, puis l'application a affiché « Impossible de confirmer ta session »; le bouton Réessayer n'a pas rétabli la session. Le résultat serveur de cette dernière annulation n'est donc pas confirmé. La session doit être rétablie pour poursuivre les vérifications réelles. Aucun message de succès d'envoi n'a été affiché.
+
 Aucune modification de clés, de données CRM, de migration ou de configuration bêta. Le flux main existant déploie la production; aucune bêta n'a été publiée.
 
 ## URL et essai simple
