@@ -6,6 +6,7 @@ import { processQuickCapture } from "@/lib/server/process-quick-capture";
 import { recalculateCaseOperatingState, transitionCentralCaseStage } from "@/lib/server/crm-operating-system";
 import { changeBuyerCriteria, changeCrmTask } from "@/lib/server/coach-crm-actions";
 import { dateWindow, displayDate, localDay } from "@/lib/connections/dates";
+import { readProfessionalProfile, clarifyIdentity, normalizeIdentityIntent, explicitlyListsClients } from "@/lib/server/coach-professional-context";
 import type { createSupabaseServerClient } from "@/lib/supabase/server";
 
 type Supabase = Awaited<ReturnType<typeof createSupabaseServerClient>>;
@@ -40,12 +41,13 @@ function choose(s: CoachScope, kind: string, rows: Row[]): Row | null {
 function card(kind: CoachCard["kind"], row: Row, detail?: string): CoachCard { return { kind, id: row.id, title: label(row), detail, href: coachLink(kind, row.id, typeof row.case_id === "string" ? row.case_id : null), ...(kind === "client" && typeof row.phone === "string" && /^[+\d\s().-]+$/.test(row.phone) ? { phone: row.phone } : {}) }; }
 function reply(s: CoachScope, text: string, cards: CoachCard[] = []): CoachReply { return { text, cards, context: s.context }; }
 export async function resolveCoachClient(s: CoachScope, query?: string) {
+  if(!query?.trim() && !s.context.current_client_id)return null;
   const rows = await coachRows(s, "clients");
   const terms = foldCoach(query).split(" ").filter(Boolean);
   const candidates = terms.length ? rows.filter(row => terms.every(term => foldCoach(`${row.first_name} ${row.last_name}`).split(" ").some(word => word.startsWith(term)))) : rows.filter(row => row.id === s.context.current_client_id);
   if (terms.length && (candidates.length !== 1 || candidates[0].id !== s.context.current_client_id)) s.context = emptyCoachContext();
   const found = choose(s, "client", candidates);
-  if (found) s.context = selectCoachClient(s.context, found.id);
+  if (found) s.context = {...selectCoachClient(s.context, found.id),current_identity_target:"client"};
   return found;
 }
 async function requireClient(s: CoachScope, i: CoachIntent) {
@@ -145,9 +147,25 @@ async function createCapture(s: CoachScope, i: CoachIntent) {
 
 type Handler = (s: CoachScope, i: CoachIntent) => Promise<CoachReply>;
 export const coachHandlers: Partial<Record<CoachTool, Handler>> = {
+  get_professional_profile:readProfessionalProfile,
+  clarify_identity:clarifyIdentity,
+  count_clients:async(s,i)=>{
+    let query=s.db.from("clients").select("id",{count:"exact",head:true}).eq("user_id",s.userId);
+    if(i.role!==undefined){if(!["buyer","seller"].includes(i.role))throw new Error("Type de client invalide.");query=query.contains("roles",[i.role]);}
+    const {count,error}=await query;
+    if(error || typeof count!=="number" || !Number.isSafeInteger(count) || count<0)throw new Error("Le nombre de clients n’a pas pu être vérifié. Aucun total n’est inventé.");
+    s.context.current_identity_target="crm";
+    return reply(s,`Tu as ${count} client(s)${i.role==="buyer" ? " acheteur(s)" : i.role==="seller" ? " vendeur(s)" : ""} dans ton CRM.`);
+  },
   search_clients: async (s, i) => {
+    const resolved=normalizeIdentityIntent(i,s.text,s.context);
+    if(resolved.tool==="get_professional_profile")return readProfessionalProfile(s,resolved);
+    if(resolved.tool==="clarify_identity")return clarifyIdentity(s,resolved);
+    if(resolved.tool==="count_clients")return coachHandlers.count_clients!(s,resolved);
     if (i.query) { const client = await requireClient(s, i); return reply(s, `J’ai trouvé ${label(client)}.`, [card("client", client)]); }
+    if(!explicitlyListsClients(s.text))return reply(s,"Quel client veux-tu rechercher ? Précise son nom, ou demande explicitement la liste de tes clients.");
     const clients = (await coachRows(s, "clients")).filter(row => !i.role || (Array.isArray(row.roles) && row.roles.includes(i.role)));
+    s.context.current_identity_target="crm";
     return reply(s, `${clients.length} client(s) trouvé(s).${clients.length > 30 ? " Voici les 30 premiers. Précise un nom pour affiner." : ""}`, clients.slice(0, 30).map(row => card("client", row)));
   },
   search_crm: async (s, i) => {
@@ -161,7 +179,7 @@ export const coachHandlers: Partial<Record<CoachTool, Handler>> = {
     }
     return reply(s, `${rows.length} dossier(s) trouvé(s).`, rows.slice(0, 30).map(row => card("case", row)));
   },
-  get_client: async (s, i) => { const row = await requireClient(s, i); return { ...reply(s, `${label(row)}\n${row.phone || "Téléphone non renseigné"}\n${row.email || "Courriel non renseigné"}`, [card("client", row)]), ...(i.open ? { navigate: coachLink("client", row.id) } : {}) }; },
+  get_client: async (s, i) => { const resolved=normalizeIdentityIntent(i,s.text,s.context);if(resolved.tool==="get_professional_profile")return readProfessionalProfile(s,resolved);if(resolved.tool==="clarify_identity")return clarifyIdentity(s,resolved);const row = await requireClient(s, i); return { ...reply(s, `${label(row)}\n${row.phone || "Téléphone non renseigné"}\n${row.email || "Courriel non renseigné"}`, [card("client", row)]), ...(i.open ? { navigate: coachLink("client", row.id) } : {}) }; },
   get_case: getCase, get_pipeline: getCase, get_missing_information: getCase, get_next_best_action: getCase,
   get_property: async (s, i) => { const c = await requireCase(s, i); if (!c.property_id) return reply(s, "Aucune propriété n’est reliée à ce dossier."); const row = (await coachRows(s, "properties", "id", String(c.property_id)))[0]; if (!row) throw new Error("Propriété inaccessible."); return reply(s, `${row.address || "Adresse non renseignée"}\n${row.city || ""}`, [card("property", row)]); },
   update_property: async (s, i) => {

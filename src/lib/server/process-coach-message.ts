@@ -86,8 +86,8 @@ export async function processCoachMessage(db: Supabase, userId: string, input: {
       if (intent) {
         intent = freezeCoachDate(intent, scope.timeZone);
         if(["draft_email","reply_email","revise_email","switch_email_account","prepare_email"].includes(intent.tool))scope.context.professional_update=null;
-        const preservesPending = ["connect_service", "list_connections", "disconnect_account", "get_centris_status", "revise_email", "prepare_email", "switch_email_account", "propose_professional_update", "draft_email", "reply_email"].includes(intent.tool);
-        if (preservesPending) pending = previous;
+        const preservesPending = ["get_professional_profile", "count_clients", "clarify_identity", "connect_service", "list_connections", "disconnect_account", "get_centris_status", "revise_email", "prepare_email", "switch_email_account", "propose_professional_update", "draft_email", "reply_email"].includes(intent.tool);
+        if (preservesPending) pending = previous?.kind === "identity" && intent.tool === "get_professional_profile" ? null : previous;
         else if(intent.tool !== "send_email") {scope.context.email_question=null;scope.context.professional_update=null;}
         if (!preservesPending && !resumed && !selected && scope.context.current_action_id && intent.tool !== "send_email") await handleConnectedAction(scope, { id: scope.context.current_action_id, mode: "cancel" });
         if (!preservesPending && intent.tool !== "send_email") scope.context.current_action_id = null;

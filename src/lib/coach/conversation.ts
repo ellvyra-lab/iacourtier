@@ -1,4 +1,5 @@
 export type CoachContext = {
+  current_identity_target?: "broker" | "client" | "crm";
   current_client_id: string | null;
   current_relationship_client_ids?: string[] | null;
   current_case_id: string | null;
@@ -22,6 +23,9 @@ export type CoachActionRequest = { id: string; mode: "confirm" | "cancel" | "edi
 export type CoachReply = { text: string; cards: CoachCard[]; context: CoachContext; choices?: { id: string; label: string }[]; navigate?: string; profileUpdate?: {id:string;field:string;value:string}; draft?: { recipient: string; subject: string; message: string; signature?:string; sender?:string; accountId?:string; accounts?:{id:string;email:string}[] }; approval?: { id: string; label: string; kind: string }; changed?: boolean };
 export type CoachMessage = { id: string; text: string; reply: CoachReply | null };
 export const coachTools = {
+  get_professional_profile: "Lire le profil du courtier connecté (jamais un client). values.fields peut contenir fullName,professionalTitle,agencyName,phone,mobile,email,signature. Aucune écriture.",
+  count_clients: "Compter exactement les clients du courtier, sans lister de fiches. role=buyer|seller si explicitement demandé.",
+  clarify_identity: "Demander si les coordonnées concernent le courtier ou un client, sans rechercher dans le CRM.",
   list_connections: "Lister les comptes réellement enregistrés et leurs services autorisés.",
   connect_service: "Proposer OAuth officiel. values.provider=google|microsoft, values.service=email|calendar|contacts. query=courriel explicite du compte à reconnecter. Aucun mot de passe dans le chat.",
   disconnect_account: "Préparer une déconnexion/révocation avec confirmation, query=courriel explicite ou compte courant. Jamais déconnecter tous les comptes.",
@@ -31,7 +35,7 @@ export const coachTools = {
   add_related_to_case: "Ajouter le contact relié au dossier du client query. caseType=buyer|seller si précisé. values.relationshipType=spouse par défaut. Jamais tous les dossiers.",
   get_couple_cases: "Dossiers auxquels les deux personnes participent réellement, pour query ou le couple courant. Ne pas inclure les dossiers individuels.",
   draft_relationship_email: "Préparer un courriel pour query ET sa conjointe/son conjoint, en utilisant les deux adresses CRM. capture=instruction. Confirmation d’envoi requise.",
-  search_clients: "Chercher une personne, ou les acheteurs/vendeurs (role).",
+  search_clients: "Chercher un client nommé dans query. Lister seulement sur demande explicite (filter=list, role éventuel). Jamais pour les coordonnées du courtier ni un comptage.",
   search_crm: "Chercher un dossier par son adresse ou titre, ou les dossiers urgents/manquants (filter).",
   get_client: "Lire ou ouvrir le client courant.",
   get_case: "Lire ou ouvrir le dossier courant, éventuellement buyer/seller dans caseType.",

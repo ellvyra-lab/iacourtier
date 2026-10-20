@@ -3,7 +3,7 @@ import { foldCoach } from "@/lib/coach/conversation";
 import { dateWindow, localDay } from "@/lib/connections/dates";
 
 export class CoachClarification extends Error {
-  constructor(public kind: "time" | "title" | "calendar_connection", message: string) { super(message); this.name = "CoachClarification"; }
+  constructor(public kind: "time" | "title" | "calendar_connection" | "identity", message: string) { super(message); this.name = "CoachClarification"; }
 }
 export type PendingCoachAction = {
   intent: CoachIntent; text: string; kind: string;
@@ -27,10 +27,15 @@ export function freezeCoachDate(intent: CoachIntent, timeZone = "America/Toronto
 export function resumeCoachPending(pending: PendingCoachAction, text: string): CoachIntent | null {
   const folded = foldCoach(text);
   if (pending.mode !== "clarification") return null;
+  if(pending.kind==="identity") {
+    if(/^(moi|mon profil|mon profil professionnel|le courtier|mes coordonnees)$/.test(folded))return {tool:"get_professional_profile",values:pending.intent.values};
+    if(/^(le client|ce client|ses coordonnees)$/.test(folded))return {tool:"get_client"};
+    return null;
+  }
   const titleCorrection = text.match(/^(?:titre|change le titre|renomme)(?:\s*[:=]\s*|\s+en\s+)(.+)$/i);
   if (titleCorrection) return { ...pending.intent, title: titleCorrection[1].trim().slice(0, 240) };
   if (pending.kind === "calendar_connection" && /^(connecte|c est connecte|reessaie|reprends|continue)$/.test(folded)) return pending.intent;
-  if (pending.kind === "title" && !/^(trouve|montre|cherche|annule)/.test(folded)) return { ...pending.intent, title: text.trim().slice(0, 240) };
+  if (pending.kind === "title" && !/^(trouve|montre|cherche|annule|quel|qui|combien)/.test(folded)) return { ...pending.intent, title: text.trim().slice(0, 240) };
   // Only date/time answers resume the action. A different request goes through
   // the ordinary router and clears this pending action.
   const correction = text.replace(/^(?:non[, ]*)?(?:plut[oô]t\s+|finalement\s+|à\s+)?/i, "").trim();

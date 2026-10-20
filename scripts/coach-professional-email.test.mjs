@@ -75,3 +75,16 @@ test('057 : préparation et retouches explicites ne passent pas dans un nouveau 
 test('057 : aucune coordonnée inventée par le routeur n’est enregistrable',async()=>{
  const f=setup();await assert.rejects(connectedCoachHandlers.propose_professional_update(f.scope(),{tool:'propose_professional_update',values:{field:'phone',value:'514-555-0109'}}),/Précise|explicitement/);assert.equal(db.tables.profiles[0].professional_profile.phone,'514-555-0101');
 });
+
+test('059 : Martin est le destinataire; la signature et le téléphone viennent du courtier, même après une consultation du profil',async()=>{
+ const f=setup();Object.assign(db.tables.clients[0],{first_name:'Martin',last_name:'Roy',email:'martin@example.test'});
+ db.tables.profiles[0].professional_profile.signature='Signature du courtier';
+ models.push({tool:'draft_email',query:'Martin'},{message:'Bonjour Martin, voici le suivi demandé.',question:''});
+ let r=await f.message('Prépare un courriel à Martin avec ma signature');
+ assert.equal(r.draft.recipient,'martin@example.test');assert.equal(r.draft.signature,'Signature du courtier');assert.equal(r.draft.sender,'broker@example.test');assert.equal(sends,0);
+ const initial=structuredClone(r.draft),action=r.approval.id;
+ models.push({tool:'search_clients'});const profile=await f.message('Quelle est mon agence?');assert.match(profile.text,/Agence Fictive/);assert.equal(profile.context.current_action_id,action);
+ const before=requests.length;r=await f.message('Ajoute mon téléphone à ce courriel');
+ assert.equal(requests.length,before);assert.equal(r.draft.recipient,initial.recipient);assert.equal(r.draft.subject,initial.subject);assert.equal(r.draft.message,initial.message);assert.match(r.draft.signature,/514-555-0101/);assert.equal(sends,0);
+ assert.equal(db.tables.clients[0].phone,undefined);assert.equal(db.tables.profiles[0].professional_profile.signature,'Signature du courtier');
+});
