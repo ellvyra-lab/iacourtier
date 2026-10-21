@@ -28,6 +28,16 @@ Un deuxième appel réseau réel via le nouveau provider Meta a reçu la même r
 
 Validation locale du 6 octobre : test automatisé réussi. `npm run build` a été exécuté mais reste bloqué par Windows (`EPERM`, création de répertoires `.next`), y compris après mise à l'écart du cache et dans une copie de compilation séparée. Ne pas considérer ce build comme validé.
 
-Abstraction serveur minimale : `src/lib/server/ai-provider.ts`. `getAIProvider()` utilise le wrapper OpenAI existant ; `getAIProvider('meta')` sélectionne explicitement Muse. Les deux exposent `generate({ systemPrompt, userPrompt, maxTokens?, temperature?, jsonMode? })`. Pas de bascule automatique ni de connexion au Coach. Les erreurs Meta sont remontées avec leur statut, les secrets sont masqués. Les variables Meta sont lues uniquement lors de la sélection Meta ; OpenAI fonctionne sans elles.
+Abstraction serveur minimale : `src/lib/server/ai-provider.ts`. `getAIProvider()` utilise le wrapper OpenAI existant ; `getAIProvider('meta')` sélectionne explicitement Muse. Les deux exposent `generate({ systemPrompt, userPrompt, maxTokens?, temperature?, jsonMode? })`. Les erreurs Meta sont remontées avec leur statut, les secrets sont masqués. Les variables Meta sont lues uniquement lors de la sélection Meta ; OpenAI fonctionne sans elles.
+
+## Activation dans le Coach — 21 octobre 2026
+
+Un seul appel réel autorisé avec `scripts/test-muse.mjs` a réussi : HTTP 200, modèle demandé et retourné `muse-spark-1.3`, réponse `Muse connecté à IACourtier`. Aucun autre appel réel IA n'est utilisé pour la recette de cette livraison.
+
+Le Coach existant propose désormais OpenAI (défaut) et Meta (choix explicite si configuré côté serveur). Le choix est conservé dans `coach_conversations.context.ai_provider`, sans migration, sous contrôle du propriétaire et du verrou existant. Une nouvelle conversation repart sur OpenAI. Le contexte asynchrone du serveur transmet ce choix au routage, aux courriels et aux captures CRM, sans variable globale partagée entre requêtes. Aucune bascule automatique n'est effectuée. Une erreur ne produit pas de fausse réponse.
+
+Les trois variables Meta sont déclarées uniquement dans Production du projet `iacourtier-44za`; la clé existante est un Secret, sans préfixe public. Aucun changement des variables OpenAI ni de la bêta. Le contrôle de configuration n'est pas une preuve d'appel au modèle : le script valide le transport réel, les tests synthétiques valident le routage JSON et les fonctionnalités, et une conversation Meta complète en production reste à tester avec un budget IA distinct.
+
+La sélection d'un fournisseur n'envoie aucun message au modèle. Envoyer une demande ensuite peut consommer des crédits; un topo peut faire plusieurs appels. Les réponses conversationnelles passent par l'outil `answer` du Coach existant, avec historique et contexte limités au courtier/conversation, sans exécution d'action.
 
 Documentation officielle : https://dev.meta.ai/docs/cookbook/quickstart-chat-completions

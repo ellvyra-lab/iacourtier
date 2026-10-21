@@ -2,6 +2,7 @@ import { emailConversationIntent } from "@/lib/server/coach-professional-context
 import { understandCoachMessage } from "@/lib/server/coach-intent";
 import { coachStorageError } from "@/lib/server/coach-storage-error";
 import { getOpenAIErrorPayload } from "@/lib/openai";
+import { metaConfigured, metaPublicError, parseAIProvider, withCoachAI, type AIProviderId } from "@/lib/server/ai-provider";
 import { relationshipCoachHandlers } from "@/lib/server/coach-relationships";
 import { emptyCoachContext, foldCoach, parseCoachIntent, type CoachContext, type CoachIntent, type CoachReply } from "@/lib/coach/conversation";
 import { CoachChoice, coachHandlers, coachRows, type CoachScope } from "@/lib/server/coach-tools";
@@ -14,6 +15,21 @@ import { coachConnectionHandlers, connectionIntent } from "@/lib/server/connecti
 type Supabase = Awaited<ReturnType<typeof createSupabaseServerClient>>;
 type Pending = PendingCoachAction;
 export function coachUuid(value: unknown): value is string { return typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value); }
+export async function selectCoachProvider(db: Supabase, userId: string, conversationId: string, value: unknown): Promise<AIProviderId> {
+  if (!coachUuid(conversationId)) throw new Error("Conversation invalide.");
+  const provider = parseAIProvider(value);
+  if (provider === "meta" && !metaConfigured()) throw new Error("Meta n’est pas configuré sur ce serveur. OpenAI reste disponible.");
+  const token = crypto.randomUUID();
+  const lock = await db.rpc("claim_coach_lock", { lock_token: token });
+  if (lock.error || !lock.data) throw new Error("Une demande est en cours. Attends sa réponse.");
+  try {
+    const { data, error } = await db.from("coach_conversations").select("context").eq("id", conversationId).eq("user_id", userId).single();
+    if (error || !data) throw new Error("Conversation inaccessible.");
+    const saved = await db.from("coach_conversations").update({ context: { ...data.context, ai_provider: provider } }).eq("id", conversationId).eq("user_id", userId);
+    if (saved.error) throw new Error("Choix du fournisseur non enregistré.");
+    return provider;
+  } finally { await db.rpc("release_coach_lock", { lock_token: token }); }
+}
 export async function processCoachMessage(db: Supabase, userId: string, input: { timeZone?: string; conversationId: string; messageId: string; text: string; choiceId?: string; taskId?: string; action?: CoachActionRequest; referenceId?: string }) {
   if (!coachUuid(input.conversationId) || !coachUuid(input.messageId) || typeof input.text !== "string" || !input.text.trim() || input.text.length > 12000 || (input.choiceId !== undefined && !coachUuid(input.choiceId))) throw new Error("Message invalide.");
   const lock = crypto.randomUUID();
@@ -31,6 +47,8 @@ export async function processCoachMessage(db: Supabase, userId: string, input: {
     const { data: conversation, error } = await db.from("coach_conversations").select("*").eq("id", input.conversationId).eq("user_id", userId).single();
     if (error || !conversation) throw new Error("Conversation introuvable. Ouvre une nouvelle conversation.");
     const context = { ...emptyCoachContext(), ...conversation.context } as CoachContext;
+    const aiProvider = parseAIProvider(context.ai_provider);
+    return await withCoachAI(aiProvider, async () => {
     const timeZone = input.timeZone || "America/Toronto";
     try { new Intl.DateTimeFormat("en", { timeZone }).format(); } catch { throw new Error("Fuseau horaire invalide."); }
     const scope: CoachScope = { timeZone, db, userId, conversationId: input.conversationId, messageId: input.messageId, text: input.text.trim(), context };
@@ -86,7 +104,7 @@ export async function processCoachMessage(db: Supabase, userId: string, input: {
       if (intent) {
         intent = freezeCoachDate(intent, scope.timeZone);
         if(["draft_email","reply_email","revise_email","switch_email_account","prepare_email"].includes(intent.tool))scope.context.professional_update=null;
-        const preservesPending = ["get_professional_profile", "count_clients", "clarify_identity", "connect_service", "list_connections", "disconnect_account", "get_centris_status", "revise_email", "prepare_email", "switch_email_account", "propose_professional_update", "draft_email", "reply_email"].includes(intent.tool);
+        const preservesPending = ["answer", "get_professional_profile", "count_clients", "clarify_identity", "connect_service", "list_connections", "disconnect_account", "get_centris_status", "revise_email", "prepare_email", "switch_email_account", "propose_professional_update", "draft_email", "reply_email"].includes(intent.tool);
         if (preservesPending) pending = previous?.kind === "identity" && intent.tool === "get_professional_profile" ? null : previous;
         else if(intent.tool !== "send_email") {scope.context.email_question=null;scope.context.professional_update=null;}
         if (!preservesPending && !resumed && !selected && scope.context.current_action_id && intent.tool !== "send_email") await handleConnectedAction(scope, { id: scope.context.current_action_id, mode: "cancel" });
@@ -112,17 +130,19 @@ export async function processCoachMessage(db: Supabase, userId: string, input: {
         const aiError = getOpenAIErrorPayload(error);
         const code = error && typeof error === "object" && "code" in error ? String(error.code).slice(0, 32) : undefined;
         console.error("[coach.tool.failed]", { tool: intent?.tool || "intent", code, type: error instanceof Error ? error.name : "database" });
-        response = { text: aiError ? aiError.body.error : error instanceof SyntaxError ? "Je n’ai pas compris quelle tâche créer. Peux-tu reformuler ?" : error instanceof Error ? error.message : intent?.tool === "create_task" ? "Je n’ai pas réussi à enregistrer la tâche. Réessaie dans quelques instants." : "Je n’ai pas réussi à terminer cette action. Réessaie dans quelques instants.", cards: [], context: scope.context };
+        response = { text: metaPublicError(error) || (aiError ? aiError.body.error : error instanceof SyntaxError ? "Je n’ai pas compris la réponse du modèle. Peux-tu reformuler ?" : error instanceof Error ? error.message : "Je n’ai pas réussi à terminer cette action. Réessaie dans quelques instants."), cards: [], context: scope.context };
         if (intent?.tool === "create_calendar_event" && !input.action) {
           pending = { intent, text: scope.text, kind: "calendar_connection", options: [], mode: "clarification", selections: scope.selections, timeZone: scope.timeZone };
           response.text += " La demande est conservée. Corrige le problème puis écris « reprends ». Aucun événement n’a été créé par cette demande.";
         }
       }
     }
+    scope.context.ai_provider = aiProvider;
     const { error: contextError } = await db.from("coach_conversations").update({ context: scope.context, pending, updated_at: new Date().toISOString() }).eq("id", input.conversationId).eq("user_id", userId);
     if (contextError) throw new Error("Le traitement a terminé, mais le contexte n’a pas pu être sauvegardé. Vérifie le CRM avant de recommencer.");
     const { error: replyError } = await db.from("coach_messages").update({ reply: response, status: failed ? "failed" : "completed" }).eq("id", input.messageId).eq("user_id", userId);
     if (replyError) throw new Error("La réponse n’a pas pu être enregistrée. Vérifie le CRM avant de recommencer.");
     return response;
+    });
   } finally { await db.rpc("release_coach_lock", { lock_token: lock }); }
 }

@@ -1,4 +1,5 @@
 export type CoachContext = {
+  ai_provider?: "openai" | "meta";
   current_identity_target?: "broker" | "client" | "crm";
   current_client_id: string | null;
   current_relationship_client_ids?: string[] | null;
@@ -23,6 +24,7 @@ export type CoachActionRequest = { id: string; mode: "confirm" | "cancel" | "edi
 export type CoachReply = { text: string; cards: CoachCard[]; context: CoachContext; choices?: { id: string; label: string }[]; navigate?: string; profileUpdate?: {id:string;field:string;value:string}; draft?: { recipient: string; subject: string; message: string; signature?:string; sender?:string; accountId?:string; accounts?:{id:string;email:string}[] }; approval?: { id: string; label: string; kind: string }; changed?: boolean };
 export type CoachMessage = { id: string; text: string; reply: CoachReply | null };
 export const coachTools = {
+  answer: "Répondre naturellement à une salutation, une question générale, une explication ou un suivi conversationnel sans action. Utiliser les outils spécialisés pour lire le profil, rechercher le CRM ou agir. Ne jamais annoncer une action exécutée par ce seul outil.",
   get_professional_profile: "Lire le profil du courtier connecté (jamais un client). values.fields peut contenir fullName,professionalTitle,agencyName,phone,mobile,email,signature. Aucune écriture.",
   count_clients: "Compter exactement les clients du courtier, sans lister de fiches. role=buyer|seller si explicitement demandé.",
   clarify_identity: "Demander si les coordonnées concernent le courtier ou un client, sans rechercher dans le CRM.",

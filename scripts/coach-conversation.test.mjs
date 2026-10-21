@@ -3,11 +3,14 @@ import test from "node:test";
 import { readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import ts from "typescript";
+import { createRequire } from "node:module";
+const nativeRequire = createRequire(import.meta.url);
 
 let db;
 let modelReplies = [];
 const cache = new Map();
 function load(name) {
+  if (name.startsWith("node:")) return nativeRequire(name);
   if (name === "server-only") return {};
   if (name === "@/lib/server/connections/coach-connections") return { coachConnectionHandlers:{}, connectionIntent:()=>undefined };
   if (name === "@/lib/server/connections/coach-connected") return { connectedCoachHandlers:{} };

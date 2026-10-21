@@ -1,4 +1,4 @@
-import { generateWithOpenAI } from "@/lib/openai";
+import { generateWithCoachAI as generateWithOpenAI } from "@/lib/server/ai-provider";
 import { coachTools, foldCoach, parseCoachIntent, type CoachContext, type CoachReply } from "@/lib/coach/conversation";
 import { normalizeIdentityIntent } from "@/lib/server/coach-professional-context";
 import { normalizeEmailListIntent } from "@/lib/connections/email-list-request";

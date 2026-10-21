@@ -10,7 +10,7 @@ const read = (path) => readFileSync(join(root, path), "utf8");
 const phoneSource = read("src/lib/crm-phone.ts");
 const phoneCompiled = ts.transpileModule(phoneSource, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } }).outputText;
 const phone = await import(`data:text/javascript;base64,${Buffer.from(phoneCompiled).toString("base64")}`);
-const inboxSource = read("src/lib/server/ai-inbox.ts").replace('import { generateWithOpenAI } from "@/lib/openai";', 'const generateWithOpenAI = async () => { throw new Error("offline"); };');
+const inboxSource = read("src/lib/server/ai-inbox.ts").replace('import { generateWithCoachAI as generateWithOpenAI, currentCoachProvider } from "@/lib/server/ai-provider";', 'const currentCoachProvider = () => "openai"; const generateWithOpenAI = async () => { throw new Error("offline"); };');
 const inboxCompiled = ts.transpileModule(inboxSource, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } }).outputText;
 const inbox = await import(`data:text/javascript;base64,${Buffer.from(inboxCompiled).toString("base64")}`);
 

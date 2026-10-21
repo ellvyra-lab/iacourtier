@@ -73,6 +73,10 @@ export async function professionalContext(s:CoachScope,failureMessage="Ton profi
   for(const field of ["fullName","professionalTitle","agencyName","phone","mobile","email","signature"] as const)if(typeof profile[field] !== "string")profile[field]="";
   return {profile,row:data,signature:buildProfessionalSignature(profile)};
 }
+export function explicitEmailSubject(text: string): string | undefined {
+  const match = text.match(/\b(?:objet|sujet)\s*(?::|=)?\s*[«“"]([^»”"\r\n]{1,200})[»”"]/i);
+  return match?.[1].trim() || undefined;
+}
 export function emailConversationIntent(text:string,context:CoachContext):CoachIntent|undefined {
   const value=foldCoach(text), hasDraft=!!context.current_action_id;
   const coordinate=text.match(/^(?:mon|ma|voici mon|voici ma|enregistre mon|enregistre ma)\s+(téléphone|telephone|courriel|email|numéro|numero|signature|nom|titre|agence)\s*(?:est|:|=)\s*([\s\S]+)$/i);

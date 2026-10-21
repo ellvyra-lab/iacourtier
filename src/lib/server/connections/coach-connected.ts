@@ -1,6 +1,6 @@
 import "server-only";
-import { professionalContext } from "@/lib/server/coach-professional-context";
-import { generateWithOpenAI } from "@/lib/openai";
+import { professionalContext, explicitEmailSubject } from "@/lib/server/coach-professional-context";
+import { generateWithCoachAI as generateWithOpenAI } from "@/lib/server/ai-provider";
 import { coachLink, emptyCoachContext, foldCoach, type CoachActionRequest, type CoachCard, type CoachIntent, type CoachReply } from "@/lib/coach/conversation";
 import type { CalendarEvent, ConnectionService, Email, EventInput, OutgoingEmail } from "@/lib/connections/types";
 import { dateWindow, displayDate, localDay } from "@/lib/connections/dates";
@@ -260,6 +260,7 @@ async function composeEmail(s:CoachScope,i:CoachIntent,input:{recipient:string;s
   return {message:result.message.trim()};
 }
 async function draftEmail(s: CoachScope,i: CoachIntent) {
+  i = { ...i, subject: explicitEmailSubject(s.text) || i.subject };
   const {profile,signature}=await professionalContext(s);
   for(const [field,label] of [["fullName","Quel nom professionnel veux-tu utiliser ?"],["professionalTitle","Quel titre professionnel veux-tu utiliser ?"],["agencyName","Quelle agence veux-tu indiquer ?"],["email","Quel courriel professionnel veux-tu indiquer ?"]] as const)if(!profile[field]?.trim())return askEmail(s,i,label,field);
   let recipient:string,subject:string,original:Email|undefined,r:Reference|undefined,thread:Email[]|undefined;

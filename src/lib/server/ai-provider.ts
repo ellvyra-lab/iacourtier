@@ -1,10 +1,35 @@
 import "server-only";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { generateWithOpenAI } from "@/lib/openai";
 
 export type AIRequest = Parameters<typeof generateWithOpenAI>[0];
 export interface AIProvider {
   readonly id: "openai" | "meta";
   generate(request: AIRequest): Promise<string>;
+}
+export type AIProviderId = AIProvider["id"];
+const coachProvider = new AsyncLocalStorage<AIProviderId>();
+export function currentCoachProvider(): AIProviderId { return coachProvider.getStore() || "openai"; }
+export function parseAIProvider(value: unknown): AIProviderId {
+  if (value === undefined || value === null || value === "openai") return "openai";
+  if (value === "meta") return "meta";
+  throw new Error("Fournisseur IA invalide.");
+}
+export function metaConfigured() {
+  return Boolean(process.env.MODEL_API_KEY?.trim() && process.env.META_MODEL?.trim() && process.env.META_BASE_URL?.trim() === "https://api.meta.ai/v1");
+}
+export function withCoachAI<T>(provider: AIProviderId, work: () => Promise<T>): Promise<T> {
+  return coachProvider.run(provider, work);
+}
+// Request-scoped selection: simultaneous brokers never share a global provider.
+export function generateWithCoachAI(request: AIRequest): Promise<string> {
+  return getAIProvider(currentCoachProvider()).generate(request);
+}
+export function metaPublicError(error: unknown): string | null {
+  if (!(error instanceof MetaProviderError)) return null;
+  if (error.status === 402) return "Meta refuse l’appel pour un problème de facturation (HTTP 402). Aucune réponse générée ni bascule vers OpenAI.";
+  if (error.status === 401 || error.status === 403) return `Meta refuse l’autorisation (HTTP ${error.status}). Vérifie la configuration serveur.`;
+  return `L’appel Meta a échoué${error.status ? ` (HTTP ${error.status})` : ""}. Aucune réponse générée ni bascule vers OpenAI.`;
 }
 
 export class MetaProviderError extends Error {

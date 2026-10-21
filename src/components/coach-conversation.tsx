@@ -8,13 +8,15 @@ import { useDashboardAuth } from "@/components/auth/DashboardAuthProvider";
 import { VoiceDictationButton } from "@/components/voice-dictation-button";
 import type { CoachActionRequest, CoachCard, CoachMessage, CoachReply } from "@/lib/coach/conversation";
 
-type ConversationState = { messages: CoachMessage[]; busy: boolean; error: string; send: (text: string, choiceId?: string, taskId?: string, action?: CoachActionRequest, referenceId?: string) => Promise<void>; connectionAction: (id:string,action:"start"|"confirm"|"cancel")=>Promise<void>; reset: () => Promise<void>; open: boolean; setOpen: (value: boolean) => void; voice: number; consumeVoice: () => void; launch: (voice?: boolean) => void };
+type ConversationState = { provider: "openai" | "meta"; metaAvailable: boolean; selectProvider: (value: "openai" | "meta") => Promise<void>; messages: CoachMessage[]; busy: boolean; error: string; send: (text: string, choiceId?: string, taskId?: string, action?: CoachActionRequest, referenceId?: string) => Promise<void>; connectionAction: (id:string,action:"start"|"confirm"|"cancel")=>Promise<void>; reset: () => Promise<void>; open: boolean; setOpen: (value: boolean) => void; voice: number; consumeVoice: () => void; launch: (voice?: boolean) => void };
 const ConversationContext = createContext<ConversationState | null>(null);
 function useConversation() { const context = useContext(ConversationContext); if (!context) throw new Error("CoachConversationProvider requis"); return context; }
 export function CoachConversationProvider({ children }: { children: ReactNode }) {
   const { user, status, authenticatedFetch } = useDashboardAuth();
   const router = useRouter();
   const pathname = usePathname();
+  const [provider, setProvider] = useState<"openai" | "meta">("openai");
+  const [metaAvailable, setMetaAvailable] = useState(false);
   const [messages, setMessages] = useState<CoachMessage[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -26,7 +28,7 @@ export function CoachConversationProvider({ children }: { children: ReactNode })
   const storageKey = user ? `iacourtier.coach.${user.id}` : null;
 
   useEffect(() => {
-    idRef.current = null; setMessages([]); setError("");
+    idRef.current = null; setMessages([]); setError(""); setProvider("openai"); setMetaAvailable(false);
     if (status !== "authenticated" || !storageKey) return;
     let active = true;
     const params=new URLSearchParams(window.location.search);
@@ -39,6 +41,7 @@ export function CoachConversationProvider({ children }: { children: ReactNode })
         if (!response.ok) throw new Error(body.error);
         if (active) {
           idRef.current=id;sessionStorage.setItem(storageKey,id);
+          setProvider(body.provider === "meta" ? "meta" : "openai"); setMetaAvailable(body.metaAvailable === true);
           if(returnedId) {
             if(params.get("notice"))setError(params.get("notice") || "Résultat de connexion à vérifier.");
             params.delete("conversation");params.delete("connection");params.delete("notice");
@@ -50,6 +53,12 @@ export function CoachConversationProvider({ children }: { children: ReactNode })
           });
         }
       }).catch(reason => { if (active) setError(reason instanceof Error ? reason.message : "Historique indisponible."); }).finally(()=>{if(active)setBusy(false);});
+    } else {
+      void authenticatedFetch("/api/coach/conversation", { cache: "no-store" }).then(async response => {
+        if (!response.ok) return;
+        const body = await response.json();
+        if (active) setMetaAvailable(body.metaAvailable === true);
+      }).catch(() => { /* Sending still reports any authenticated server error. */ });
     }
     return () => { active = false; };
   }, [status, storageKey, authenticatedFetch]);
@@ -81,9 +90,24 @@ export function CoachConversationProvider({ children }: { children: ReactNode })
     const body = await response.json();
     if (!response.ok) throw new Error(body.error);
     idRef.current = body.id;
+    setProvider("openai"); setMetaAvailable(body.metaAvailable === true);
     if (storageKey) sessionStorage.setItem(storageKey, body.id);
     return body.id as string;
   }, [authenticatedFetch, storageKey]);
+  async function selectProvider(value: "openai" | "meta") {
+    if (sending.current) return;
+    sending.current = true; setBusy(true); setError("");
+    const owner = userRef.current;
+    try {
+      const conversationId = idRef.current || await createConversation();
+      const response = await authenticatedFetch("/api/coach/conversation", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "select_provider", conversationId, provider: value }) });
+      const body = await response.json();
+      if (owner !== userRef.current) return;
+      if (!response.ok) throw new Error(body.error || "Choix non enregistré.");
+      setProvider(body.provider); setMetaAvailable(body.metaAvailable === true);
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "Choix non enregistré."); }
+    finally { sending.current = false; setBusy(false); }
+  }
   async function reset() {
     if (sending.current) return;
     sending.current = true; setBusy(true); setError("");
@@ -112,7 +136,7 @@ export function CoachConversationProvider({ children }: { children: ReactNode })
   }
   function launch(withVoice = false) { setOpen(true); if (withVoice) setVoice(current => current + 1); }
   const isCoachPage = pathname === "/tableau-de-bord" || pathname === "/tableau-de-bord/coach";
-  return <ConversationContext.Provider value={{ messages, busy, error, send, connectionAction, reset, open, setOpen, voice, consumeVoice: () => setVoice(0), launch }}>
+  return <ConversationContext.Provider value={{ provider, metaAvailable, selectProvider, messages, busy, error, send, connectionAction, reset, open, setOpen, voice, consumeVoice: () => setVoice(0), launch }}>
     {children}
     {open && !isCoachPage ? <div className="fixed inset-0 z-[80] flex justify-end bg-slate-950/50" onClick={() => setOpen(false)}><section role="dialog" aria-modal="true" aria-label="Coach IA" className="h-[100dvh] w-full max-w-xl bg-white shadow-2xl dark:bg-slate-950" onClick={event => event.stopPropagation()}><CoachConversation panel /></section></div> : null}
   </ConversationContext.Provider>;
@@ -129,7 +153,7 @@ export function CoachLauncher({ floating = false }: { floating?: boolean }) {
 }
 
 export function CoachConversation({ panel = false }: { panel?: boolean }) {
-  const { messages, busy, error, send, reset, setOpen, voice, consumeVoice } = useConversation();
+  const { provider, metaAvailable, selectProvider, messages, busy, error, send, reset, setOpen, voice, consumeVoice } = useConversation();
   const { user } = useDashboardAuth();
   const [text, setText] = useState("");
   const [availableHeight, setAvailableHeight] = useState<number>();
@@ -149,6 +173,14 @@ export function CoachConversation({ panel = false }: { panel?: boolean }) {
   async function submit(value = text, choiceId?: string, taskId?: string) { if (!value.trim() || busy) return; setText(""); consumeVoice(); await send(value, choiceId, taskId); }
   return <section ref={container} style={availableHeight ? { height: availableHeight } : undefined} className={`mx-auto flex w-full max-w-4xl flex-col ${panel ? "h-full" : "h-[calc(100dvh-10rem)]"}`} aria-label="Conversation avec le Coach IA" onKeyDown={event => { if (panel && event.key === "Escape") setOpen(false); }}>
     <header className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-200 px-3 py-4 dark:border-slate-800"><div className="flex items-center gap-3"><span className="rounded-2xl bg-blue-50 p-3 text-blue-700"><Bot /></span><div><h1 className="text-xl font-semibold">Coach IA</h1><p className="text-xs text-slate-500">Ton assistant immobilier</p></div></div><div className="flex gap-2"><button type="button" disabled={busy} onClick={() => void reset()} className="min-h-11 rounded-xl border border-slate-200 px-3 text-sm disabled:opacity-50" title="Nouvelle conversation, sans ancien contexte"><Plus className="inline h-4 w-4" /><span className="hidden sm:inline"> Nouvelle conversation</span></button>{panel ? <button type="button" onClick={() => setOpen(false)} className="min-h-11 min-w-11 rounded-xl border" aria-label="Fermer le Coach"><X className="mx-auto h-5 w-5" /></button> : <Link className="hidden rounded-xl px-3 py-3 text-sm text-blue-700 sm:block" href="/tableau-de-bord/accueil">Vue d’ensemble</Link>}</div></header>
+    <div className="flex shrink-0 flex-wrap items-center gap-2 border-b px-3 py-2 text-sm">
+      <label htmlFor={panel ? "coach-panel-provider" : "coach-provider"}>Fournisseur IA</label>
+      <select id={panel ? "coach-panel-provider" : "coach-provider"} value={provider} disabled={busy} onChange={event => void selectProvider(event.target.value as "openai" | "meta")} className="min-h-11 rounded-lg border bg-transparent px-2">
+        <option value="openai">OpenAI (par défaut)</option>
+        <option value="meta" disabled={!metaAvailable}>Meta · Muse Spark{metaAvailable ? "" : " — non configuré"}</option>
+      </select>
+      <span className="text-xs text-slate-500">Choix enregistré pour cette conversation. Aucune bascule automatique.</span>
+    </div>
     <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-6" role="log" aria-live="polite" aria-relevant="additions">
       {!messages.length ? <div className="mx-auto max-w-xl py-8"><p className="text-2xl font-semibold">Bonjour{name ? ` ${name}` : ""}.</p><p className="mt-2 text-xl text-slate-500">Qu’est-ce qu’on fait aujourd’hui ?</p><div className="mt-8 grid gap-3 sm:grid-cols-2">{["☀️ Mon topo", "À quoi dois-je répondre ?", "Montre-moi ma journée.", "Trouve un client."].map(suggestion => <button type="button" disabled={busy} key={suggestion} onClick={() => { if (suggestion === "Trouve un client." || suggestion === "Ajoute une tâche.") setText(suggestion === "Trouve un client." ? "Trouve " : "Rappelle-moi de "); else void submit(suggestion); }} className="min-h-14 rounded-2xl border border-slate-200 p-4 text-left text-sm hover:border-blue-400 dark:border-slate-800">{suggestion}</button>)}</div></div> : messages.map((message, index) => <div key={message.id} className="mb-6 space-y-4"><div className="ml-auto max-w-[88%] whitespace-pre-wrap break-words rounded-2xl bg-blue-600 px-4 py-3 text-white">{message.text}</div>{message.reply ? <div className="max-w-full space-y-3"><p className="whitespace-pre-wrap break-words leading-relaxed">{message.reply.text}</p>{message.reply.cards.map(card => card.kind === "connection" ? <ConnectionCard key={card.id} card={card} /> : <div key={`${card.kind}-${card.id}`} className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 p-4 dark:border-slate-800"><div className="min-w-0"><Link href={card.href} download={card.download} prefetch={card.download ? false : undefined} onClick={event => { if (card.kind === "email" || card.kind === "event") { event.preventDefault(); void send(`Voir : ${card.title}`,undefined,undefined,undefined,card.id); } }} className="break-words font-semibold text-blue-700">{card.title}<ArrowUpRight className="ml-1 inline h-4 w-4" /></Link>{card.detail ? <p className="mt-1 text-sm text-slate-500">{card.detail}</p> : null}</div>{card.phone ? <a href={`tel:${card.phone.replace(/[^+\d]/g, "")}`} className="shrink-0 rounded-xl border px-3 py-3 text-sm">Appeler</a> : null}{card.kind === "task" ? <button disabled={busy} className="shrink-0 rounded-xl border px-3 py-3 text-sm" onClick={() => void submit(`Marque la tâche « ${card.title} » comme faite.`, undefined, card.id)}>Terminer</button> : null}</div>)}{message.reply.choices && index === messages.length - 1 ? <div className="grid gap-2">{message.reply.choices.map(choice => <button disabled={busy} type="button" key={choice.id} onClick={() => void submit(choice.label, choice.id)} className="min-h-12 rounded-xl border border-blue-300 px-4 py-3 text-left">{choice.label}</button>)}</div> : null}{message.reply.approval && !message.reply.draft ? <Approval approval={message.reply.approval} active={index === messages.length - 1} /> : null}{message.reply.profileUpdate ? <ProfileUpdate proposal={message.reply.profileUpdate} active={index === messages.length - 1} /> : null}{message.reply.draft ? <EmailDraft draft={message.reply.draft} approval={message.reply.approval} active={index === messages.length - 1} /> : null}</div> : null}</div>)}
       {busy ? <p className="flex items-center gap-2 text-sm text-slate-500" role="status"><Loader2 className="h-4 w-4 animate-spin" />Le Coach travaille…</p> : null}<div ref={bottom} />

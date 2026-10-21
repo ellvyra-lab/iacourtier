@@ -1,4 +1,4 @@
-import { generateWithOpenAI } from "@/lib/openai";
+import { generateWithCoachAI as generateWithOpenAI, currentCoachProvider } from "@/lib/server/ai-provider";
 
 export type InboxActionType = "call" | "sms" | "email" | "document" | "research" | "appointment" | "follow_up" | "marketing" | "other";
 export type InboxCaseType = "buyer" | "seller" | "buy_sell" | "prospect" | "renewal" | "post_transaction" | "other";
@@ -33,12 +33,13 @@ const SYSTEM_PROMPT = `Tu analyses une capture rapide vocale ou texte pour un CR
 Schéma: {"person":{"firstName":"","lastName":"","email":"","phone":""},"caseType":"buyer|seller|buy_sell|prospect|renewal|post_transaction|other","project":"","property":{"address":"","city":"","propertyType":""},"buyerCriteria":{"sectors":[],"budgetMax":null,"bedroomsMin":null,"garageRequired":null,"mustHaves":[],"preferences":[]},"financing":{"prequalified":null,"amount":null},"request":"","urgency":"critical|high|normal|low","tasks":[{"title":"","description":"","dueAt":"ISO-8601 avec heure explicite ou null","dueOn":"YYYY-MM-DD si seule la journée est connue ou null","dueLabel":"expression originale ou null","actionType":"call|sms|email|document|research|appointment|follow_up|marketing|other","priorityScore":0}],"missingInformation":[""],"summary":"","correction":false,"confidence":0.0}.
 Ne crée aucune donnée. N'invente jamais un nom, un téléphone, une adresse ou une heure. Chaque action demandée devient une tâche distincte, mais limite-toi aux actions utiles. Utilise l'heure de Toronto et le français du Québec. Une phrase commençant par « correction » corrige la donnée récente.`;
 
-export async function analyzeInboxText(rawText: string, now = new Date()): Promise<{ analysis: InboxAnalysis; engine: "openai" | "deterministic" }> {
+export async function analyzeInboxText(rawText: string, now = new Date()): Promise<{ analysis: InboxAnalysis; engine: "openai" | "meta" | "deterministic" }> {
   const text = rawText.trim().slice(0, 12_000);
   try {
     const result = await generateWithOpenAI({ systemPrompt: SYSTEM_PROMPT, userPrompt: `Date et heure actuelles: ${now.toISOString()}\nCapture: ${text}`, maxTokens: 1800, temperature: 0.1 });
-    return { analysis: normalizeAnalysis(JSON.parse(stripJsonFence(result)), text, now), engine: "openai" };
-  } catch {
+    return { analysis: normalizeAnalysis(JSON.parse(stripJsonFence(result)), text, now), engine: currentCoachProvider() };
+  } catch (error) {
+    if (currentCoachProvider() === "meta") throw error;
     return { analysis: deterministicAnalysis(text, now), engine: "deterministic" };
   }
 }
