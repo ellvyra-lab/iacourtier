@@ -12,6 +12,7 @@ import { ownedContacts } from "@/lib/server/client-relationships";
 import { recordConnectionEvent, prepareReplyFollowup } from "./business-events";
 import { centrisProvider } from "./centris";
 import { CoachClarification } from "@/lib/server/coach-pending";
+import { emailListRequest, normalizeEmailListIntent } from "@/lib/connections/email-list-request";
 
 type Reference = { id: string; account_id: string; remote_id: string; thread_id: string | null; kind: "email" | "event"; client_id: string | null; case_id: string | null; property_id: string | null; match_status: string };
 type Payload = { signatureSource?:"profile"|"custom"; signature?:string; original?:Email; originalAccountId?:string; originalRecipient?:string; thread?:Email[]; recipientEdited?:boolean; timeZone?: string; title?: string; subject?: string; message?: string; recipient?: string; recipients?:string[]; recipientClientIds?:string[]; sender?: string; remoteId?: string; threadId?: string; start?: string; end?: string; location?: string; version?: string; referenceId?: string; clientId?: string | null; caseId?: string | null; propertyId?: string | null; values?: Record<string,unknown> };
@@ -418,19 +419,33 @@ async function readEmail(s: CoachScope,i: CoachIntent) {
   return reply;
 }
 async function searchEmails(s: CoachScope,i: CoachIntent) {
+  i=normalizeEmailListIntent(i,s.text);
+  const request=emailListRequest(s.text,i);
   const all = (await listAccounts(s.userId)).filter(a => a.services?.includes("email"));
   const named = all.filter(a => s.text.toLowerCase().includes(a.email.toLowerCase()));
   const accounts = named.length ? named : all, cards: CoachCard[] = [], warnings: string[] = [];
   const received: {email:Email;ref:Reference}[] = [];
+  const candidates:{email:Email;accountId:string;accountEmail:string}[]=[],seen=new Set<string>();
   if (!accounts.length) return response(s,"Connecte un compte pour chercher tes courriels.",[connectionsCard]);
   for (const a of accounts) {
     try {
-      const p = await providers(s,a.id), emails = await p.email.searchMessages({ query:i.query,unread:i.tool === "get_unread_emails",since:i.tool === "get_recent_emails" ? new Date(Date.now()-86400000).toISOString() : undefined,limit:20 });
-      for (const e of emails) { const ref = await linkEmail(s,e,a.id); const card = emailCard(e,ref); cards.push({...card,detail:`${a.email} · ${card.detail}`}); if (!e.sent) received.push({email:e,ref}); }
+      const p = await providers(s,a.id), emails = await p.email.searchMessages({ query:i.query,unread:i.tool === "get_unread_emails",since:i.tool === "get_recent_emails" && !request.latest ? new Date(Date.now()-86400000).toISOString() : undefined,limit:request.limit,latest:request.latest,receivedOnly:request.receivedOnly });
+      for (const e of emails) {
+        if(request.receivedOnly && e.sent)continue;
+        if(!Number.isFinite(Date.parse(e.receivedAt))){warnings.push(`${a.email} : un courriel sans date exploitable a été exclu du classement.`);continue;}
+        const key=`${a.id}:${e.id}`;if(seen.has(key))continue;seen.add(key);
+        candidates.push({email:e,accountId:a.id,accountEmail:a.email});
+      }
     } catch(error) { warnings.push(`${a.email} : ${error instanceof Error ? error.message : "Indisponible"}`); }
   }
+  candidates.sort((a,b)=>Date.parse(b.email.receivedAt)-Date.parse(a.email.receivedAt) || `${a.accountId}:${a.email.id}`.localeCompare(`${b.accountId}:${b.email.id}`));
+  for(const {email:e,accountId,accountEmail} of candidates.slice(0,request.limit)) {
+    const ref=await linkEmail(s,e,accountId),card=emailCard(e,ref);
+    cards.push({...card,detail:`${accountEmail} · ${card.detail}`});
+    if(!e.sent)received.push({email:e,ref});
+  }
   if (cards.length === 1) await focusReference(s,cards[0].id);
-  if (i.query && /repondu|dernier/.test(foldCoach(s.text)) && received.length) {
+  if (request.requested===undefined && i.query && /repondu|dernier/.test(foldCoach(s.text)) && received.length) {
     const senders = new Set(received.map(e => { try { return mailbox(e.email.from).toLowerCase(); } catch { return e.email.from; } }));
     if (senders.size === 1) {
       received.sort((a,b) => b.email.receivedAt.localeCompare(a.email.receivedAt));
@@ -439,7 +454,9 @@ async function searchEmails(s: CoachScope,i: CoachIntent) {
       return { ...read,text:`Dernier courriel reçu trouvé : ${displayDate(received[0].email.receivedAt)}.\n${read.text}\n${warnings.join("\n")}` };
     }
   }
-  return response(s,`${cards.length} courriel(s) trouvé(s), recherche limitée aux 30 derniers jours (20 résultats maximum par compte). Sélectionne un courriel pour poursuivre.\n${warnings.join("\n")}`,cards);
+  const period=request.latest ? "classés du plus récent au plus ancien" : i.tool==="get_recent_emails" ? "recherche limitée aux dernières 24 heures" : "recherche limitée aux 30 derniers jours";
+  const bound=request.requested && request.requested>30 ? ` Demande de ${request.requested} : affichage limité à 30 courriels au total.` : ` Limite de ${request.limit} au total, tous comptes sélectionnés confondus.`;
+  return response(s,`${cards.length} courriel(s)${request.receivedOnly ? " reçu(s)" : ""} affiché(s), ${period}.${bound}${warnings.length ? " Résultat partiel : certains courriels ou comptes n’ont pas pu être vérifiés." : ""} Sélectionne un courriel pour poursuivre.\n${warnings.join("\n")}`,cards);
 }
 async function calendar(s: CoachScope,i: CoachIntent) {
   if (i.tool === "create_calendar_event") {

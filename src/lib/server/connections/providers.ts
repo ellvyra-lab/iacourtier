@@ -32,7 +32,7 @@ export class GoogleEmailProvider implements EmailProvider {
   constructor(private api: RequestApi) {}
   async listMessages(input: EmailQuery) { return this.searchMessages(input); }
   async searchMessages(input: EmailQuery) {
-    const query = [input.query ? `"${input.query.replace(/["\\]/g, " ").slice(0, 200)}"` : "", input.since ? `after:${Math.floor(new Date(input.since).getTime() / 1000)}` : "newer_than:30d", input.unread ? "is:unread" : "", "-in:spam -in:trash -in:drafts"].filter(Boolean).join(" ");
+    const query = [input.query ? `"${input.query.replace(/["\\]/g, " ").slice(0, 200)}"` : "", input.since ? `after:${Math.floor(new Date(input.since).getTime() / 1000)}` : input.latest ? "" : "newer_than:30d", input.unread ? "is:unread" : "", input.receivedOnly ? "-in:sent" : "", "-in:spam -in:trash -in:drafts"].filter(Boolean).join(" ");
     const data = await this.api(`/gmail/v1/users/me/messages?${new URLSearchParams({ q: query, maxResults: String(limit(input.limit)) })}`);
     return Promise.all((data.messages || []).map((m: Json) => this.getMessage(m.id)));
   }
@@ -61,12 +61,12 @@ export class MicrosoftEmailProvider implements EmailProvider {
   private normalize(m: Json) { const result = microsoftEmail(m); result.sent = result.from.toLowerCase() === this.ownAddress.toLowerCase(); return result; }
   async listMessages(q: EmailQuery) { return this.searchMessages(q); }
   async searchMessages(input: EmailQuery) {
-    const since = new Date(input.since || Date.now() - 30 * 86400000).toISOString();
+    const since = new Date(input.since || (input.latest ? 0 : Date.now() - 30 * 86400000)).toISOString();
     const params = new URLSearchParams({ "$top": String(limit(input.limit)), "$select": msSelect });
     if (input.query) params.set("$search", `"${input.query.replace(/["\\]/g, " ").slice(0, 200)} received>=${since.slice(0,10)}"`);
-    else { params.set("$filter", `receivedDateTime ge ${since} and isDraft eq false${input.unread ? " and isRead eq false" : ""}`); params.set("$orderby", "receivedDateTime desc"); }
+    else { params.set("$filter", `receivedDateTime ge ${since} and isDraft eq false${input.unread ? " and isRead eq false" : ""}${input.receivedOnly ? ` and from/emailAddress/address ne '${this.ownAddress.replace(/'/g,"''")}'` : ""}`); params.set("$orderby", "receivedDateTime desc"); }
     const data = await this.api(`/v1.0/me/messages?${params}`);
-    return (data.value || []).filter((m: Json) => !m.isDraft && (!input.unread || !m.isRead) && m.receivedDateTime >= since).map((m: Json) => this.normalize(m));
+    return (data.value || []).filter((m: Json) => !m.isDraft && (!input.unread || !m.isRead) && m.receivedDateTime >= since).map((m: Json) => this.normalize(m)).filter((m:Email)=>!input.receivedOnly || !m.sent);
   }
   async getMessage(id: string) { return this.normalize(await this.api(`/v1.0/me/messages/${eid(id)}?$select=${msSelect}`)); }
   async getThread(id: string) {

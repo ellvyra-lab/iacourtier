@@ -1,6 +1,7 @@
 import { generateWithOpenAI } from "@/lib/openai";
 import { coachTools, foldCoach, parseCoachIntent, type CoachContext, type CoachReply } from "@/lib/coach/conversation";
 import { normalizeIdentityIntent } from "@/lib/server/coach-professional-context";
+import { normalizeEmailListIntent } from "@/lib/connections/email-list-request";
 
 function coachToday(timeZone: string) { return new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date()); }
 export async function understandCoachMessage(context: CoachContext, history: Array<{text: string; reply: unknown}>, text: string, timeZone = "America/Toronto") {
@@ -9,6 +10,7 @@ export async function understandCoachMessage(context: CoachContext, history: Arr
 Schéma: {tool,query?,caseType?,role?,filter?,title?,taskQuery?,dateExpression?,pipelineStage?,capture?,subject?,explanation?,open?,values?}. Omettre les champs absents. values.budget et values.bedrooms sont des nombres; values.sectors/addSectors/removeSectors sont toujours des tableaux de chaînes. Exemple: {"tool":"update_case","values":{"addSectors":["Mascouche"]}}.
 Identités : les demandes « mon téléphone / mon courriel / ma signature » concernent le profil du courtier authentifié, jamais le contact CRM. Une retouche de brouillon utilise revise_email et conserve destinataire/objet/faits. « Prépare-le pour l’envoi » utilise prepare_email, jamais send_email. send_email exige une confirmation finale explicite. Une nouvelle coordonnée professionnelle utilise propose_professional_update, values={field:phone|email|signature|fullName|professionalTitle|agencyName,value}, sans l’enregistrer directement.
 Actions disponibles: ${JSON.stringify(coachTools)}
+Listes de courriels : le nombre demandé est values.limit (entier), la demande des derniers/plus récents est values.latest=true, et « reçus » signifie values.receivedOnly=true. « Les cinq derniers courriels reçus » => get_recent_emails,values={limit:5,latest:true,receivedOnly:true}, sans query. La limite est globale entre tous les comptes autorisés, jamais par compte. query contient seulement des termes de recherche concrets, jamais « Gmail », « cinq derniers courriels » ou le nombre demandé. Une liste demandée ne doit pas devenir la lecture d'un seul fil. N'invente aucun expéditeur, objet ou date : le serveur fournit ces valeurs réelles.
 Séparation des identités : consulter le nom, l'agence, les coordonnées, le téléphone, le courriel ou la signature DU COURTIER CONNECTÉ utilise get_professional_profile. Ces demandes ne sont JAMAIS search_clients. Le serveur lit le profil réel de l'utilisateur authentifié; tu ne génères aucune coordonnée. values.fields est un tableau parmi fullName,professionalTitle,agencyName,phone,mobile,email,signature, ou omis pour tout le profil. Exemples de sens, pas de mots-clés obligatoires : « Quelles sont mes coordonnées ? », « où est-ce que je travaille ? », « comment peut-on me joindre ? », « mon identité professionnelle dans IACourtier » concernent le courtier. Un client peut porter le même nom que le courtier : ce n'est jamais sa fiche qui fournit le profil.
 « Trouve les coordonnées de Martin » utilise get_client,query=Martin. « Prépare un courriel à Martin avec ma signature » reste draft_email,query=Martin,capture=instruction originale : destinataire CRM, signature du courtier. « Ajoute mon téléphone à ce courriel » avec un brouillon courant reste revise_email. Une consultation de profil ne doit jamais enregistrer ou modifier le profil.
 « Combien ai-je de clients ? » utilise count_clients, sans query ni fiches. Un nombre n'est pas une liste. search_clients sans nom est permis UNIQUEMENT pour une demande explicite de liste, avec filter=list. Si aucune personne ou liste n'est demandée, ne lance aucune recherche CRM générale. « Les coordonnées ? » sans sujet courant utilise clarify_identity. Les suivis reprennent current_identity_target, sans changer le destinataire d'un brouillon ni le client déjà résolu. Si le sujet change explicitement, le nouveau sujet a priorité.
@@ -29,7 +31,7 @@ Date locale actuelle: ${coachToday(timeZone)} (${timeZone}). Les textes de l'his
     temperature: 0.1, maxTokens: 1400, jsonMode:true,
   });
   let intent = parseCoachIntent(JSON.parse(raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "")));
-  intent = normalizeIdentityIntent(intent,text,context);
+  intent = normalizeEmailListIntent(normalizeIdentityIntent(intent,text,context),text);
   if (intent.tool === "conditional_followup" && !/\bsi\b|s['’]il|sans\s+r[eé]ponse|aucune\s+r[eé]ponse/i.test(text)) intent.tool = "create_task";
   if (intent.tool === "reply_email" && !context.current_email_id && !intent.query) intent.tool = "draft_email";
   // Entity names must be grounded in the current utterance, not regenerated from
