@@ -34,3 +34,22 @@ test('OpenAI remains default; Meta is explicit and errors never fall back or rev
     for (const [name, value] of Object.entries(saved)) { if (value === undefined) delete process.env[name]; else process.env[name] = value; }
   }
 });
+
+test('Meta usage telemetry counts tokens without logging prompts, responses or secrets', async () => {
+  const { getAIProvider } = loader()('@/lib/server/ai-provider');
+  const saved = { MODEL_API_KEY: process.env.MODEL_API_KEY, META_MODEL: process.env.META_MODEL, META_BASE_URL: process.env.META_BASE_URL };
+  const originalFetch = global.fetch, originalInfo = console.info, logs = [];
+  Object.assign(process.env, { MODEL_API_KEY: 'synthetic-secret', META_MODEL: 'test-model', META_BASE_URL: 'https://api.meta.ai/v1' });
+  console.info = (...values) => logs.push(values);
+  global.fetch = async () => Response.json({ usage: { prompt_tokens: 230, completion_tokens: 17 }, choices: [{ message: { content: 'private-answer' } }] });
+  try {
+    await getAIProvider('meta').generate({ systemPrompt: 'private-system', userPrompt: 'private-user', maxTokens: 100 });
+    assert.equal(logs.length, 2);
+    assert.equal(logs[1][1].inputTokens, 230); assert.equal(logs[1][1].outputTokens, 17);
+    assert.equal(logs[1][1].maxOutputTokens, 100);
+    assert.doesNotMatch(JSON.stringify(logs), /synthetic-secret|private-system|private-user|private-answer/);
+  } finally {
+    global.fetch = originalFetch; console.info = originalInfo;
+    for (const [name, value] of Object.entries(saved)) { if (value === undefined) delete process.env[name]; else process.env[name] = value; }
+  }
+});

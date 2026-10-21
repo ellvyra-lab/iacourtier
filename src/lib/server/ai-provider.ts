@@ -53,6 +53,8 @@ const metaProvider: AIProvider = {
       throw new MetaProviderError("META_BASE_URL doit cibler https://api.meta.ai/v1.");
     }
     const redact = (text: string) => text.split(key).join("[REDACTED]");
+    const metrics = { provider: "meta", model: redact(model).slice(0, 100), inputBytes: Buffer.byteLength(systemPrompt + userPrompt, "utf8"), maxOutputTokens: maxTokens ?? null };
+    console.info("[coach.ai.attempt]", metrics);
     let response: Response;
     try {
       response = await fetch(`${base.replace(/\/$/, "")}/chat/completions`, {
@@ -72,9 +74,14 @@ const metaProvider: AIProvider = {
     }
     let raw: string;
     try { raw = await response.text(); } catch { throw new MetaProviderError("Lecture de la réponse Meta interrompue.", response.status); }
-    if (!response.ok) throw new MetaProviderError(`Meta HTTP ${response.status}: ${redact(raw).slice(0, 2000)}`, response.status);
+    if (!response.ok) {
+      console.info("[coach.ai.result]", { ...metrics, status: response.status });
+      throw new MetaProviderError(`Meta HTTP ${response.status}: ${redact(raw).slice(0, 2000)}`, response.status);
+    }
     let data;
     try { data = JSON.parse(raw); } catch { throw new MetaProviderError("Réponse Meta JSON invalide.", response.status); }
+    const tokenCount = (value: unknown) => typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null;
+    console.info("[coach.ai.result]", { ...metrics, status: response.status, inputTokens: tokenCount(data?.usage?.prompt_tokens), outputTokens: tokenCount(data?.usage?.completion_tokens) });
     const content = data?.choices?.[0]?.message?.content;
     if (typeof content !== "string" || !content.trim()) throw new MetaProviderError("Meta a répondu sans texte exploitable.", response.status);
     return redact(content.trim());
