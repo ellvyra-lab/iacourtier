@@ -17,6 +17,7 @@ test('OpenAI remains default; Meta is explicit and errors never fall back or rev
       assert.equal(url, 'https://api.meta.ai/v1/chat/completions');
       assert.equal(init.redirect, 'error');
       assert.equal(JSON.parse(init.body).model, 'test-model');
+      assert.equal(JSON.parse(init.body).reasoning_effort, 'minimal');
       return Response.json({ choices: [{ message: { content: 'meta-fixture' } }] });
     };
     assert.equal(await getAIProvider('meta').generate(request), 'meta-fixture');
@@ -24,6 +25,8 @@ test('OpenAI remains default; Meta is explicit and errors never fall back or rev
     await assert.rejects(getAIProvider('meta').generate(request), error => error.status === 402 && error.message.includes('[REDACTED]') && !error.message.includes('synthetic-secret'));
     global.fetch = async () => Response.json({ choices: [] });
     await assert.rejects(getAIProvider('meta').generate(request), /sans texte/);
+    global.fetch = async () => Response.json({ choices: [{ finish_reason: 'length', message: { content: 'partial answer' } }] });
+    await assert.rejects(getAIProvider('meta').generate(request), error => error.diagnostic === 'output_limit');
     global.fetch = async () => { throw new Error('network synthetic-secret'); };
     await assert.rejects(getAIProvider('meta').generate(request), /erreur réseau/);
     process.env.META_BASE_URL = 'https://example.com/v1';
@@ -33,6 +36,13 @@ test('OpenAI remains default; Meta is explicit and errors never fall back or rev
     global.fetch = originalFetch;
     for (const [name, value] of Object.entries(saved)) { if (value === undefined) delete process.env[name]; else process.env[name] = value; }
   }
+});
+
+test('Meta distinguishes a successful HTTP response with exhausted output from a network failure', () => {
+  const { MetaProviderError, metaPublicError } = loader()('@/lib/server/ai-provider');
+  assert.match(metaPublicError(new MetaProviderError('fixture', 200, 'output_limit')), /limite de génération/);
+  assert.doesNotMatch(metaPublicError(new MetaProviderError('fixture', 200, 'output_limit')), /HTTP 200/);
+  assert.match(metaPublicError(new MetaProviderError('fixture', 200, 'empty_response')), /sans texte exploitable/);
 });
 
 test('Meta usage telemetry counts tokens without logging prompts, responses or secrets', async () => {

@@ -27,13 +27,15 @@ export function generateWithCoachAI(request: AIRequest): Promise<string> {
 }
 export function metaPublicError(error: unknown): string | null {
   if (!(error instanceof MetaProviderError)) return null;
+  if (error.diagnostic === "output_limit") return "Meta a atteint la limite de génération sans terminer sa réponse. Aucun résultat exploitable ni bascule vers OpenAI.";
+  if (error.diagnostic === "empty_response") return "Meta a répondu sans texte exploitable. Aucune réponse inventée ni bascule vers OpenAI.";
   if (error.status === 402) return "Meta refuse l’appel pour un problème de facturation (HTTP 402). Aucune réponse générée ni bascule vers OpenAI.";
   if (error.status === 401 || error.status === 403) return `Meta refuse l’autorisation (HTTP ${error.status}). Vérifie la configuration serveur.`;
   return `L’appel Meta a échoué${error.status ? ` (HTTP ${error.status})` : ""}. Aucune réponse générée ni bascule vers OpenAI.`;
 }
 
 export class MetaProviderError extends Error {
-  constructor(message: string, public readonly status: number | null = null) {
+  constructor(message: string, public readonly status: number | null = null, public readonly diagnostic?: "output_limit" | "empty_response") {
     super(message);
     this.name = "MetaProviderError";
   }
@@ -62,6 +64,7 @@ const metaProvider: AIProvider = {
         headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
         body: JSON.stringify({
           model,
+          reasoning_effort: "minimal",
           messages: [{ role: "developer", content: systemPrompt }, { role: "user", content: userPrompt }],
           ...(maxTokens === undefined ? {} : { max_completion_tokens: maxTokens }),
           ...(temperature === undefined ? {} : { temperature }),
@@ -81,9 +84,10 @@ const metaProvider: AIProvider = {
     let data;
     try { data = JSON.parse(raw); } catch { throw new MetaProviderError("Réponse Meta JSON invalide.", response.status); }
     const tokenCount = (value: unknown) => typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null;
-    console.info("[coach.ai.result]", { ...metrics, status: response.status, inputTokens: tokenCount(data?.usage?.prompt_tokens), outputTokens: tokenCount(data?.usage?.completion_tokens) });
+    console.info("[coach.ai.result]", { ...metrics, status: response.status, inputTokens: tokenCount(data?.usage?.prompt_tokens), outputTokens: tokenCount(data?.usage?.completion_tokens), finishReason: typeof data?.choices?.[0]?.finish_reason === "string" ? redact(data.choices[0].finish_reason).slice(0, 40) : null });
     const content = data?.choices?.[0]?.message?.content;
-    if (typeof content !== "string" || !content.trim()) throw new MetaProviderError("Meta a répondu sans texte exploitable.", response.status);
+    if (data?.choices?.[0]?.finish_reason === "length") throw new MetaProviderError("Meta a atteint la limite de génération.", response.status, "output_limit");
+    if (typeof content !== "string" || !content.trim()) throw new MetaProviderError("Meta a répondu sans texte exploitable.", response.status, data?.choices?.[0]?.finish_reason === "length" ? "output_limit" : "empty_response");
     return redact(content.trim());
   },
 };
