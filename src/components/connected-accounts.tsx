@@ -45,7 +45,7 @@ export function ConnectedAccounts() {
   return <section className="mx-auto max-w-4xl space-y-6 p-4 sm:p-8">
     <Link href="/tableau-de-bord/parametres" className="text-blue-700">← Réglages</Link>
     <h1 className="text-2xl font-semibold">Connexions</h1>
-    <p className="text-slate-600">Connecte tes services pour que le Coach consulte tes courriels et ton agenda. Chaque compte appartient uniquement à ton espace IACourtier.</p>
+    <p className="text-slate-600">Connecte tes services pour que IACourtier consulte tes courriels et ton agenda. Chaque compte appartient uniquement à ton espace IACourtier.</p>
     {notice ? <p role="status" className="rounded-xl border p-4">{notice}</p> : null}
     <div className="grid gap-4 sm:grid-cols-2">
       {(["google", "microsoft"] as const).map(provider => {
@@ -76,7 +76,7 @@ export function ConnectedAccounts() {
         <details className="rounded-xl border p-3"><summary className="cursor-pointer font-medium">Configurer l’intégration officielle</summary>
           <div className="mt-3 space-y-2 text-sm"><p>L’administrateur doit obtenir l’autorisation de Centris pour IACourtier, les services et données permis, ainsi que la méthode d’authentification officielle.</p>
             <p>Aucun mot de passe Centris n’est demandé. La recherche et la synchronisation seront activées seulement après validation de cet accès.</p>
-            <p>La préparation manuelle des dossiers reste disponible. Le CRM, Gmail, Calendar et le Coach fonctionnent indépendamment de Centris.</p></div>
+            <p>La préparation manuelle des dossiers reste disponible. Le CRM, Gmail, Calendar et IACourtier fonctionnent indépendamment de Centris.</p></div>
         </details>
       </article>
     </div>

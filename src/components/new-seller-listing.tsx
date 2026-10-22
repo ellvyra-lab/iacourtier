@@ -180,7 +180,7 @@ export function NewSellerListing() {
         <header>
           <p className="text-sm font-semibold text-teal-700">IACourtier · Nouvelle inscription vendeur</p>
           <h1 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">Comment veux-tu commencer?</h1>
-          <p className="mt-3 max-w-3xl text-slate-600 dark:text-slate-300">Le Coach identifiera d’abord la personne et les doublons, puis créera ou reliera le client avant la propriété et le mandat.</p>
+          <p className="mt-3 max-w-3xl text-slate-600 dark:text-slate-300">IACourtier identifiera d’abord la personne et les doublons, puis créera ou reliera le client avant la propriété et le mandat.</p>
         </header>
         <SessionStatusNotice />
         <div className="grid gap-4 lg:grid-cols-2">
@@ -225,7 +225,7 @@ export function NewSellerListing() {
         <header>
           <p className="text-sm font-semibold text-teal-700">Vérification guidée</p>
           <h1 className="mt-2 text-3xl font-semibold">Confirme ce que les documents disent vraiment</h1>
-          <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">Le Coach te demande seulement les données absentes, ambiguës ou contradictoires.</p>
+          <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">IACourtier te demande seulement les données absentes, ambiguës ou contradictoires.</p>
         </header>
         <DocumentAnalysisReview documents={documentAnalyses} summary={extractionSummary} />
         <SellerEditors sellers={sellers} updateSeller={updateSeller} addSeller={() => setSellers((current) => [...current, blankSeller()].slice(0, 2))} removeSeller={(index) => setSellers((current) => current.filter((_, sellerIndex) => sellerIndex !== index))} />

@@ -567,7 +567,7 @@ export function DirectorChatPanel({
           rows={2}
           value={input}
           onChange={(event) => setInput(event.target.value)}
-          placeholder="Écris au IACourtier..."
+          placeholder="Écris à IACourtier..."
           disabled={isSending}
           className="min-h-12 flex-1 resize-none rounded-2xl border border-subtle bg-background px-4 py-3 text-sm focus:border-electric-500/40 focus:outline-none disabled:opacity-60"
         />

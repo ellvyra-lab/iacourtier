@@ -15,7 +15,7 @@ const features = [
   {
     icon: Phone,
     title: "Appels et suivis",
-    text: "Appelez depuis IACourtier, notez le résultat et laissez le Coach proposer la prochaine meilleure action.",
+    text: "Appelez depuis IACourtier, notez le résultat et laissez IACourtier proposer la prochaine meilleure action.",
   },
   {
     icon: BarChart3,
@@ -42,7 +42,7 @@ const features = [
 const reasons = [
   "Les données sont saisies une seule fois et réutilisées partout.",
   "Le Radar ne montre pas toute la base brute : les opportunités sont distribuées selon le forfait.",
-  "Le Coach aide à mieux prospecter, répondre aux objections et obtenir des rendez-vous.",
+  "IACourtier aide à mieux prospecter, répondre aux objections et obtenir des rendez-vous.",
   "Le workflow respecte le vrai processus immobilier québécois.",
 ];
 

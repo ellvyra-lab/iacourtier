@@ -100,7 +100,7 @@ export function DailyCoachDashboard() {
       console.log("[DailyCoach] Coach data received:", data);
       setCoachData(data);
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : "Erreur lors du chargement du Coach";
+      const errorMsg = err instanceof Error ? err.message : "Erreur lors du chargement d’IACourtier";
       setCoachError(errorMsg);
       console.error("[DailyCoach] Coach fetch error:", errorMsg, err);
     } finally {
@@ -329,7 +329,7 @@ function CoachConversation({
       <div className="flex items-center justify-between gap-4">
         <p className="flex items-center gap-2 text-sm font-semibold text-electric-500">
           <MessageCircle className="h-4 w-4" />
-          Conversation du Coach
+          Conversation d’IACourtier
         </p>
         <span className="rounded-full border border-subtle bg-surface-soft px-3 py-1 text-xs font-semibold text-muted">Aujourd&apos;hui</span>
       </div>
@@ -396,7 +396,7 @@ function ProspectingMissionPanel({
         <p className="text-sm font-semibold text-electric-500">{mission.title}</p>
         <h2 className="mt-2 text-2xl font-semibold">Mission terminee pour le moment.</h2>
         <p className="mt-3 text-sm leading-6 text-muted">
-          Tu as passe a travers les prospects disponibles pour cette mission. Reviens au Coach plus tard ou relance une nouvelle mission quand tu veux reprendre le bloc d&apos;appels.
+          Tu as passe a travers les prospects disponibles pour cette mission. Reviens à IACourtier plus tard ou relance une nouvelle mission quand tu veux reprendre le bloc d&apos;appels.
         </p>
       </section>
     );
@@ -814,7 +814,7 @@ function buildMissionOutcome(prospect: SoniaProspect, result: CallResult) {
   if (result === "rendez_vous_obtenu") {
     return {
       title: "Rendez-vous obtenu",
-      feedback: `Excellent. Rendez-vous vendeur obtenu avec ${prospect.name}. Maintenant, le Coach change de mission : on prepare l'analyse de marche avant la rencontre, pas apres le mandat.`,
+      feedback: `Excellent. Rendez-vous vendeur obtenu avec ${prospect.name}. Maintenant, IACourtier change de mission : on prepare l'analyse de marche avant la rencontre, pas apres le mandat.`,
       preparedText: "Analyse de marche a preparer : comparables, positionnement, questions vendeur, objections probables et strategie de presentation.",
       nextStep: "Preparer l'analyse de marche, les arguments vendeur et le script de rendez-vous.",
     };
