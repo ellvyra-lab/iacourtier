@@ -331,7 +331,7 @@ export function DirectorChatPanel({
 
       if (!res.ok) {
         const payload = await res.json().catch(() => null);
-        throw new Error(payload?.error || "Le Coach IA n'a pas pu répondre.");
+        throw new Error(payload?.error || "Le IACourtier n'a pas pu répondre.");
       }
 
       const data = (await res.json()) as { reply: string; action: DirectorAction; secondaryActions: DirectorAction[] };
@@ -346,7 +346,7 @@ export function DirectorChatPanel({
       setTurns(updatedTurns);
       persistConversation(conversationId, conversationTitle, conversationCreatedAt, updatedTurns);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Le Coach IA n'a pas pu répondre.");
+      setError(err instanceof Error ? err.message : "Le IACourtier n'a pas pu répondre.");
     } finally {
       setIsSending(false);
     }
@@ -440,7 +440,7 @@ export function DirectorChatPanel({
     <section className="rounded-2xl border border-subtle bg-surface p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-sm font-semibold text-electric-500">Ton Coach IA</p>
+          <p className="text-sm font-semibold text-electric-500">Ton IACourtier</p>
           <h1 className="mt-2 max-w-3xl text-3xl font-semibold tracking-tight sm:text-4xl">
             Bonjour {userName}. Qu&apos;est-ce que tu veux accomplir aujourd&apos;hui?
           </h1>
@@ -509,7 +509,7 @@ export function DirectorChatPanel({
                 turn.role === "user" ? "border-subtle bg-background text-foreground" : "border-electric-500/30 bg-electric-500/5 text-foreground"
               }`}
             >
-              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted">{turn.role === "user" ? userName : "Coach IA"}</p>
+              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted">{turn.role === "user" ? userName : "IACourtier"}</p>
               <p className="whitespace-pre-line">{turn.content}</p>
 
               {turn.action ? (
@@ -538,7 +538,7 @@ export function DirectorChatPanel({
         {isSending ? (
           <div className="flex items-center gap-2 text-xs text-muted">
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            Le Coach IA réfléchit...
+            Le IACourtier réfléchit...
           </div>
         ) : null}
       </div>
@@ -567,7 +567,7 @@ export function DirectorChatPanel({
           rows={2}
           value={input}
           onChange={(event) => setInput(event.target.value)}
-          placeholder="Écris au Coach IA..."
+          placeholder="Écris au IACourtier..."
           disabled={isSending}
           className="min-h-12 flex-1 resize-none rounded-2xl border border-subtle bg-background px-4 py-3 text-sm focus:border-electric-500/40 focus:outline-none disabled:opacity-60"
         />

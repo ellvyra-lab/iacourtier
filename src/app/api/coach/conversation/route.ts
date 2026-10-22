@@ -36,7 +36,7 @@ export async function POST(request: Request) {
       return Response.json({ ...data, provider: "openai", metaAvailable: metaConfigured() });
     }
     if (body.action === "select_provider") return Response.json({ provider: await selectCoachProvider(db, user.id, body.conversationId, body.provider), metaAvailable: metaConfigured() });
-    const result = await processCoachMessage(db, user.id, { timeZone: typeof body.timeZone === "string" ? body.timeZone : undefined, conversationId: body.conversationId, messageId: body.messageId, text: body.text, choiceId: body.choiceId, taskId: body.taskId, action:body.action,referenceId:body.referenceId });
+    const result = await processCoachMessage(db, user.id, { pagePath: typeof body.pagePath === "string" ? body.pagePath : undefined, timeZone: typeof body.timeZone === "string" ? body.timeZone : undefined, conversationId: body.conversationId, messageId: body.messageId, text: body.text, choiceId: body.choiceId, taskId: body.taskId, action:body.action,referenceId:body.referenceId });
     return Response.json(result);
   } catch (error) { return Response.json({ error: error instanceof Error ? error.message : "Le Coach est momentanément indisponible." }, { status: 400 }); }
 }

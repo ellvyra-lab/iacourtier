@@ -265,7 +265,7 @@ function ClientImportPanel({ onImported }: { onImported: () => void }) {
     return (
       <section className="rounded-lg border border-teal-200 bg-teal-50/60 p-5 shadow-sm dark:border-teal-900 dark:bg-teal-950/20">
         <p className="text-sm font-semibold text-teal-800 dark:text-teal-200">Importer mes clients</p>
-        <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">Sélectionnez un fichier CSV, XLSX ou XLS. Le Coach IA repère la feuille, la ligne d’en-tête, les tags et les colonnes utiles sans exiger une structure précise.</p>
+        <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">Sélectionnez un fichier CSV, XLSX ou XLS. Le IACourtier repère la feuille, la ligne d’en-tête, les tags et les colonnes utiles sans exiger une structure précise.</p>
         <input type="file" accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" onChange={handleFile} className="mt-4 block w-full text-sm file:mr-4 file:rounded-lg file:border-0 file:bg-slate-950 file:px-4 file:py-2.5 file:font-semibold file:text-white dark:file:bg-white dark:file:text-slate-950" />
         {error ? <p className="mt-3 text-sm text-red-700 dark:text-red-300">{error}</p> : null}
       </section>
@@ -436,7 +436,7 @@ function MissingInformationSection({ contacts }: { contacts: SoniaProspect[] }) 
 
   return (
     <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900/72">
-      <p className="text-sm font-semibold text-teal-700 dark:text-teal-300">Coach IA</p>
+      <p className="text-sm font-semibold text-teal-700 dark:text-teal-300">IACourtier</p>
       <h2 className="mt-1 text-2xl font-semibold">Informations à compléter</h2>
       <div className="mt-4 rounded-lg border border-teal-200 bg-teal-50 p-4 text-sm leading-6 text-teal-950 dark:border-teal-900 dark:bg-teal-950/30 dark:text-teal-100">
         Aujourd’hui : {contacts.length.toLocaleString("fr-CA")} clients. {mortgageMissing.toLocaleString("fr-CA")} clients sans renouvellement hypothécaire. Je te recommande de préparer la campagne de mise à jour; elle alimentera automatiquement les futures automatisations.
@@ -585,7 +585,7 @@ function ClientAutomationsSection({ contacts }: { contacts: SoniaProspect[] }) {
     <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900/72">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <p className="text-sm font-semibold text-teal-700 dark:text-teal-300">Coach IA</p>
+          <p className="text-sm font-semibold text-teal-700 dark:text-teal-300">IACourtier</p>
           <h2 className="mt-1 text-2xl font-semibold tracking-tight">Automatisations clients</h2>
           <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">Les employés IA préparent et planifient les communications. Les anniversaires admissibles peuvent être envoyés automatiquement par courriel.</p>
         </div>

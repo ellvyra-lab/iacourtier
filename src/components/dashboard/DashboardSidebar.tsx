@@ -4,7 +4,6 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   BarChart3,
-  Bot,
   BriefcaseBusiness,
   Building2,
   CalendarDays,
@@ -76,7 +75,6 @@ export function DashboardSidebar() {
     <nav className="flex-1 overflow-y-auto px-3 py-5">
       <NavLink href="/tableau-de-bord" label="Accueil" icon={Home} active={pathname === "/tableau-de-bord"} />
       {sections.map((section) => <div key={section.label} className="mt-6"><p className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-widest text-muted">{section.label}</p><div className="space-y-1">{section.items.map((item) => item.disabled ? <div key={item.label} title="Bientôt disponible" className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-muted opacity-60"><item.icon size={16} /><span>{item.label}</span><span className="ml-auto text-[9px] font-bold uppercase">Bientôt</span></div> : <NavLink key={item.href + item.label} href={item.href || "/tableau-de-bord"} label={item.label} icon={item.icon} active={isActive(pathname, item.href || "")} />)}</div></div>)}
-      <div className="mt-6"><p className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-widest text-muted">Assistance</p><NavLink href="/tableau-de-bord/coach" label="Coach IA" icon={Bot} active={pathname.startsWith("/tableau-de-bord/coach")} /></div>
     </nav>
     <div className="space-y-1 border-t border-subtle px-3 py-4"><NavLink href="/tableau-de-bord/parametres" label="Paramètres" icon={Settings} active={pathname.startsWith("/tableau-de-bord/parametres")} />{isSuperAdmin ? <NavLink href="/admin" label="Administration" icon={ShieldCheck} active={pathname.startsWith("/admin")} /> : null}<LogoutButton /></div>
   </aside>;

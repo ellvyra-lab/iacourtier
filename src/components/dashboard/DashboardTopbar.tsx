@@ -1,5 +1,7 @@
 "use client";
 
+import { CoachLauncher } from "@/components/coach-conversation";
+
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -31,7 +33,7 @@ const titles: Record<string, string> = {
   "/tableau-de-bord/acheteurs/nouveau": "Nouvel acheteur",
   "/tableau-de-bord/pipeline": "Pipeline",
   "/tableau-de-bord/mandats": "Propriétés",
-  "/tableau-de-bord/coach": "Coach IA",
+  "/tableau-de-bord/coach": "IACourtier",
   "/tableau-de-bord/appels": "Appels à faire",
   "/tableau-de-bord/radar-prospection": "Radar prospection",
   "/tableau-de-bord/telechargements": "Documents CRM",
@@ -62,6 +64,7 @@ export function DashboardTopbar() {
     <h1 className="hidden min-w-32 text-lg font-semibold tracking-tight xl:block">{title}</h1>
     <UniversalSearch />
     <div className="ml-auto flex items-center gap-2">
+      <CoachLauncher />
       <details className="group relative">
         <summary className="flex min-h-10 cursor-pointer list-none items-center gap-2 rounded-xl bg-teal-700 px-3 text-sm font-semibold text-white transition hover:bg-teal-800"><Plus size={16} /><span className="hidden sm:inline">Ajouter</span></summary>
         <div className="absolute right-0 z-50 mt-2 w-56 rounded-2xl border border-subtle bg-surface p-2 shadow-xl">{addItems.map((item) => <TopbarMenuLink key={item.label} {...item} />)}</div>

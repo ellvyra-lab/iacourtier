@@ -118,7 +118,7 @@ export function NewBuyerCase() {
   }
 
   if (mode === "choice") return <div className="space-y-6">
-    <header><p className="text-sm font-semibold text-teal-700">Coach IA · Nouveau dossier acheteur</p><h1 className="mt-2 text-3xl font-semibold tracking-tight">Comment veux-tu commencer?</h1><p className="mt-3 max-w-3xl text-slate-600 dark:text-slate-300">Choisis la donnée que tu as déjà. IACourtier identifie la personne, recherche les doublons, relie la fiche client et crée le parcours.</p></header>
+    <header><p className="text-sm font-semibold text-teal-700">IACourtier · Nouveau dossier acheteur</p><h1 className="mt-2 text-3xl font-semibold tracking-tight">Comment veux-tu commencer?</h1><p className="mt-3 max-w-3xl text-slate-600 dark:text-slate-300">Choisis la donnée que tu as déjà. IACourtier identifie la personne, recherche les doublons, relie la fiche client et crée le parcours.</p></header>
     <SessionStatusNotice />
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
       <Choice icon={PenLine} title="Entrer ses informations" onClick={() => start("manual", "manual")} />

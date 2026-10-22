@@ -17,7 +17,7 @@ const destinations = [
   { href: "/tableau-de-bord", label: "Tester comme courtier", description: "Ouvrir l’accueil courtier normal.", icon: Home },
   { href: "/tableau-de-bord/clients", label: "Clients et dossiers", description: "Gérer les clients, dossiers vendeurs et acheteurs.", icon: UsersRound },
   { href: "/tableau-de-bord/inscriptions/nouvelle", label: "Nouvelle inscription", description: "Créer un parcours vendeur avec ou sans documents.", icon: BriefcaseBusiness },
-  { href: "/tableau-de-bord/coach", label: "Coach IA", description: "Accéder au coach et aux outils d’accompagnement.", icon: Bot },
+  { href: "/tableau-de-bord/coach", label: "IACourtier", description: "Accéder au coach et aux outils d’accompagnement.", icon: Bot },
   { href: "/tableau-de-bord/telechargements", label: "Documents", description: "Retrouver les documents et téléchargements.", icon: FileText },
   { href: "/tableau-de-bord/automatisations", label: "Automatisations", description: "Configurer et vérifier les automatisations.", icon: Workflow },
   { href: "/tableau-de-bord/parametres", label: "Paramètres", description: "Gérer le compte et les réglages professionnels.", icon: Settings },

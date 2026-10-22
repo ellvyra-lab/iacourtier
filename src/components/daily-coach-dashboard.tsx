@@ -342,7 +342,7 @@ function CoachConversation({
                 {message.tone === "win" ? <CheckCircle2 className="h-4 w-4" /> : <Sparkles className="h-4 w-4" />}
               </div>
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold">Coach IA</p>
+                <p className="text-sm font-semibold">IACourtier</p>
                 <p className="mt-2 text-sm leading-6 text-muted">{message.text}</p>
                 {message.actionHref && message.actionLabel ? (
                   <Link

@@ -58,7 +58,7 @@ export function ProspectingCoachDashboard({ initialScenario }: { initialScenario
       <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900/72">
         <div className="grid gap-6 p-6 lg:grid-cols-[minmax(0,1fr)_420px] lg:p-7">
           <div>
-            <p className="text-sm font-semibold text-teal-700 dark:text-teal-300">Coach IA de prospection</p>
+            <p className="text-sm font-semibold text-teal-700 dark:text-teal-300">IACourtier de prospection</p>
             <h1 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">Entraînez vos conversations vendeurs</h1>
             <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600 dark:text-slate-300 sm:text-base">
               Pratiquez vos appels, renforcez vos réponses aux objections et développez le réflexe qui mène naturellement vers un rendez-vous d&apos;évaluation.

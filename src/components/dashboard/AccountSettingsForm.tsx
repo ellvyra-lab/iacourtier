@@ -238,7 +238,7 @@ export function AccountSettingsForm() {
   return (
     <form onSubmit={save} className="mx-auto max-w-6xl space-y-6">
       <section className="rounded-2xl border border-subtle bg-surface-soft p-6">
-        <p className="text-sm font-semibold text-electric-500">Configuration guidée par le Coach IA</p>
+        <p className="text-sm font-semibold text-electric-500">Configuration guidée par le IACourtier</p>
         <h1 className="mt-2 text-3xl font-semibold">Bienvenue!</h1>
         <p className="mt-2 max-w-3xl text-sm text-muted">Prenons quelques minutes pour personnaliser votre espace de travail. Cette identité sera ensuite appliquée automatiquement à tous vos contenus destinés aux clients.</p>
         <div className="mt-5 flex items-center gap-4"><div className="h-2 flex-1 overflow-hidden rounded-full bg-background"><div className="h-full bg-electric-500" style={{ width: `${completion}%` }} /></div><strong>{completion} %</strong></div>

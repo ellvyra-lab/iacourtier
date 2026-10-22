@@ -51,7 +51,7 @@ const plans = [
     name: "Free",
     price: "0$",
     description: "Pour tester IACourtier et débloquer vos premières opportunités.",
-    features: ["3 opportunités Radar / semaine", "Coach IA de prospection", "Assistants libres"],
+    features: ["3 opportunités Radar / semaine", "IACourtier de prospection", "Assistants libres"],
   },
   {
     name: "Pro",
@@ -279,7 +279,7 @@ function DemoSection() {
         </div>
         <div className="rounded-[2rem] border border-subtle bg-surface p-6">
           <div className="rounded-2xl bg-slate-950 p-5 text-white">
-            <p className="text-sm font-semibold text-cyan-300">Coach IA après appel</p>
+            <p className="text-sm font-semibold text-cyan-300">IACourtier après appel</p>
             <p className="mt-4 text-2xl font-semibold">Prochaine meilleure question</p>
             <p className="mt-3 leading-7 text-slate-300">
               “Qu’est-ce qui vous ferait considérer une évaluation cette semaine, même si vous n’êtes pas encore prêt à vendre ?”

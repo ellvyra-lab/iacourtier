@@ -82,6 +82,6 @@ export function ConnectedAccounts() {
     </div>
     <p className="text-sm text-slate-500">Plusieurs comptes indépendants, agenda principal de chaque compte. Les messages et changements de rendez-vous nécessitent une confirmation. Les analyses sont déclenchées à la demande.</p>
     <p className="text-sm text-slate-500">Les autorisations sont enregistrées de façon chiffrée côté serveur. Aucun mot de passe n’est conservé. Tu peux déconnecter tes services à tout moment.</p>
-    <Link href="/tableau-de-bord/coach" className="inline-block rounded-xl border px-4 py-3">Parler au Coach</Link>
+    <p className="text-sm text-slate-500">Utilise le bouton IACourtier de la barre supérieure pour retrouver ta conversation.</p>
   </section>;
 }

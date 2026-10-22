@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState, type ElementType, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type ElementType } from "react";
 import {
   Activity,
   AlertTriangle,
@@ -20,7 +20,6 @@ import {
   Plus,
   Radar,
   Search,
-  Send,
   Sparkles,
   Upload,
   UsersRound,
@@ -29,7 +28,6 @@ import {
 
 import { useDashboardAuth } from "@/components/auth/DashboardAuthProvider";
 import { UniversalSearch } from "@/components/dashboard/UniversalSearch";
-import { UniversalQuickCapture } from "@/components/universal-quick-capture";
 
 type ClientCase = {
   id: string;
@@ -63,7 +61,6 @@ type DayData = {
   counts: { followUps: number; calls: number; appointments: number; documents: number; overdue: number };
 };
 type PipelinePayload = { cases?: ClientCase[]; error?: string };
-type CoachAnswer = { reply: string; action: { label: string; href: string } };
 type ToolLink = { icon: ElementType; label: string; description: string; href: string; accent: string };
 
 const emptyDay: DayData = {
@@ -86,14 +83,12 @@ const tools: ToolLink[] = [
   { icon: FileText, label: "Documents", description: "Importer et retrouver les documents", href: "/tableau-de-bord/telechargements", accent: "text-slate-700 bg-slate-100 dark:bg-slate-800" },
   { icon: CalendarCheck, label: "Rapports clients", description: "Retrouver les rapports et l’historique", href: "/tableau-de-bord/historique", accent: "text-teal-700 bg-teal-50 dark:bg-teal-950/30" },
   { icon: Workflow, label: "Automatisations", description: "Voir les suivis automatiques", href: "/tableau-de-bord/automatisations", accent: "text-orange-700 bg-orange-50 dark:bg-orange-950/30" },
-  { icon: Bot, label: "Coach IA", description: "Obtenir tes prochaines priorités", href: "/tableau-de-bord/coach", accent: "text-electric-600 bg-electric-50 dark:bg-electric-950/30" },
 ];
 
 const quickActions = [
   { icon: UsersRound, label: "Nouveau client", href: "#dire-a-iacourtier" },
   { icon: BriefcaseBusiness, label: "Nouvelle transaction", href: "#dire-a-iacourtier" },
   { icon: Upload, label: "Importer un document", href: "/tableau-de-bord/importer" },
-  { icon: Sparkles, label: "Dire à IACourtier", href: "#dire-a-iacourtier" },
   { icon: ListTodo, label: "Nouvelle tâche", href: "/tableau-de-bord/actions" },
   { icon: Search, label: "Évaluation", href: "/tableau-de-bord/actions/prepare-market-analysis" },
   { icon: ClipboardCheck, label: "Préparer Centris", href: "/tableau-de-bord/clients?vue=seller" },
@@ -118,9 +113,6 @@ export function GuidedHomeDashboard() {
   const [pipelineCases, setPipelineCases] = useState<ClientCase[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
-  const [prompt, setPrompt] = useState("");
-  const [answer, setAnswer] = useState<CoachAnswer | null>(null);
-  const [sending, setSending] = useState(false);
   const firstName = String(user?.user_metadata?.full_name || user?.email?.split("@")[0] || "").split(/\s+/)[0] || "Courtier";
 
   useEffect(() => {
@@ -202,55 +194,6 @@ export function GuidedHomeDashboard() {
     return item ? { title: item.title, detail: item.next_action || "Continuer le dossier", href: "/tableau-de-bord/dossiers/" + item.id } : null;
   }, [day.activities, pipelineCases]);
 
-  async function askCoach(event: FormEvent) {
-    event.preventDefault();
-    const message = prompt.trim();
-    if (!message) return;
-    const intent = inferHomeIntent(message);
-    if (intent) {
-      setAnswer(intent);
-      setPrompt("");
-      return;
-    }
-    setSending(true);
-    try {
-      const response = await authenticatedFetch("/api/coach/director", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message,
-          context: {
-            userName: firstName,
-            informationRequests: alerts.length,
-            sellerAppointmentsToPrepare: day.appointments.length,
-            followupsDue: day.counts.followUps,
-            marketAnalysesToPrepare: 0,
-            radarProspectsToCall: day.counts.calls,
-            callsToMake: day.counts.calls,
-            mandatesWithMissingDocuments: alerts.length,
-            marketingActionsToGenerate: 0,
-            totalProspects: clients.length,
-            prospectsCreatedToday: 0,
-            callsCompletedToday: 0,
-            overdueFollowups: day.counts.overdue,
-            appointmentsToday: day.counts.appointments,
-            appointmentsTomorrow: 0,
-            pendingMarketAnalyses: 0,
-            newContacts: 0,
-            buyerPipeline: pipelineCases.filter((item) => item.case_type === "buyer").length,
-            sellerPipeline: pipelineCases.filter((item) => item.case_type === "seller").length,
-          },
-        }),
-      });
-      const payload = await response.json() as CoachAnswer & { error?: string };
-      setAnswer(response.ok ? payload : { reply: payload.error || "Le Coach est temporairement indisponible.", action: { label: "Ouvrir le Coach", href: "/tableau-de-bord/coach" } });
-      setPrompt("");
-    } catch {
-      setAnswer({ reply: "Le Coach est temporairement indisponible.", action: { label: "Ouvrir le Coach", href: "/tableau-de-bord/coach" } });
-    } finally {
-      setSending(false);
-    }
-  }
 
   return <div className="mx-auto max-w-[1500px] space-y-8 pb-24">
     <header className="grid gap-5 xl:grid-cols-[1fr_minmax(360px,620px)] xl:items-end">
@@ -279,7 +222,6 @@ export function GuidedHomeDashboard() {
       <div className="mt-4 flex gap-2 overflow-x-auto pb-2 sm:flex-wrap">{quickActions.map((item) => <Link key={item.label} href={item.href} className="inline-flex min-h-12 shrink-0 items-center gap-2 rounded-xl border border-subtle bg-surface px-4 text-sm font-semibold shadow-sm hover:border-teal-300 hover:text-teal-700"><item.icon className="h-4 w-4" />{item.label}</Link>)}</div>
     </section>
 
-    <UniversalQuickCapture />
 
     <section aria-labelledby="pipeline-title">
       <SectionHeading eyebrow="Vue d’ensemble" title="Mon pipeline" href="/tableau-de-bord/pipeline" linkLabel="Ouvrir le pipeline" />
@@ -309,11 +251,9 @@ export function GuidedHomeDashboard() {
       </div>
 
       <div id="coach" className="scroll-mt-24 rounded-3xl border border-teal-200 bg-gradient-to-br from-teal-50 to-white p-6 dark:border-teal-900 dark:from-teal-950/30 dark:to-slate-900">
-        <div className="flex items-center justify-between gap-3"><div><p className="text-sm font-bold text-teal-700">Coach IA</p><h2 className="mt-1 text-xl font-semibold">Parle-moi de ce que tu veux accomplir</h2></div><Bot className="h-8 w-8 text-teal-700" /></div>
+        <div className="flex items-center justify-between gap-3"><div><p className="text-sm font-bold text-teal-700">IACourtier</p><h2 className="mt-1 text-xl font-semibold">Parle-moi de ce que tu veux accomplir</h2></div><Bot className="h-8 w-8 text-teal-700" /></div>
         <p className="mt-3 text-sm text-muted">{priorities.length ? "Tu as " + priorities.length + " priorité" + (priorities.length > 1 ? "s" : "") + " visible" + (priorities.length > 1 ? "s" : "") + " aujourd’hui." : "Je suis prêt à t’aider à organiser ta prochaine action."}</p>
-        <form onSubmit={askCoach} className="mt-5 flex flex-col gap-3 sm:flex-row"><input value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="Ex. Que dois-je faire en premier?" className="min-h-12 flex-1 rounded-xl border border-teal-200 bg-white px-4 dark:border-teal-900 dark:bg-slate-950" /><button type="submit" disabled={sending || !prompt.trim()} className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-teal-700 px-5 font-semibold text-white disabled:opacity-50">{sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}Demander</button></form>
-        {answer ? <div className="mt-4 rounded-2xl border border-teal-200 bg-white p-4 dark:border-teal-900 dark:bg-slate-950"><p className="text-sm leading-6">{answer.reply}</p><Link href={answer.action.href} className="mt-3 inline-flex items-center gap-2 text-sm font-semibold text-teal-700">{answer.action.label}<ArrowRight className="h-4 w-4" /></Link></div> : null}
-        <Link href="/tableau-de-bord/coach" className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-teal-700">Parler au Coach <ArrowRight className="h-4 w-4" /></Link>
+        <p className="mt-4 text-sm text-muted">Utilise le bouton IACourtier dans la barre supérieure pour écrire ou dicter une demande. Ta conversation et les actions en attente restent dans le même assistant.</p>
       </div>
     </section>
   </div>;
@@ -335,15 +275,6 @@ function LoadingPanel() {
   return <div className="flex min-h-28 items-center justify-center rounded-2xl border border-subtle bg-surface"><Loader2 className="h-6 w-6 animate-spin text-teal-700" /></div>;
 }
 
-function inferHomeIntent(message: string): CoachAnswer | null {
-  const value = message.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-  if (/acheteur|acheter|pre.?approbation/.test(value)) return { reply: "J’ai reconnu un projet acheteur. La personne sera identifiée avant la création du dossier.", action: { label: "Créer le dossier acheteur", href: "/tableau-de-bord/acheteurs/nouveau" } };
-  if (/vendeur|inscription|mandat|propriete.*vendre/.test(value)) return { reply: "J’ai reconnu un projet vendeur. Le client sera relié à la propriété avant le mandat.", action: { label: "Créer le dossier vendeur", href: "/tableau-de-bord/inscriptions/nouvelle" } };
-  if (/prospect|appel/.test(value)) return { reply: "Je t’amène aux occasions de prospection prioritaires.", action: { label: "Ouvrir le Radar", href: "/tableau-de-bord/radar-prospection" } };
-  if (/document|pdf|capture/.test(value)) return { reply: "Importe le document : IACourtier l’analysera avant de créer ou relier les données.", action: { label: "Importer", href: "/tableau-de-bord/importer" } };
-  if (/evaluation|comparables|marche/.test(value)) return { reply: "Je t’amène à l’outil d’évaluation et d’analyse de marché.", action: { label: "Préparer l’évaluation", href: "/tableau-de-bord/actions/prepare-market-analysis" } };
-  return null;
-}
 
 function formatDateTime(value: string) {
   try { return new Intl.DateTimeFormat("fr-CA", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)); }

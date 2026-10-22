@@ -1,3 +1,4 @@
+import { applyCoachPageContext } from "@/lib/server/coach-page-context";
 import { emailConversationIntent } from "@/lib/server/coach-professional-context";
 import { understandCoachMessage } from "@/lib/server/coach-intent";
 import { coachStorageError } from "@/lib/server/coach-storage-error";
@@ -30,7 +31,7 @@ export async function selectCoachProvider(db: Supabase, userId: string, conversa
     return provider;
   } finally { await db.rpc("release_coach_lock", { lock_token: token }); }
 }
-export async function processCoachMessage(db: Supabase, userId: string, input: { timeZone?: string; conversationId: string; messageId: string; text: string; choiceId?: string; taskId?: string; action?: CoachActionRequest; referenceId?: string }) {
+export async function processCoachMessage(db: Supabase, userId: string, input: { pagePath?: string; timeZone?: string; conversationId: string; messageId: string; text: string; choiceId?: string; taskId?: string; action?: CoachActionRequest; referenceId?: string }) {
   if (!coachUuid(input.conversationId) || !coachUuid(input.messageId) || typeof input.text !== "string" || !input.text.trim() || input.text.length > 12000 || (input.choiceId !== undefined && !coachUuid(input.choiceId))) throw new Error("Message invalide.");
   const lock = crypto.randomUUID();
   const { data: acquired, error: lockError } = await db.rpc("claim_coach_lock", { lock_token: lock });
@@ -47,6 +48,7 @@ export async function processCoachMessage(db: Supabase, userId: string, input: {
     const { data: conversation, error } = await db.from("coach_conversations").select("*").eq("id", input.conversationId).eq("user_id", userId).single();
     if (error || !conversation) throw new Error("Conversation introuvable. Ouvre une nouvelle conversation.");
     const context = { ...emptyCoachContext(), ...conversation.context } as CoachContext;
+    await applyCoachPageContext(db, userId, context, input.pagePath);
     const aiProvider = parseAIProvider(context.ai_provider);
     return await withCoachAI(aiProvider, async () => {
     const timeZone = input.timeZone || "America/Toronto";

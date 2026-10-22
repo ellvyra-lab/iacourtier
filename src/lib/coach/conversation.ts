@@ -1,4 +1,5 @@
 export type CoachContext = {
+  page_path?: string;
   ai_provider?: "openai" | "meta";
   current_identity_target?: "broker" | "client" | "crm";
   current_client_id: string | null;

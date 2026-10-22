@@ -178,7 +178,7 @@ export function NewSellerListing() {
     return (
       <div className="space-y-6">
         <header>
-          <p className="text-sm font-semibold text-teal-700">Coach IA · Nouvelle inscription vendeur</p>
+          <p className="text-sm font-semibold text-teal-700">IACourtier · Nouvelle inscription vendeur</p>
           <h1 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">Comment veux-tu commencer?</h1>
           <p className="mt-3 max-w-3xl text-slate-600 dark:text-slate-300">Le Coach identifiera d’abord la personne et les doublons, puis créera ou reliera le client avant la propriété et le mandat.</p>
         </header>
